@@ -8,6 +8,7 @@ pub struct BilibiliClient {
     client: Client,
 }
 
+#[allow(dead_code)]
 impl BilibiliClient {
     /// 创建新的客户端实例。
     pub fn new() -> Result<Self> {

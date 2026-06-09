@@ -9,6 +9,7 @@ pub struct Credential {
     bili_jct: Option<String>,
 }
 
+#[allow(dead_code)]
 impl Credential {
     pub fn new() -> Self {
         Self {
