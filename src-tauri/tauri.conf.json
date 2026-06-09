@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "B站视频下载",
+  "productName": "BilibiliDownloader",
   "version": "0.1.0",
   "identifier": "com.bilbili-copy.app",
   "build": {

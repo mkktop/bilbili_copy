@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 /// 视频基本信息。
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct VideoInfo {
     pub bvid: String,
     pub aid: u64,
@@ -16,6 +17,7 @@ pub struct VideoInfo {
 
 /// 根据视频 URL 解析视频信息。
 /// 骨架阶段：返回未实现错误。
+#[allow(dead_code)]
 pub async fn parse_video_info(_client: &BilibiliClient, _url: &str) -> Result<VideoInfo> {
     // 后续实现：
     // 1. 从 URL 提取 BV 号或 AV 号

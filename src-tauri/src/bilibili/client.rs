@@ -3,6 +3,7 @@ use reqwest::Client;
 
 /// Bilibili HTTP 客户端封装。
 /// 管理 Cookie、默认 Headers、WBI 签名等。
+#[allow(dead_code)]
 pub struct BilibiliClient {
     client: Client,
 }

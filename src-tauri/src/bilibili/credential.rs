@@ -3,6 +3,7 @@ use anyhow::Result;
 
 /// 登录态/Cookie 管理。
 /// 骨架阶段：定义接口，不实现具体逻辑。
+#[allow(dead_code)]
 pub struct Credential {
     sessdata: Option<String>,
     bili_jct: Option<String>,
