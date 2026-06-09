@@ -4,8 +4,11 @@ import { invoke } from "@tauri-apps/api/core";
 import { DownloadInput } from "./components/DownloadInput";
 import { DownloadList } from "./components/DownloadList";
 import { SettingsPage } from "./components/SettingsPage";
+import { LoginDialog } from "./components/LoginDialog";
+import { UserProfile } from "./components/UserProfile";
 import { useUpdate } from "./contexts/UpdateContext";
 import { useSettings } from "./hooks/useSettings";
+import { useLogin } from "./hooks/useLogin";
 import { Settings } from "lucide-react";
 import type { AppSettings } from "./hooks/useSettings";
 import type { DownloadEntry } from "./types";
@@ -19,7 +22,10 @@ export default function App() {
 
   const { phase, updateInfo } = useUpdate();
   const { settings, save } = useSettings();
+  const { userInfo, logout, generateQrcode, pollQrcode } = useLogin();
   const [version, setVersion] = useState("");
+  const [loginDialogOpen, setLoginDialogOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
 
   useEffect(() => {
     getVersion().then((v) => setVersion(v));
@@ -87,6 +93,40 @@ export default function App() {
         <div className="flex items-center gap-2">
           <h1 className="text-lg font-bold text-gray-800">B站视频下载</h1>
           <span className="text-xs text-gray-400">v{version}</span>
+        </div>
+
+        <div className="flex items-center gap-2">
+          {/* 登录按钮 / 头像 */}
+          {userInfo ? (
+            <div className="relative">
+              <button
+                onClick={() => setProfileOpen(!profileOpen)}
+                className="p-0.5 rounded-full hover:ring-2 hover:ring-blue-300 transition-all"
+              >
+                <img
+                  src={userInfo.face}
+                  alt={userInfo.uname}
+                  className="w-7 h-7 rounded-full object-cover"
+                />
+              </button>
+              {profileOpen && (
+                <UserProfile
+                  userInfo={userInfo}
+                  onLogout={logout}
+                  onClose={() => setProfileOpen(false)}
+                />
+              )}
+            </div>
+          ) : (
+            <button
+              onClick={() => setLoginDialogOpen(true)}
+              className="px-3 py-1 text-xs font-medium text-blue-500 border border-blue-300 rounded-lg hover:bg-blue-50 transition-colors"
+            >
+              登录
+            </button>
+          )}
+
+          {/* 设置按钮 */}
           <div className="relative">
             <button
               onClick={() => setCurrentView("settings")}
@@ -112,6 +152,15 @@ export default function App() {
       <div className="flex-1 overflow-auto px-6 py-2">
         <DownloadList downloads={downloads} onRemove={handleRemove} />
       </div>
+
+      {/* 登录弹窗 */}
+      <LoginDialog
+        open={loginDialogOpen}
+        onClose={() => setLoginDialogOpen(false)}
+        onSuccess={() => setLoginDialogOpen(false)}
+        generateQrcode={generateQrcode}
+        pollQrcode={pollQrcode}
+      />
     </div>
   );
 }

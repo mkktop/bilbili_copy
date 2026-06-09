@@ -1,32 +1,76 @@
-use crate::bilibili::client::BilibiliClient;
 use anyhow::Result;
+use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 
-/// 登录态/Cookie 管理。
-/// 骨架阶段：定义接口，不实现具体逻辑。
-#[allow(dead_code)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Credential {
-    sessdata: Option<String>,
-    bili_jct: Option<String>,
+    pub sessdata: String,
+    pub bili_jct: String,
+    pub buvid3: String,
+    pub dedeuserid: String,
+    pub ac_time_value: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub buvid4: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dedeuserid_ckmd5: Option<String>,
 }
 
-#[allow(dead_code)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserInfo {
+    pub mid: u64,
+    pub uname: String,
+    pub face: String,
+}
+
+fn credentials_path() -> PathBuf {
+    let exe_dir = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+        .unwrap_or_else(|| PathBuf::from("."));
+    exe_dir.join("credentials.json")
+}
+
 impl Credential {
-    pub fn new() -> Self {
-        Self {
-            sessdata: None,
-            bili_jct: None,
+    pub fn load() -> Result<Option<Self>> {
+        let path = credentials_path();
+        if !path.exists() {
+            return Ok(None);
         }
+        let content = std::fs::read_to_string(&path)?;
+        let cred: Credential = serde_json::from_str(&content)?;
+        Ok(Some(cred))
     }
 
-    /// 从 Cookie 文件加载登录态。
-    /// 后续实现：从 settings.json 或 cookie 文件读取。
-    pub async fn load(&mut self) -> Result<()> {
-        anyhow::bail!("凭证加载功能尚未实现")
-    }
-
-    /// 应用凭证到 HTTP 客户端。
-    pub fn apply_to_client(&self, _client: &mut BilibiliClient) -> Result<()> {
-        // 后续实现：将 Cookie 设置到 reqwest Client
+    pub fn save(&self) -> Result<()> {
+        let path = credentials_path();
+        let content = serde_json::to_string_pretty(self)?;
+        std::fs::write(&path, content)?;
         Ok(())
+    }
+
+    pub fn delete() -> Result<()> {
+        let path = credentials_path();
+        if path.exists() {
+            std::fs::remove_file(&path)?;
+        }
+        Ok(())
+    }
+
+    /// 构建 Cookie 请求头
+    pub fn cookie_header(&self) -> String {
+        let mut parts = vec![
+            format!("SESSDATA={}", self.sessdata),
+            format!("bili_jct={}", self.bili_jct),
+            format!("buvid3={}", self.buvid3),
+            format!("DedeUserID={}", self.dedeuserid),
+            format!("ac_time_value={}", self.ac_time_value),
+        ];
+        if let Some(ref b4) = self.buvid4 {
+            parts.push(format!("buvid4={}", b4));
+        }
+        if let Some(ref ck) = self.dedeuserid_ckmd5 {
+            parts.push(format!("DedeUserID__ckMd5={}", ck));
+        }
+        parts.join("; ")
     }
 }

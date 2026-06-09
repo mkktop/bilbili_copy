@@ -4,6 +4,7 @@ mod bilibili;
 use commands::settings::{get_settings, save_settings};
 use commands::video::parse_video;
 use commands::download::download_video;
+use commands::login::{login_generate_qrcode, login_poll_qrcode, login_check, login_logout};
 
 /// Read Windows system proxy settings and set HTTPS_PROXY env var
 /// so the Tauri updater (reqwest) can use the system proxy.
@@ -59,6 +60,10 @@ pub fn run() {
             save_settings,
             parse_video,
             download_video,
+            login_generate_qrcode,
+            login_poll_qrcode,
+            login_check,
+            login_logout,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
