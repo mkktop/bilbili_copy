@@ -27,3 +27,4 @@ desktop.ini
 # Keys (keep local only, never commit to public repo)
 keys
 keys.pub
+.claude/tauri-signer.key

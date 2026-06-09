@@ -115,7 +115,7 @@ jobs:
 
             if [[ "$BASENAME" == *.msi ]]; then
               MSI_SIG="$SIG"
-              MSI_URL="https://github.com/placeholder/bilbili_copy/releases/download/${TAG}/${BASENAME}"
+              MSI_URL="https://github.com/mkktop/bilbili_copy/releases/download/${TAG}/${BASENAME}"
             fi
           done
 
