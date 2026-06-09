@@ -7,6 +7,7 @@ import {
   Clock,
   User,
   Layers,
+  Play,
 } from "lucide-react";
 import type { DownloadEntry } from "../types";
 import { formatDuration } from "../types";
@@ -15,6 +16,7 @@ import { cn } from "../lib/utils";
 interface DownloadListProps {
   downloads: DownloadEntry[];
   onRemove: (id: string) => void;
+  onDownload: (id: string, bvid: string, cid: number, title: string) => void;
 }
 
 const STATUS_CONFIG: Record<
@@ -48,7 +50,7 @@ const STATUS_CONFIG: Record<
   },
 };
 
-export function DownloadList({ downloads, onRemove }: DownloadListProps) {
+export function DownloadList({ downloads, onRemove, onDownload }: DownloadListProps) {
   if (downloads.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-full text-gray-400 gap-2">
@@ -112,29 +114,63 @@ export function DownloadList({ downloads, onRemove }: DownloadListProps) {
                 </div>
               )}
 
-              {/* 状态 */}
-              <div className="flex items-center gap-1 mt-1">
-                <span className={cn("text-xs", status.color)}>
-                  {status.icon}
-                </span>
-                <span className={cn("text-xs", status.color)}>
-                  {status.text}
-                </span>
-                {item.errorMsg && (
-                  <span className="text-xs text-red-400 ml-1 truncate">
-                    {item.errorMsg}
+              {/* 状态 + 进度条 */}
+              <div className="mt-1">
+                <div className="flex items-center gap-1">
+                  <span className={cn("text-xs", status.color)}>
+                    {status.icon}
                   </span>
+                  <span className={cn("text-xs", status.color)}>
+                    {status.text}
+                  </span>
+                  {item.status === "downloading" && item.progress !== undefined && (
+                    <span className="text-xs text-gray-400 ml-1">
+                      {Math.round(item.progress)}%
+                    </span>
+                  )}
+                  {item.errorMsg && (
+                    <span className="text-xs text-red-400 ml-1 truncate">
+                      {item.errorMsg}
+                    </span>
+                  )}
+                </div>
+
+                {/* 进度条 */}
+                {item.status === "downloading" && item.progress !== undefined && (
+                  <div className="w-full bg-gray-200 rounded-full h-1.5 mt-1.5">
+                    <div
+                      className="bg-blue-500 h-1.5 rounded-full transition-all duration-300"
+                      style={{ width: `${Math.min(item.progress, 100)}%` }}
+                    />
+                  </div>
                 )}
               </div>
             </div>
 
-            {/* 删除按钮 */}
-            <button
-              onClick={() => onRemove(item.id)}
-              className="p-1 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors shrink-0 mt-1"
-            >
-              <X size={14} />
-            </button>
+            {/* 操作按钮 */}
+            <div className="flex items-center gap-1 shrink-0 mt-1">
+              {/* 下载按钮：pending状态显示 */}
+              {item.status === "pending" && info && (
+                <button
+                  onClick={() => {
+                    const page = info.pages[0];
+                    onDownload(item.id, info.bvid, page.cid, info.title);
+                  }}
+                  className="p-1.5 rounded text-blue-500 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                  title="下载"
+                >
+                  <Play size={14} />
+                </button>
+              )}
+
+              {/* 删除按钮 */}
+              <button
+                onClick={() => onRemove(item.id)}
+                className="p-1 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+              >
+                <X size={14} />
+              </button>
+            </div>
           </div>
         );
       })}

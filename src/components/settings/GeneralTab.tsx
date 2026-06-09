@@ -3,7 +3,9 @@ import { FolderOpen, Check } from "lucide-react";
 
 interface GeneralTabProps {
   dir: string;
+  ffmpegPath: string;
   onDirChange: (dir: string) => void;
+  onFfmpegPathChange: (path: string) => void;
   saving: boolean;
   saved: boolean;
   onSave: () => void;
@@ -11,7 +13,9 @@ interface GeneralTabProps {
 
 export function GeneralTab({
   dir,
+  ffmpegPath,
   onDirChange,
+  onFfmpegPathChange,
   saving,
   saved,
   onSave,
@@ -20,6 +24,16 @@ export function GeneralTab({
     const selected = await open({ directory: true, multiple: false });
     if (selected && typeof selected === "string") {
       onDirChange(selected);
+    }
+  };
+
+  const handleSelectFfmpeg = async () => {
+    const selected = await open({
+      multiple: false,
+      filters: [{ name: "ffmpeg", extensions: ["exe"] }],
+    });
+    if (selected && typeof selected === "string") {
+      onFfmpegPathChange(selected);
     }
   };
 
@@ -65,6 +79,47 @@ export function GeneralTab({
                 </button>
               )}
             </div>
+          </div>
+        </div>
+      </section>
+
+      {/* FFmpeg 设置 */}
+      <section className="space-y-2">
+        <header className="space-y-1">
+          <h3 className="text-sm font-medium text-gray-700">FFmpeg 设置</h3>
+          <p className="text-xs text-gray-400">用于合并B站分离的音视频流</p>
+        </header>
+
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1.5">
+            FFmpeg 路径
+          </label>
+          <p className="text-xs text-gray-400 mb-2">
+            不设置时，将使用系统 PATH 中的 <code className="bg-gray-100 px-1 rounded">ffmpeg</code>
+          </p>
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              value={ffmpegPath}
+              readOnly
+              placeholder="未设置（使用系统 PATH）"
+              className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded-lg bg-gray-50 text-gray-700 truncate"
+            />
+            <button
+              onClick={handleSelectFfmpeg}
+              className="flex items-center gap-1.5 px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors text-sm"
+            >
+              <FolderOpen size={14} />
+              选择
+            </button>
+            {ffmpegPath && (
+              <button
+                onClick={() => onFfmpegPathChange("")}
+                className="px-3 py-2 text-sm text-gray-500 hover:text-gray-700 transition-colors"
+              >
+                重置
+              </button>
+            )}
           </div>
         </div>
       </section>

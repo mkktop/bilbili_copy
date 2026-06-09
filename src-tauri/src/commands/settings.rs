@@ -7,6 +7,8 @@ pub struct AppSettings {
     pub default_download_dir: String,
     #[serde(default)]
     pub auto_update: bool,
+    #[serde(default)]
+    pub ffmpeg_path: String,
 }
 
 impl Default for AppSettings {
@@ -14,6 +16,7 @@ impl Default for AppSettings {
         Self {
             default_download_dir: String::new(),
             auto_update: false,
+            ffmpeg_path: String::new(),
         }
     }
 }
