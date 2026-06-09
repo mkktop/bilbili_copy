@@ -28,3 +28,4 @@ desktop.ini
 keys
 keys.pub
 .claude/tauri-signer.key
+docs/updater-keys.md
