@@ -1,0 +1,144 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-latest
+            target: x86_64-pc-windows-msvc
+
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Rust Cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+
+      - name: Install frontend dependencies
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Prepare signing key
+        shell: pwsh
+        env:
+          RAW_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          $trimmed = $env:RAW_KEY.Trim()
+          "TAURI_SIGNING_PRIVATE_KEY=$trimmed" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+
+      - name: Build Tauri app
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ env.TAURI_SIGNING_PRIVATE_KEY }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "B站视频下载 ${{ github.ref_name }}"
+          releaseBody: |
+            ## 📺 B站视频下载
+
+            快速下载Bilibili视频到本地。
+
+            ## 📥 安装
+
+            1. 下载下方 `.msi` 文件
+            2. 双击运行，按提示安装
+
+            ## 🔄 升级
+
+            - **自动更新**：已安装旧版本的用户，启动应用后会自动检测新版本，点击「立即更新」即可
+            - **手动更新**：下载最新 `.msi` 重新安装，覆盖旧版本
+          releaseDraft: false
+          prerelease: false
+          tauriScript: pnpm tauri
+
+  assemble-latest-json:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Get version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
+
+      - name: Download release assets
+        uses: robinraju/release-downloader@v1
+        with:
+          tag: ${{ github.ref_name }}
+          filename: "*"
+          out-file-path: "assets"
+
+      - name: Generate latest.json
+        run: |
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          TAG="${{ github.ref_name }}"
+          PUB_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+          MSI_SIG=""
+          MSI_URL=""
+
+          cd assets
+
+          for f in *.sig; do
+            SIG=$(cat "$f")
+            BASENAME="${f%.sig}"
+
+            if [[ "$BASENAME" == *.msi ]]; then
+              MSI_SIG="$SIG"
+              MSI_URL="https://github.com/placeholder/bilbili_copy/releases/download/${TAG}/${BASENAME}"
+            fi
+          done
+
+          cat > ../latest.json << EOF
+          {
+            "version": "${VERSION}",
+            "notes": "Release v${VERSION}",
+            "pub_date": "${PUB_DATE}",
+            "platforms": {
+              "windows-x86_64": {
+                "signature": "${MSI_SIG}",
+                "url": "${MSI_URL}"
+              }
+            }
+          }
+          EOF
+
+          cat ../latest.json
+
+      - name: Upload latest.json to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: latest.json
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
