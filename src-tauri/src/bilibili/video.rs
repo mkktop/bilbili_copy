@@ -69,6 +69,15 @@ struct ViewPage {
     duration: u64,
 }
 
+/// 将 http:// URL 替换为 https://，避免混合内容被 WebView 拦截
+fn http_to_https(url: &str) -> String {
+    if url.starts_with("http://") {
+        url.replacen("http://", "https://", 1)
+    } else {
+        url.to_string()
+    }
+}
+
 /// 创建 HTTP 客户端
 fn bilibili_client() -> Result<Client> {
     Client::builder()
@@ -137,10 +146,10 @@ pub async fn get_video_info(
         aid: data.aid as u64,
         title: data.title,
         desc: data.desc,
-        pic: data.pic,
+        pic: http_to_https(&data.pic),
         owner_mid: owner.mid as u64,
         owner_name: owner.name,
-        owner_face: owner.face,
+        owner_face: http_to_https(&owner.face),
         duration: data.duration,
         pages,
     })
