@@ -23,7 +23,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; img-src 'self' data: https://*.hdslb.com https://*.bilibili.com; script-src 'self'; style-src 'self' 'unsafe-inline'"
+      "csp": "default-src 'self'; img-src * data: blob:; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src *"
     }
   },
   "plugins": {
