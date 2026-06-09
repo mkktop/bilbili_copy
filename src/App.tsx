@@ -11,7 +11,7 @@ import { useSettings } from "./hooks/useSettings";
 import { useLogin } from "./hooks/useLogin";
 import { Settings } from "lucide-react";
 import type { AppSettings } from "./hooks/useSettings";
-import type { DownloadEntry } from "./types";
+import type { DownloadEntry, ParsedVideoInfo } from "./types";
 
 type View = "main" | "settings";
 
@@ -49,10 +49,12 @@ export default function App() {
     setIsParsing(true);
 
     try {
-      const title = await invoke<string>("parse_video", { url });
+      const videoInfo = await invoke<ParsedVideoInfo>("parse_video", { url });
       setDownloads((prev) =>
         prev.map((d) =>
-          d.id === id ? { ...d, title, status: "pending" as const } : d
+          d.id === id
+            ? { ...d, title: videoInfo.title, status: "pending" as const, videoInfo }
+            : d
         )
       );
     } catch (err) {

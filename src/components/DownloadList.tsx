@@ -1,5 +1,15 @@
-import { Download, Loader2, CheckCircle2, XCircle, X } from "lucide-react";
+import {
+  Download,
+  Loader2,
+  CheckCircle2,
+  XCircle,
+  X,
+  Clock,
+  User,
+  Layers,
+} from "lucide-react";
 import type { DownloadEntry } from "../types";
+import { formatDuration } from "../types";
 import { cn } from "../lib/utils";
 
 interface DownloadListProps {
@@ -7,10 +17,13 @@ interface DownloadListProps {
   onRemove: (id: string) => void;
 }
 
-const STATUS_CONFIG: Record<string, { icon: React.ReactNode; text: string; color: string }> = {
+const STATUS_CONFIG: Record<
+  string,
+  { icon: React.ReactNode; text: string; color: string }
+> = {
   pending: {
     icon: <Download size={14} />,
-    text: "等待中",
+    text: "等待下载",
     color: "text-gray-400",
   },
   parsing: {
@@ -49,24 +62,76 @@ export function DownloadList({ downloads, onRemove }: DownloadListProps) {
     <div className="space-y-2">
       {downloads.map((item) => {
         const status = STATUS_CONFIG[item.status] || STATUS_CONFIG.pending;
+        const info = item.videoInfo;
+
         return (
           <div
             key={item.id}
-            className="flex items-center gap-3 px-4 py-3 bg-white border border-gray-200 rounded-lg"
+            className="flex items-start gap-3 px-4 py-3 bg-white border border-gray-200 rounded-lg"
           >
-            {/* 状态图标 */}
-            <span className={cn("shrink-0", status.color)}>{status.icon}</span>
+            {/* 封面缩略图 */}
+            {info?.pic ? (
+              <img
+                src={info.pic}
+                alt={info.title}
+                className="w-24 h-16 rounded object-cover shrink-0 bg-gray-100"
+              />
+            ) : (
+              <div className="w-24 h-16 rounded bg-gray-100 flex items-center justify-center shrink-0">
+                <Download size={20} className="text-gray-300" />
+              </div>
+            )}
 
-            {/* 标题 + 状态信息 */}
+            {/* 信息区 */}
             <div className="flex-1 min-w-0">
-              <p className="text-sm text-gray-700 truncate">{item.title || item.url}</p>
-              <p className={cn("text-xs", status.color)}>{status.text}</p>
+              <p className="text-sm text-gray-700 line-clamp-2 leading-snug">
+                {item.title}
+              </p>
+
+              {/* 元信息行 */}
+              {info && (
+                <div className="flex items-center gap-3 mt-1.5 text-xs text-gray-400">
+                  {info.owner_name && (
+                    <span className="flex items-center gap-0.5">
+                      <User size={10} />
+                      {info.owner_name}
+                    </span>
+                  )}
+                  {info.duration > 0 && (
+                    <span className="flex items-center gap-0.5">
+                      <Clock size={10} />
+                      {formatDuration(info.duration)}
+                    </span>
+                  )}
+                  {info.pages.length > 1 && (
+                    <span className="flex items-center gap-0.5">
+                      <Layers size={10} />
+                      {info.pages.length}P
+                    </span>
+                  )}
+                </div>
+              )}
+
+              {/* 状态 */}
+              <div className="flex items-center gap-1 mt-1">
+                <span className={cn("text-xs", status.color)}>
+                  {status.icon}
+                </span>
+                <span className={cn("text-xs", status.color)}>
+                  {status.text}
+                </span>
+                {item.errorMsg && (
+                  <span className="text-xs text-red-400 ml-1 truncate">
+                    {item.errorMsg}
+                  </span>
+                )}
+              </div>
             </div>
 
             {/* 删除按钮 */}
             <button
               onClick={() => onRemove(item.id)}
-              className="p-1 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors shrink-0"
+              className="p-1 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors shrink-0 mt-1"
             >
               <X size={14} />
             </button>
