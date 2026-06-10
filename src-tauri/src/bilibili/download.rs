@@ -359,7 +359,7 @@ fn resolve_ffmpeg_path(ffmpeg_path: &str) -> String {
 pub async fn cleanup_temp_files(paths: &[PathBuf]) {
     for path in paths {
         if let Err(e) = tokio::fs::remove_file(path).await {
-            eprintln!("清理临时文件失败 {:?}: {}", path, e);
+            log::warn!("清理临时文件失败 {:?}: {}", path, e);
         }
     }
 }

@@ -157,7 +157,7 @@ pub async fn get_playurl(
         Ok(streams) => return Ok(streams),
         Err(e) => {
             last_err = format!("标准API: {}", e);
-            eprintln!("{}", last_err);
+            log::warn!("{}", last_err);
         }
     }
 
@@ -166,7 +166,7 @@ pub async fn get_playurl(
         Ok(streams) => return Ok(streams),
         Err(e) => {
             last_err = format!("{}; 番剧API: {}", last_err, e);
-            eprintln!("番剧 API 失败: {}", e);
+            log::warn!("番剧 API 失败: {}", e);
         }
     }
 
@@ -204,7 +204,7 @@ async fn try_playurl_with_fallback(
     anyhow::bail!("所有画质等级均失败: {}", last_error)
 }
 
-/// 单次 playurl API 请求（带 WBI 重试）
+/// 单次 playurl API 请求
 async fn try_playurl_once(
     client: &Client,
     aid: u64,
@@ -212,59 +212,36 @@ async fn try_playurl_once(
     qn: i64,
     credential: &Credential,
 ) -> Result<PlayUrlData> {
-    for attempt in 0..2 {
-        let mut params = vec![
-            ("avid".to_string(), aid.to_string()),
-            ("cid".to_string(), cid.to_string()),
-            ("qn".to_string(), qn.to_string()),
-            ("fnval".to_string(), "4048".to_string()),
-            ("fourk".to_string(), "1".to_string()),
-            ("otype".to_string(), "json".to_string()),
-            ("voice_balance".to_string(), "1".to_string()),
-            ("gaia_source".to_string(), "pre-load".to_string()),
-            ("isGaiaAvoided".to_string(), "true".to_string()),
-            ("web_location".to_string(), "1315873".to_string()),
-            ("dm_img_str".to_string(), DM_IMG_STR.to_string()),
-            ("dm_cover_img_str".to_string(), DM_COVER_IMG_STR.to_string()),
-            ("dm_img_list".to_string(), "[]".to_string()),
-            ("dm_img_inter".to_string(), r#"{"ds":[],"wh":[2560,1440,100],"of":[430,798,430]}"#.to_string()),
-        ];
+    let params = vec![
+        ("avid".to_string(), aid.to_string()),
+        ("cid".to_string(), cid.to_string()),
+        ("qn".to_string(), qn.to_string()),
+        ("fnval".to_string(), "4048".to_string()),
+        ("fourk".to_string(), "1".to_string()),
+        ("otype".to_string(), "json".to_string()),
+    ];
 
-        let mixin_key = if attempt == 0 {
-            wbi::get_mixin_key_cached(credential).await?
-        } else {
-            wbi::refresh_mixin_key(credential).await?
-        };
-        wbi::sign_params(&mut params, &mixin_key);
+    let resp = client
+        .get("https://api.bilibili.com/x/player/wbi/playurl")
+        .headers(create_api_headers())
+        .header("Cookie", credential.cookie_header())
+        .query(&params)
+        .send()
+        .await?;
 
-        let resp = client
-            .get("https://api.bilibili.com/x/player/wbi/playurl")
-            .headers(create_api_headers())
-            .header("Cookie", credential.cookie_header())
-            .query(&params)
-            .send()
-            .await?;
+    let status = resp.status();
+    let body_text = resp.text().await?;
+    log::info!("[playurl] qn={}, HTTP {}, body: {}", qn, status, &body_text[..body_text.len().min(500)]);
 
-        // 412 = WBI 签名过期，刷新密钥重试
-        if resp.status() == reqwest::StatusCode::PRECONDITION_FAILED && attempt == 0 {
-            continue;
-        }
+    let resp: PlayUrlResponse = serde_json::from_str(&body_text)
+        .context(format!("playurl 响应解析失败: {}", &body_text[..body_text.len().min(200)]))?;
 
-        let resp: PlayUrlResponse = resp.json().await?;
-
-        if resp.code != 0 {
-            let msg = resp.message.unwrap_or_else(|| "未知错误".to_string());
-            // -404 可能是签名问题，尝试刷新密钥
-            if resp.code == -404 && attempt == 0 {
-                continue;
-            }
-            anyhow::bail!("{}", msg);
-        }
-
-        return resp.data.context("playurl 响应无 data");
+    if resp.code != 0 {
+        let msg = resp.message.unwrap_or_else(|| "未知错误".to_string());
+        anyhow::bail!("qn={} API返回: {}", qn, msg);
     }
 
-    anyhow::bail!("WBI 签名重试后仍然失败")
+    resp.data.context("playurl 响应无 data")
 }
 
 /// 番剧 API 回退（用于番剧/影视类视频）

@@ -47,7 +47,44 @@ fn init_system_proxy() {
 #[cfg(not(target_os = "windows"))]
 fn init_system_proxy() {}
 
+/// 初始化日志系统，日志文件写到 exe 同目录下
+fn init_logger() {
+    use simplelog::*;
+
+    let exe_dir = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+        .unwrap_or_else(|| std::path::PathBuf::from("."));
+    let log_path = exe_dir.join("app.log");
+
+    // 创建日志文件（追加模式）
+    let file = match std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path)
+    {
+        Ok(f) => f,
+        Err(e) => {
+            eprintln!("无法创建日志文件 {:?}: {}", log_path, e);
+            return;
+        }
+    };
+
+    let config = ConfigBuilder::new()
+        .set_time_format_str("%Y-%m-%d %H:%M:%S".into())
+        .set_thread_mode(ThreadLogMode::Both)
+        .build();
+
+    let _ = CombinedLogger::init(vec![
+        TermLogger::init(LevelFilter::Warn, config.clone(), TerminalMode::Mixed, ColorChoice::Auto),
+        WriteLogger::init(LevelFilter::Debug, config, file),
+    ]);
+
+    log::info!("========== 应用启动 ==========");
+}
+
 pub fn run() {
+    init_logger();
     init_system_proxy();
 
     tauri::Builder::default()
