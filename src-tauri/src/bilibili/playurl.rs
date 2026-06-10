@@ -115,7 +115,10 @@ pub struct SelectedStreams {
 impl SelectedStreams {
     /// 获取主视频 URL
     pub fn video_url(&self) -> &str {
-        self.video_urls.first().unwrap_or(&String::new())
+        match self.video_urls.first() {
+            Some(url) => url,
+            None => "",
+        }
     }
 
     /// 获取主音频 URL
@@ -135,7 +138,7 @@ impl SelectedStreams {
 const QUALITY_LEVELS: &[i64] = &[
     127, // 8K 超高清
     126, // 杜比视界
-    125, /// HDR 真彩
+    125, // HDR 真彩
     120, // 4K 超清
     116, // 1080P 高帧率
     112, // 1080P 高码率

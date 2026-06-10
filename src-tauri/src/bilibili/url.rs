@@ -88,7 +88,6 @@ fn parse_from_url(url: &str) -> Result<ParsedUrl> {
 pub async fn resolve_short_url(short_url: &str) -> Result<ParsedUrl> {
     let client = reqwest::Client::builder()
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36")
-        .redirect(reqwest::policy::Policy::limited(5))
         .build()?;
 
     // 用 HEAD 请求跟随重定向，获取最终 URL
