@@ -16,6 +16,7 @@ interface SettingsPageProps {
 export function SettingsPage({ settings, onSave, onBack }: SettingsPageProps) {
   const [activeTab, setActiveTab] = useState<Tab>("general");
   const [dir, setDir] = useState(settings.default_download_dir);
+  const [maxQuality, setMaxQuality] = useState(settings.default_max_quality || 80);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
@@ -25,6 +26,7 @@ export function SettingsPage({ settings, onSave, onBack }: SettingsPageProps) {
       await onSave({
         default_download_dir: dir,
         auto_update: settings.auto_update,
+        default_max_quality: maxQuality,
       });
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
@@ -70,6 +72,8 @@ export function SettingsPage({ settings, onSave, onBack }: SettingsPageProps) {
           <GeneralTab
             dir={dir}
             onDirChange={(d) => { setDir(d); setSaved(false); }}
+            maxQuality={maxQuality}
+            onMaxQualityChange={(q) => { setMaxQuality(q); setSaved(false); }}
             saving={saving}
             saved={saved}
             onSave={handleSave}

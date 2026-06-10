@@ -27,6 +27,9 @@ pub async fn download_video(
     // 2. 加载设置
     let settings = get_settings().map_err(|e| e.to_string())?;
 
+    // 2.5 使用用户指定的画质，未指定则取设置中的默认最大画质
+    let effective_qn = qn.or(Some(settings.default_max_quality));
+
     // 3. 确定下载目录
     let download_dir = if settings.default_download_dir.is_empty() {
         let exe_dir = std::env::current_exe()
@@ -56,7 +59,7 @@ pub async fn download_video(
         &download_id,
         &bvid,
         cid,
-        qn,
+        effective_qn,
         &credential,
         &download_dir,
         &output_path,

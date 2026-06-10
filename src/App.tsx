@@ -202,6 +202,7 @@ export default function App() {
             setSelectedEntry(null);
           }}
           onDownload={handleDownload}
+          defaultQn={settings.default_max_quality || 80}
         />
       </div>
     );

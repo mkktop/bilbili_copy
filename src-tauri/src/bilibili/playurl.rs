@@ -133,10 +133,13 @@ pub async fn get_playurl(
         .build()
         .context("创建HTTP客户端失败")?;
 
-    log::info!("[playurl] 开始获取流地址: bvid={}, cid={}", bvid, cid);
+    // 用户指定的最大画质，未指定则不限制
+    let max_qn = qn.unwrap_or(127);
+
+    log::info!("[playurl] 开始获取流地址: bvid={}, cid={}, max_qn={}", bvid, cid, max_qn);
 
     // 1. 尝试标准 playurl API（带画质降级链）
-    match try_playurl_with_fallback(&client, bvid, cid, credential, qn).await {
+    match try_playurl_with_fallback(&client, bvid, cid, credential, max_qn).await {
         Ok(streams) => return Ok(streams),
         Err(e) => {
             log::warn!("[playurl] 标准API全部失败: {}", e);
@@ -144,7 +147,7 @@ pub async fn get_playurl(
     }
 
     // 2. 尝试番剧 API 回退
-    match try_bangumi_playurl(&client, bvid, cid, credential).await {
+    match try_bangumi_playurl(&client, bvid, cid, credential, max_qn).await {
         Ok(streams) => return Ok(streams),
         Err(e) => {
             log::warn!("[playurl] 番剧API失败: {}", e);
@@ -153,29 +156,27 @@ pub async fn get_playurl(
     }
 }
 
-/// 标准 playurl API — 带画质降级链
+/// 标准 playurl API — 带画质降级链（仅尝试 <= max_qn 的画质等级）
 async fn try_playurl_with_fallback(
     client: &Client,
     bvid: &str,
     cid: i64,
     credential: &Credential,
-    preferred_qn: Option<i64>,
+    max_qn: i64,
 ) -> Result<SelectedStreams> {
-    // 如果指定了画质，优先尝试该画质，失败则走降级链
-    let levels: Vec<i64> = if let Some(qn) = preferred_qn {
-        let mut l = vec![qn];
-        l.extend(QUALITY_LEVELS.iter().filter(|&&q| q != qn).copied());
-        l
-    } else {
-        QUALITY_LEVELS.to_vec()
-    };
+    // 只尝试不超过用户设置的最大画质
+    let levels: Vec<i64> = QUALITY_LEVELS
+        .iter()
+        .filter(|&&q| q <= max_qn)
+        .copied()
+        .collect();
 
     let mut last_error = String::new();
 
     for &qn in &levels {
         match try_playurl_once(client, bvid, cid, qn, credential).await {
             Ok(data) => {
-                if let Some(streams) = parse_streams(&data) {
+                if let Some(streams) = parse_streams(&data, max_qn) {
                     return Ok(streams);
                 }
                 last_error = "API返回成功但无法解析流".to_string();
@@ -267,16 +268,23 @@ async fn try_playurl_once(
     anyhow::bail!("WBI签名重试后仍然失败")
 }
 
-/// 番剧 API 回退
+/// 番剧 API 回退（仅尝试 <= max_qn 的画质等级）
 async fn try_bangumi_playurl(
     client: &Client,
     bvid: &str,
     cid: i64,
     credential: &Credential,
+    max_qn: i64,
 ) -> Result<SelectedStreams> {
     let mut last_error = String::new();
 
-    for &qn in QUALITY_LEVELS {
+    let levels: Vec<i64> = QUALITY_LEVELS
+        .iter()
+        .filter(|&&q| q <= max_qn)
+        .copied()
+        .collect();
+
+    for &qn in &levels {
         let params = vec![
             ("bvid".to_string(), bvid.to_string()),
             ("cid".to_string(), cid.to_string()),
@@ -310,7 +318,7 @@ async fn try_bangumi_playurl(
         }
 
         let data = resp.result.or(resp.data).context("番剧 API 响应无数据")?;
-        if let Some(streams) = parse_streams(&data) {
+        if let Some(streams) = parse_streams(&data, max_qn) {
             return Ok(streams);
         }
     }
@@ -320,16 +328,17 @@ async fn try_bangumi_playurl(
 
 // ==================== 流解析 ====================
 
-fn parse_streams(data: &PlayUrlData) -> Option<SelectedStreams> {
+fn parse_streams(data: &PlayUrlData, max_qn: i64) -> Option<SelectedStreams> {
     if let Some(ref dash) = data.dash {
         if dash.video.is_empty() {
             return None;
         }
 
+        // 选择不超过 max_qn 的最高画质视频流
         let video_stream = dash
             .video
             .iter()
-            .filter(|s| s.id <= 80)
+            .filter(|s| s.id <= max_qn)
             .max_by_key(|s| s.id)
             .or_else(|| dash.video.first())?;
 

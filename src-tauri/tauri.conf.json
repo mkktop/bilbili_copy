@@ -2,7 +2,7 @@
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "BilbliCopy",
   "version": "0.2.5",
-  "identifier": "com.bilbili-copy.app",
+  "identifier": "com.bilbli-copy.app",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:3000",
@@ -30,7 +30,7 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDYxQkY0NjM2MUMxQzg1ODEKUldTQmhSd2NOa2EvWVdVZ0dnUTVFVC8zeTdtUTVKVDZZSmJaRnAzSFZJa3ZMYVBYcHFrcjlZYWcK",
       "endpoints": [
-        "https://github.com/mkktop/bilbili_copy/releases/latest/download/latest.json"
+        "https://github.com/mkktop/bilbli_copy/releases/latest/download/latest.json"
       ]
     }
   },
@@ -38,7 +38,7 @@
     "active": true,
     "targets": ["msi"],
     "createUpdaterArtifacts": true,
-    "resources": ["resources/ffmpeg.exe"],
+    "externalBin": ["binaries/ffmpeg"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -47,8 +47,8 @@
     ],
     "windows": {
       "wix": {
-      "template": "wix/per-user-main.wxs"
-    }
+        "template": "wix/per-user-main.wxs"
+      }
     }
   }
 }

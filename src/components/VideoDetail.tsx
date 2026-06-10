@@ -5,6 +5,10 @@ import { formatDuration } from "../types";
 import { cn } from "../lib/utils";
 
 const QUALITY_OPTIONS = [
+  { value: 127, label: "8K 超高清" },
+  { value: 120, label: "4K 超清" },
+  { value: 116, label: "1080P 60fps" },
+  { value: 112, label: "1080P 高码率" },
   { value: 80, label: "1080P" },
   { value: 64, label: "720P" },
   { value: 32, label: "480P" },
@@ -21,11 +25,12 @@ interface VideoDetailProps {
     title: string,
     qn: number
   ) => void;
+  defaultQn: number;
 }
 
-export function VideoDetail({ entry, onBack, onDownload }: VideoDetailProps) {
+export function VideoDetail({ entry, onBack, onDownload, defaultQn }: VideoDetailProps) {
   const info = entry.videoInfo;
-  const [selectedQn, setSelectedQn] = useState(80);
+  const [selectedQn, setSelectedQn] = useState(defaultQn || 80);
   const [selectedPages, setSelectedPages] = useState<Set<number>>(new Set());
 
   if (!info) {

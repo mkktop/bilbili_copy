@@ -1,9 +1,22 @@
 import { open } from "@tauri-apps/plugin-dialog";
 import { FolderOpen, Check } from "lucide-react";
 
+const QUALITY_OPTIONS = [
+  { value: 127, label: "8K 超高清" },
+  { value: 120, label: "4K 超清" },
+  { value: 116, label: "1080P 60fps" },
+  { value: 112, label: "1080P 高码率" },
+  { value: 80, label: "1080P" },
+  { value: 64, label: "720P" },
+  { value: 32, label: "480P" },
+  { value: 16, label: "360P" },
+];
+
 interface GeneralTabProps {
   dir: string;
   onDirChange: (dir: string) => void;
+  maxQuality: number;
+  onMaxQualityChange: (qn: number) => void;
   saving: boolean;
   saved: boolean;
   onSave: () => void;
@@ -12,6 +25,8 @@ interface GeneralTabProps {
 export function GeneralTab({
   dir,
   onDirChange,
+  maxQuality,
+  onMaxQualityChange,
   saving,
   saved,
   onSave,
@@ -66,7 +81,33 @@ export function GeneralTab({
         </div>
       </section>
 
-      {/* 保存按钮 */}
+      {/* 画质设置 */}
+      <section className="space-y-2">
+        <header className="space-y-1">
+          <h3 className="text-sm font-medium text-gray-700">画质设置</h3>
+          <p className="text-xs text-gray-400">设置视频下载的最大画质，不满足时自动降级</p>
+        </header>
+
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1.5">
+            默认最大画质
+          </label>
+          <select
+            value={maxQuality}
+            onChange={(e) => onMaxQualityChange(Number(e.target.value))}
+            className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-300"
+          >
+            {QUALITY_OPTIONS.map((q) => (
+              <option key={q.value} value={q.value}>
+                {q.label}
+              </option>
+            ))}
+          </select>
+          <p className="text-xs text-gray-400 mt-1.5">
+            实际画质取决于视频源和账号权限，不支持时会自动选择下一可用画质
+          </p>
+        </div>
+      </section>
       <div className="pt-2 flex items-center gap-3">
         <button
           onClick={onSave}

@@ -1,12 +1,18 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
+fn default_max_quality() -> i64 {
+    127
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppSettings {
     #[serde(default)]
     pub default_download_dir: String,
     #[serde(default)]
     pub auto_update: bool,
+    #[serde(default = "default_max_quality")]
+    pub default_max_quality: i64,
 }
 
 impl Default for AppSettings {
@@ -14,6 +20,7 @@ impl Default for AppSettings {
         Self {
             default_download_dir: String::new(),
             auto_update: false,
+            default_max_quality: default_max_quality(),
         }
     }
 }
