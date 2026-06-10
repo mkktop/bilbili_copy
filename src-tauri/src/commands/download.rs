@@ -11,11 +11,12 @@ use tauri::AppHandle;
 #[tauri::command]
 pub async fn download_video(
     app: AppHandle,
+    id: String,
     bvid: String,
     cid: i64,
     title: String,
 ) -> Result<(), String> {
-    let download_id = format!("{}_{}", bvid, cid);
+    let download_id = id;
 
     // 1. 加载凭证（必须已登录）
     let credential = Credential::load()

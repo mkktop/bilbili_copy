@@ -140,7 +140,7 @@ export default function App() {
     );
 
     try {
-      await invoke("download_video", { bvid, cid, title });
+      await invoke("download_video", { id, bvid, cid, title });
     } catch (err) {
       // 错误已通过 download://error 事件处理
       // 但也在这里兜底

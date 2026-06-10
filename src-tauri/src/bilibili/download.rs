@@ -204,7 +204,8 @@ async fn download_single(
             let percent = if total_size > 0 {
                 (downloaded as f64 / total_size as f64) * 100.0
             } else {
-                0.0
+                // 无法获取总大小时，用已下载量驱动进度（每50MB循环一次）
+                ((downloaded as f64 / (50.0 * 1024.0 * 1024.0)) % 1.0) * 100.0
             };
 
             let _ = app.emit(
