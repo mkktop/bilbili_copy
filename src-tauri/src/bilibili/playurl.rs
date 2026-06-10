@@ -1,5 +1,4 @@
 use crate::bilibili::credential::Credential;
-use crate::bilibili::url::bvid_to_aid;
 use crate::bilibili::wbi;
 use anyhow::{Context, Result};
 use reqwest::header::{HeaderMap, HeaderValue};
@@ -133,11 +132,10 @@ pub async fn get_playurl(
         .build()
         .context("创建HTTP客户端失败")?;
 
-    let aid = bvid_to_aid(bvid);
-    log::info!("[playurl] 开始获取流地址: bvid={}, aid={}, cid={}", bvid, aid, cid);
+    log::info!("[playurl] 开始获取流地址: bvid={}, cid={}", bvid, cid);
 
     // 1. 尝试标准 playurl API（带画质降级链）
-    match try_playurl_with_fallback(&client, aid, cid, credential).await {
+    match try_playurl_with_fallback(&client, bvid, cid, credential).await {
         Ok(streams) => return Ok(streams),
         Err(e) => {
             log::warn!("[playurl] 标准API全部失败: {}", e);
@@ -145,7 +143,7 @@ pub async fn get_playurl(
     }
 
     // 2. 尝试番剧 API 回退
-    match try_bangumi_playurl(&client, aid, cid, credential).await {
+    match try_bangumi_playurl(&client, bvid, cid, credential).await {
         Ok(streams) => return Ok(streams),
         Err(e) => {
             log::warn!("[playurl] 番剧API失败: {}", e);
@@ -157,14 +155,14 @@ pub async fn get_playurl(
 /// 标准 playurl API — 带画质降级链
 async fn try_playurl_with_fallback(
     client: &Client,
-    aid: u64,
+    bvid: &str,
     cid: i64,
     credential: &Credential,
 ) -> Result<SelectedStreams> {
     let mut last_error = String::new();
 
     for &qn in QUALITY_LEVELS {
-        match try_playurl_once(client, aid, cid, qn, credential).await {
+        match try_playurl_once(client, bvid, cid, qn, credential).await {
             Ok(data) => {
                 if let Some(streams) = parse_streams(&data) {
                     return Ok(streams);
@@ -187,14 +185,14 @@ async fn try_playurl_with_fallback(
 /// 单次 playurl API 请求（WBI 签名 + 重试）
 async fn try_playurl_once(
     client: &Client,
-    aid: u64,
+    bvid: &str,
     cid: i64,
     qn: i64,
     credential: &Credential,
 ) -> Result<PlayUrlData> {
     for attempt in 0..2 {
         let mut params = vec![
-            ("avid".to_string(), aid.to_string()),
+            ("bvid".to_string(), bvid.to_string()),
             ("cid".to_string(), cid.to_string()),
             ("qn".to_string(), qn.to_string()),
             ("fnval".to_string(), "4048".to_string()),
@@ -261,7 +259,7 @@ async fn try_playurl_once(
 /// 番剧 API 回退
 async fn try_bangumi_playurl(
     client: &Client,
-    aid: u64,
+    bvid: &str,
     cid: i64,
     credential: &Credential,
 ) -> Result<SelectedStreams> {
@@ -269,7 +267,7 @@ async fn try_bangumi_playurl(
 
     for &qn in QUALITY_LEVELS {
         let params = vec![
-            ("avid".to_string(), aid.to_string()),
+            ("bvid".to_string(), bvid.to_string()),
             ("cid".to_string(), cid.to_string()),
             ("qn".to_string(), qn.to_string()),
             ("fnval".to_string(), "4048".to_string()),
