@@ -1,6 +1,6 @@
 use crate::bilibili::credential::Credential;
 use crate::bilibili::url::bvid_to_aid;
-use crate::bilibili::wbi;
+
 use anyhow::{Context, Result};
 use reqwest::header::{HeaderMap, HeaderValue};
 use reqwest::Client;
@@ -150,7 +150,7 @@ pub async fn get_playurl(
 
     let aid = bvid_to_aid(bvid);
 
-    let mut last_err = String::new();
+    let last_err;
 
     // 1. 尝试标准 playurl API（带画质降级链）
     match try_playurl_with_fallback(&client, aid, cid, credential).await {

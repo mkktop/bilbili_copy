@@ -71,13 +71,12 @@ fn init_logger() {
     };
 
     let config = ConfigBuilder::new()
-        .set_time_format_str("%Y-%m-%d %H:%M:%S".into())
         .set_thread_mode(ThreadLogMode::Both)
         .build();
 
     let _ = CombinedLogger::init(vec![
-        TermLogger::init(LevelFilter::Warn, config.clone(), TerminalMode::Mixed, ColorChoice::Auto),
-        WriteLogger::init(LevelFilter::Debug, config, file),
+        TermLogger::new(LevelFilter::Warn, config.clone(), TerminalMode::Mixed, ColorChoice::Auto),
+        WriteLogger::new(LevelFilter::Debug, config, file),
     ]);
 
     log::info!("========== 应用启动 ==========");
