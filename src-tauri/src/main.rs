@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    bilibili_video_downloader_lib::run()
+    bilbli_copy_lib::run()
 }

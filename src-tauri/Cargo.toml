@@ -1,12 +1,12 @@
 [package]
-name = "bilibili-video-downloader"
+name = "bilbli-copy"
 version = "0.2.3"
 description = "Download videos from Bilibili"
 authors = ["you"]
 edition = "2021"
 
 [lib]
-name = "bilibili_video_downloader_lib"
+name = "bilbli_copy_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
