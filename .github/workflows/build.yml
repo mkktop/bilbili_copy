@@ -46,6 +46,17 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install --no-frozen-lockfile
 
+      - name: Pre-install WiX tools
+        shell: pwsh
+        run: |
+          $wixDir = "$env:LOCALAPPDATA\tauri\WixTools314"
+          if (-not (Test-Path $wixDir)) {
+            New-Item -ItemType Directory -Path $wixDir -Force | Out-Null
+            Invoke-WebRequest -Uri "https://github.com/wixtoolset/wix3/releases/download/wix3141rtm/wix314-binaries.zip" -OutFile "$env:TEMP\wix314.zip"
+            Expand-Archive -Path "$env:TEMP\wix314.zip" -DestinationPath $wixDir
+          }
+          Get-ChildItem "$wixDir\*.exe" | Unblock-File
+
       - name: Prepare signing key
         shell: pwsh
         env:
