@@ -15,6 +15,7 @@ pub async fn download_video(
     bvid: String,
     cid: i64,
     title: String,
+    qn: Option<i64>,
 ) -> Result<(), String> {
     let download_id = id;
 
@@ -55,6 +56,7 @@ pub async fn download_video(
         &download_id,
         &bvid,
         cid,
+        qn,
         &credential,
         &download_dir,
         &output_path,
@@ -91,12 +93,13 @@ async fn run_download(
     download_id: &str,
     bvid: &str,
     cid: i64,
+    qn: Option<i64>,
     credential: &Credential,
     temp_dir: &std::path::Path,
     output_path: &std::path::Path,
 ) -> anyhow::Result<()> {
     // 5. 获取视频流地址
-    let streams = get_playurl(bvid, cid, credential).await?;
+    let streams = get_playurl(bvid, cid, credential, qn).await?;
 
     let mut temp_files: Vec<std::path::PathBuf> = Vec::new();
 

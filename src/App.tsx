@@ -4,6 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { DownloadInput } from "./components/DownloadInput";
 import { DownloadList } from "./components/DownloadList";
+import { VideoDetail } from "./components/VideoDetail";
 import { SettingsPage } from "./components/SettingsPage";
 import { LoginDialog } from "./components/LoginDialog";
 import { UserProfile } from "./components/UserProfile";
@@ -14,7 +15,7 @@ import { Settings } from "lucide-react";
 import type { AppSettings } from "./hooks/useSettings";
 import type { DownloadEntry, ParsedVideoInfo } from "./types";
 
-type View = "main" | "settings";
+type View = "main" | "settings" | "detail";
 
 interface DownloadProgress {
   id: string;
@@ -38,6 +39,7 @@ export default function App() {
   const [currentView, setCurrentView] = useState<View>("main");
   const [downloads, setDownloads] = useState<DownloadEntry[]>([]);
   const [isParsing, setIsParsing] = useState(false);
+  const [selectedEntry, setSelectedEntry] = useState<DownloadEntry | null>(null);
 
   const { phase, updateInfo } = useUpdate();
   const { settings, save } = useSettings();
@@ -132,15 +134,29 @@ export default function App() {
     }
   };
 
-  const handleDownload = async (id: string, bvid: string, cid: number, title: string) => {
-    setDownloads((prev) =>
-      prev.map((d) =>
-        d.id === id ? { ...d, status: "downloading", progress: 0 } : d
-      )
-    );
+  const handleDownload = async (
+    id: string,
+    bvid: string,
+    cid: number,
+    title: string,
+    qn: number = 80
+  ) => {
+    setDownloads((prev) => {
+      const existing = prev.find((d) => d.id === id);
+      if (existing) {
+        return prev.map((d) =>
+          d.id === id ? { ...d, status: "downloading" as const, progress: 0 } : d
+        );
+      } else {
+        return [
+          { id, url: "", title, status: "downloading" as const, progress: 0 },
+          ...prev,
+        ];
+      }
+    });
 
     try {
-      await invoke("download_video", { id, bvid, cid, title });
+      await invoke("download_video", { id, bvid, cid, title, qn });
     } catch (err) {
       // 错误已通过 download://error 事件处理
       // 但也在这里兜底
@@ -150,6 +166,12 @@ export default function App() {
         )
       );
     }
+  };
+
+  const handleSelectEntry = (entry: DownloadEntry) => {
+    if (!entry.videoInfo) return;
+    setSelectedEntry(entry);
+    setCurrentView("detail");
   };
 
   const handleRemove = (id: string) => {
@@ -164,6 +186,22 @@ export default function App() {
           settings={settings}
           onSave={handleSaveSettings}
           onBack={() => setCurrentView("main")}
+        />
+      </div>
+    );
+  }
+
+  // Detail view
+  if (currentView === "detail" && selectedEntry) {
+    return (
+      <div className="flex flex-col h-screen bg-gray-50 text-gray-900">
+        <VideoDetail
+          entry={selectedEntry}
+          onBack={() => {
+            setCurrentView("main");
+            setSelectedEntry(null);
+          }}
+          onDownload={handleDownload}
         />
       </div>
     );
@@ -237,7 +275,7 @@ export default function App() {
         <DownloadList
           downloads={downloads}
           onRemove={handleRemove}
-          onDownload={handleDownload}
+          onSelect={handleSelectEntry}
         />
       </div>
 

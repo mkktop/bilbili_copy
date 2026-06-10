@@ -7,7 +7,7 @@ import {
   Clock,
   User,
   Layers,
-  Play,
+  ChevronRight,
 } from "lucide-react";
 import type { DownloadEntry } from "../types";
 import { formatDuration } from "../types";
@@ -16,7 +16,7 @@ import { cn } from "../lib/utils";
 interface DownloadListProps {
   downloads: DownloadEntry[];
   onRemove: (id: string) => void;
-  onDownload: (id: string, bvid: string, cid: number, title: string) => void;
+  onSelect: (entry: DownloadEntry) => void;
 }
 
 const STATUS_CONFIG: Record<
@@ -25,8 +25,8 @@ const STATUS_CONFIG: Record<
 > = {
   pending: {
     icon: <Download size={14} />,
-    text: "等待下载",
-    color: "text-gray-400",
+    text: "点击查看",
+    color: "text-blue-400",
   },
   parsing: {
     icon: <Loader2 size={14} className="animate-spin" />,
@@ -50,7 +50,7 @@ const STATUS_CONFIG: Record<
   },
 };
 
-export function DownloadList({ downloads, onRemove, onDownload }: DownloadListProps) {
+export function DownloadList({ downloads, onRemove, onSelect }: DownloadListProps) {
   if (downloads.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-full text-gray-400 gap-2">
@@ -69,7 +69,13 @@ export function DownloadList({ downloads, onRemove, onDownload }: DownloadListPr
         return (
           <div
             key={item.id}
-            className="flex items-start gap-3 px-4 py-3 bg-white border border-gray-200 rounded-lg"
+            onClick={() => {
+              if (item.status !== "parsing" && item.status !== "downloading") onSelect(item);
+            }}
+            className={cn(
+              "flex items-start gap-3 px-4 py-3 bg-white border border-gray-200 rounded-lg",
+              item.status !== "parsing" && item.status !== "downloading" && "cursor-pointer hover:bg-gray-50 hover:border-gray-300 transition-colors"
+            )}
           >
             {/* 封面缩略图 */}
             {info?.pic ? (
@@ -147,25 +153,16 @@ export function DownloadList({ downloads, onRemove, onDownload }: DownloadListPr
               </div>
             </div>
 
-            {/* 操作按钮 */}
+            {/* 右侧：箭头 + 删除 */}
             <div className="flex items-center gap-1 shrink-0 mt-1">
-              {/* 下载按钮：pending状态显示 */}
-              {item.status === "pending" && info && (
-                <button
-                  onClick={() => {
-                    const page = info.pages[0];
-                    onDownload(item.id, info.bvid, page.cid, info.title);
-                  }}
-                  className="p-1.5 rounded text-blue-500 hover:text-blue-600 hover:bg-blue-50 transition-colors"
-                  title="下载"
-                >
-                  <Play size={14} />
-                </button>
+              {item.status !== "parsing" && item.status !== "downloading" && (
+                <ChevronRight size={14} className="text-gray-300" />
               )}
-
-              {/* 删除按钮 */}
               <button
-                onClick={() => onRemove(item.id)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onRemove(item.id);
+                }}
                 className="p-1 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
               >
                 <X size={14} />

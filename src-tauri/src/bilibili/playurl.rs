@@ -125,6 +125,7 @@ pub async fn get_playurl(
     bvid: &str,
     cid: i64,
     credential: &Credential,
+    qn: Option<i64>,
 ) -> Result<SelectedStreams> {
     let client = Client::builder()
         .user_agent(USER_AGENT)
@@ -135,7 +136,7 @@ pub async fn get_playurl(
     log::info!("[playurl] 开始获取流地址: bvid={}, cid={}", bvid, cid);
 
     // 1. 尝试标准 playurl API（带画质降级链）
-    match try_playurl_with_fallback(&client, bvid, cid, credential).await {
+    match try_playurl_with_fallback(&client, bvid, cid, credential, qn).await {
         Ok(streams) => return Ok(streams),
         Err(e) => {
             log::warn!("[playurl] 标准API全部失败: {}", e);
@@ -158,10 +159,20 @@ async fn try_playurl_with_fallback(
     bvid: &str,
     cid: i64,
     credential: &Credential,
+    preferred_qn: Option<i64>,
 ) -> Result<SelectedStreams> {
+    // 如果指定了画质，优先尝试该画质，失败则走降级链
+    let levels: Vec<i64> = if let Some(qn) = preferred_qn {
+        let mut l = vec![qn];
+        l.extend(QUALITY_LEVELS.iter().filter(|&&q| q != qn).copied());
+        l
+    } else {
+        QUALITY_LEVELS.to_vec()
+    };
+
     let mut last_error = String::new();
 
-    for &qn in QUALITY_LEVELS {
+    for &qn in &levels {
         match try_playurl_once(client, bvid, cid, qn, credential).await {
             Ok(data) => {
                 if let Some(streams) = parse_streams(&data) {
