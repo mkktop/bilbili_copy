@@ -113,6 +113,7 @@ pub fn sign_params(params: &mut Vec<(String, String)>, mixin_key: &str) {
     let hash = hasher.finalize();
     let w_rid = format!("{:x}", hash);
 
+    log::info!("[wbi] 签名完成: wts={}, w_rid={}, query={}", params.iter().find(|(k,_)| k=="wts").map(|(_,v)| v.as_str()).unwrap_or(""), w_rid, &query[..query.len().min(200)]);
     params.push(("w_rid".to_string(), w_rid));
 }
 
@@ -135,7 +136,8 @@ async fn fetch_wbi_keys(credential: &Credential) -> Result<WbiKeys> {
 
     if resp.code != 0 {
         anyhow::bail!(
-            "获取WBI密钥失败: {}",
+            "获取WBI密钥失败: code={}, msg={}",
+            resp.code,
             resp.message.unwrap_or_else(|| "未知错误".to_string())
         );
     }
@@ -146,6 +148,7 @@ async fn fetch_wbi_keys(credential: &Credential) -> Result<WbiKeys> {
     let img_key = extract_key(&wbi_img.img_url).context("无法从img_url提取key")?;
     let sub_key = extract_key(&wbi_img.sub_url).context("无法从sub_url提取key")?;
 
+    log::info!("[wbi] 获取WBI密钥: img_key={}, sub_key={}", img_key, sub_key);
     Ok(WbiKeys {
         img_key: img_key.to_string(),
         sub_key: sub_key.to_string(),
