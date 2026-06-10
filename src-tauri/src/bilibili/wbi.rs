@@ -81,9 +81,7 @@ fn get_mixin_key(img_key: &str, sub_key: &str) -> String {
         .collect()
 }
 
-/// 对参数进行WBI签名
-/// 参数格式: Vec<(&str, String)>
-/// 返回: 添加了 wts 和 w_rid 的签名后参数
+/// 对参数进行WBI签名（与 bili-sync-up 实现完全一致）
 pub fn sign_params(params: &mut Vec<(String, String)>, mixin_key: &str) {
     // 移除不允许的字符
     let disallowed = ['!', '\'', '(', ')', '*'];
@@ -103,19 +101,12 @@ pub fn sign_params(params: &mut Vec<(String, String)>, mixin_key: &str) {
     // 按key排序
     params.sort_by(|a, b| a.0.cmp(&b.0));
 
-    // 构建查询字符串并计算MD5
-    let query: String = params
-        .iter()
-        .map(|(k, v)| {
-            format!(
-                "{}={}",
-                urlencoding::encode(k),
-                urlencoding::encode(v).replace('+', "%20")
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("&");
+    // 使用 serde_urlencoded 构建查询字符串（与 bili-sync-up 一致）
+    let query = serde_urlencoded::to_string(&params)
+        .unwrap_or_default()
+        .replace('+', "%20");
 
+    // 计算 MD5(query + mixin_key)
     let mut hasher = Md5::new();
     hasher.update(query.as_bytes());
     hasher.update(mixin_key.as_bytes());

@@ -150,11 +150,14 @@ pub async fn get_playurl(
 
     let aid = bvid_to_aid(bvid);
 
+    let mut last_err = String::new();
+
     // 1. 尝试标准 playurl API（带画质降级链）
     match try_playurl_with_fallback(&client, aid, cid, credential).await {
         Ok(streams) => return Ok(streams),
         Err(e) => {
-            eprintln!("标准 playurl 全部失败: {}, 尝试番剧 API...", e);
+            last_err = format!("标准API: {}", e);
+            eprintln!("{}", last_err);
         }
     }
 
@@ -162,11 +165,12 @@ pub async fn get_playurl(
     match try_bangumi_playurl(&client, aid, cid, credential).await {
         Ok(streams) => return Ok(streams),
         Err(e) => {
-            eprintln!("番剧 API 也失败: {}", e);
+            last_err = format!("{}; 番剧API: {}", last_err, e);
+            eprintln!("番剧 API 失败: {}", e);
         }
     }
 
-    anyhow::bail!("无法获取视频流地址（标准 API 和番剧 API 均失败）")
+    anyhow::bail!("获取视频流失败: {}", last_err)
 }
 
 /// 标准播放URL API — 带画质降级链
