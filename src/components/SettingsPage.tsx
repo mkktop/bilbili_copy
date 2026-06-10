@@ -16,7 +16,6 @@ interface SettingsPageProps {
 export function SettingsPage({ settings, onSave, onBack }: SettingsPageProps) {
   const [activeTab, setActiveTab] = useState<Tab>("general");
   const [dir, setDir] = useState(settings.default_download_dir);
-  const [ffmpegPath, setFfmpegPath] = useState(settings.ffmpeg_path);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
@@ -26,7 +25,6 @@ export function SettingsPage({ settings, onSave, onBack }: SettingsPageProps) {
       await onSave({
         default_download_dir: dir,
         auto_update: settings.auto_update,
-        ffmpeg_path: ffmpegPath,
       });
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
@@ -71,9 +69,7 @@ export function SettingsPage({ settings, onSave, onBack }: SettingsPageProps) {
         {activeTab === "general" ? (
           <GeneralTab
             dir={dir}
-            ffmpegPath={ffmpegPath}
             onDirChange={(d) => { setDir(d); setSaved(false); }}
-            onFfmpegPathChange={(p) => { setFfmpegPath(p); setSaved(false); }}
             saving={saving}
             saved={saved}
             onSave={handleSave}

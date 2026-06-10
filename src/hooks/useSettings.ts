@@ -4,11 +4,10 @@ import { invoke } from "@tauri-apps/api/core";
 export interface AppSettings {
   default_download_dir: string;
   auto_update: boolean;
-  ffmpeg_path: string;
 }
 
 export function useSettings() {
-  const [settings, setSettings] = useState<AppSettings>({ default_download_dir: "", auto_update: false, ffmpeg_path: "" });
+  const [settings, setSettings] = useState<AppSettings>({ default_download_dir: "", auto_update: false });
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {

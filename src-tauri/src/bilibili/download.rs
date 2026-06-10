@@ -228,7 +228,6 @@ async fn download_single(
 
 /// 使用 ffmpeg 合并视频和音频流
 pub async fn merge_streams(
-    ffmpeg_path: &str,
     video_path: &Path,
     audio_path: &Path,
     output_path: &Path,
@@ -237,7 +236,7 @@ pub async fn merge_streams(
     validate_temp_file(video_path, "视频").await?;
     validate_temp_file(audio_path, "音频").await?;
 
-    let ffmpeg = resolve_ffmpeg_path(ffmpeg_path);
+    let ffmpeg = resolve_ffmpeg_path();
 
     // 确保输出目录存在
     if let Some(parent) = output_path.parent() {
@@ -261,10 +260,7 @@ pub async fn merge_streams(
         ])
         .output()
         .await
-        .context(format!(
-            "执行ffmpeg失败，请确认ffmpeg已安装。如已安装，请在设置中配置ffmpeg路径。当前路径: {}",
-            ffmpeg
-        ))?;
+        .context(format!("执行ffmpeg失败，内置ffmpeg可能缺失。当前路径: {}", ffmpeg))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -276,13 +272,12 @@ pub async fn merge_streams(
 
 /// 使用 ffmpeg 将 FLV/durl 等旧格式转封装为 MP4
 pub async fn remux_to_mp4(
-    ffmpeg_path: &str,
     input_path: &Path,
     output_path: &Path,
 ) -> Result<()> {
     validate_temp_file(input_path, "视频").await?;
 
-    let ffmpeg = resolve_ffmpeg_path(ffmpeg_path);
+    let ffmpeg = resolve_ffmpeg_path();
 
     // 确保输出目录存在
     if let Some(parent) = output_path.parent() {
@@ -304,10 +299,7 @@ pub async fn remux_to_mp4(
         ])
         .output()
         .await
-        .context(format!(
-            "执行ffmpeg转封装失败，请确认ffmpeg已安装。当前路径: {}",
-            ffmpeg
-        ))?;
+        .context(format!("执行ffmpeg转封装失败，内置ffmpeg可能缺失。当前路径: {}", ffmpeg))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -330,18 +322,9 @@ async fn validate_temp_file(path: &Path, label: &str) -> Result<()> {
 }
 
 /// 解析 ffmpeg 路径
-/// 优先级：用户设置 > exe 同目录内置 > 系统 PATH
-fn resolve_ffmpeg_path(ffmpeg_path: &str) -> String {
-    // 1. 用户手动配置的路径，最优先
-    if !ffmpeg_path.is_empty() {
-        let path = Path::new(ffmpeg_path);
-        if path.is_dir() {
-            return path.join("ffmpeg.exe").to_string_lossy().to_string();
-        }
-        return ffmpeg_path.to_string();
-    }
-
-    // 2. 尝试 exe 同目录下的内置 ffmpeg.exe
+/// 优先级：exe 同目录内置 > 系统 PATH
+fn resolve_ffmpeg_path() -> String {
+    // 1. 尝试 exe 同目录下的内置 ffmpeg.exe
     if let Ok(exe_path) = std::env::current_exe() {
         if let Some(parent) = exe_path.parent() {
             let bundled = parent.join("ffmpeg.exe");
@@ -351,7 +334,7 @@ fn resolve_ffmpeg_path(ffmpeg_path: &str) -> String {
         }
     }
 
-    // 3. 兜底使用系统 PATH
+    // 2. 兜底使用系统 PATH
     "ffmpeg".to_string()
 }
 

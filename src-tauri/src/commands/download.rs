@@ -57,7 +57,6 @@ pub async fn download_video(
         &credential,
         &download_dir,
         &output_path,
-        &settings.ffmpeg_path,
     )
     .await;
 
@@ -94,7 +93,6 @@ async fn run_download(
     credential: &Credential,
     temp_dir: &std::path::Path,
     output_path: &std::path::Path,
-    ffmpeg_path: &str,
 ) -> anyhow::Result<()> {
     // 5. 获取视频流地址
     let streams = get_playurl(bvid, cid, credential).await?;
@@ -114,7 +112,7 @@ async fn run_download(
         .await?;
         temp_files.push(video_temp.clone());
 
-        remux_to_mp4(ffmpeg_path, &video_temp, output_path).await?;
+        remux_to_mp4(&video_temp, output_path).await?;
     } else if streams.has_audio() {
         // DASH 格式：分别下载视频和音频，然后合并
         let video_temp = download_stream(
@@ -139,7 +137,7 @@ async fn run_download(
         .await?;
         temp_files.push(audio_temp.clone());
 
-        merge_streams(ffmpeg_path, &video_temp, &audio_temp, output_path).await?;
+        merge_streams(&video_temp, &audio_temp, output_path).await?;
     } else {
         // 仅视频流（无独立音频）
         let video_temp = download_stream(

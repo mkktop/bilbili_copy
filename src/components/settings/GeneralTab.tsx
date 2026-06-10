@@ -3,9 +3,7 @@ import { FolderOpen, Check } from "lucide-react";
 
 interface GeneralTabProps {
   dir: string;
-  ffmpegPath: string;
   onDirChange: (dir: string) => void;
-  onFfmpegPathChange: (path: string) => void;
   saving: boolean;
   saved: boolean;
   onSave: () => void;
@@ -13,9 +11,7 @@ interface GeneralTabProps {
 
 export function GeneralTab({
   dir,
-  ffmpegPath,
   onDirChange,
-  onFfmpegPathChange,
   saving,
   saved,
   onSave,
@@ -24,16 +20,6 @@ export function GeneralTab({
     const selected = await open({ directory: true, multiple: false });
     if (selected && typeof selected === "string") {
       onDirChange(selected);
-    }
-  };
-
-  const handleSelectFfmpeg = async () => {
-    const selected = await open({
-      multiple: false,
-      filters: [{ name: "ffmpeg", extensions: ["exe"] }],
-    });
-    if (selected && typeof selected === "string") {
-      onFfmpegPathChange(selected);
     }
   };
 
@@ -46,73 +32,37 @@ export function GeneralTab({
           <p className="text-xs text-gray-400">配置视频下载的保存位置</p>
         </header>
 
-        <div className="space-y-4">
-          {/* 默认下载目录 */}
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1.5">
-              默认下载目录
-            </label>
-            <p className="text-xs text-gray-400 mb-2">
-              不设置时，视频将下载到安装目录下的 <code className="bg-gray-100 px-1 rounded">downloads</code> 文件夹
-            </p>
-            <div className="flex items-center gap-2">
-              <input
-                type="text"
-                value={dir}
-                readOnly
-                placeholder="未设置（使用安装目录/downloads/）"
-                className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded-lg bg-gray-50 text-gray-700 truncate"
-              />
-              <button
-                onClick={handleSelectDir}
-                className="flex items-center gap-1.5 px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors text-sm"
-              >
-                <FolderOpen size={14} />
-                选择
-              </button>
-              {dir && (
-                <button
-                  onClick={() => onDirChange("")}
-                  className="px-3 py-2 text-sm text-gray-500 hover:text-gray-700 transition-colors"
-                >
-                  重置
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* FFmpeg 设置（可选，内置已满足需求） */}
-      <section className="space-y-2 opacity-60 hover:opacity-100 transition-opacity">
-        <header className="space-y-1">
-          <h3 className="text-sm font-medium text-gray-500">FFmpeg 路径（可选）</h3>
-          <p className="text-xs text-gray-400">已内置 FFmpeg，通常无需手动设置</p>
-        </header>
-
-        <div className="flex items-center gap-2">
-          <input
-            type="text"
-            value={ffmpegPath}
-            readOnly
-            placeholder="使用内置 FFmpeg"
-            className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg bg-gray-50 text-gray-500 truncate"
-          />
-          <button
-            onClick={handleSelectFfmpeg}
-            className="flex items-center gap-1.5 px-3 py-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors text-sm"
-          >
-            <FolderOpen size={14} />
-            选择
-          </button>
-          {ffmpegPath && (
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1.5">
+            默认下载目录
+          </label>
+          <p className="text-xs text-gray-400 mb-2">
+            不设置时，视频将下载到安装目录下的 <code className="bg-gray-100 px-1 rounded">downloads</code> 文件夹
+          </p>
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              value={dir}
+              readOnly
+              placeholder="未设置（使用安装目录/downloads/）"
+              className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded-lg bg-gray-50 text-gray-700 truncate"
+            />
             <button
-              onClick={() => onFfmpegPathChange("")}
-              className="px-3 py-2 text-sm text-gray-500 hover:text-gray-700 transition-colors"
+              onClick={handleSelectDir}
+              className="flex items-center gap-1.5 px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors text-sm"
             >
-              重置
+              <FolderOpen size={14} />
+              选择
             </button>
-          )}
+            {dir && (
+              <button
+                onClick={() => onDirChange("")}
+                className="px-3 py-2 text-sm text-gray-500 hover:text-gray-700 transition-colors"
+              >
+                重置
+              </button>
+            )}
+          </div>
         </div>
       </section>
 
