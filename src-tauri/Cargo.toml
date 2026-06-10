@@ -1,6 +1,6 @@
 [package]
 name = "bilibili-video-downloader"
-version = "0.1.6"
+version = "0.1.7"
 description = "Download videos from Bilibili"
 authors = ["you"]
 edition = "2021"

@@ -1,8 +1,8 @@
 use tauri::Emitter;
 use crate::bilibili::credential::Credential;
 use crate::bilibili::download::{
-    cleanup_temp_files, download_stream, merge_streams, sanitize_filename, DownloadComplete,
-    DownloadError,
+    cleanup_temp_files, download_stream, merge_streams, remux_to_mp4, sanitize_filename,
+    DownloadComplete, DownloadError,
 };
 use crate::bilibili::playurl::get_playurl;
 use crate::commands::settings::get_settings;
@@ -32,7 +32,6 @@ pub async fn download_video(
             .parent()
             .map(|p| p.join("downloads"))
             .ok_or_else(|| "无法确定下载目录".to_string())?;
-        // 确保目录存在
         std::fs::create_dir_all(&exe_dir)
             .map_err(|e| format!("创建下载目录失败: {}", e))?;
         exe_dir
@@ -100,25 +99,39 @@ async fn run_download(
     // 5. 获取视频流地址
     let streams = get_playurl(bvid, cid, credential).await?;
 
-    // 6. 下载视频流
-    let video_temp = download_stream(
-        app,
-        download_id,
-        &streams.video_url,
-        credential,
-        temp_dir,
-        "video",
-    )
-    .await?;
+    let mut temp_files: Vec<std::path::PathBuf> = Vec::new();
 
-    // 7. 下载音频流（如果有）
-    let mut temp_files = vec![video_temp.clone()];
+    if streams.is_legacy_format {
+        // 旧格式（durl/FLV）：下载后转封装
+        let video_temp = download_stream(
+            app,
+            download_id,
+            &streams.video_urls,
+            credential,
+            temp_dir,
+            "video",
+        )
+        .await?;
+        temp_files.push(video_temp.clone());
 
-    if let Some(audio_url) = &streams.audio_url {
+        remux_to_mp4(ffmpeg_path, &video_temp, output_path).await?;
+    } else if streams.has_audio() {
+        // DASH 格式：分别下载视频和音频，然后合并
+        let video_temp = download_stream(
+            app,
+            download_id,
+            &streams.video_urls,
+            credential,
+            temp_dir,
+            "video",
+        )
+        .await?;
+        temp_files.push(video_temp.clone());
+
         let audio_temp = download_stream(
             app,
             download_id,
-            audio_url,
+            &streams.audio_urls,
             credential,
             temp_dir,
             "audio",
@@ -126,14 +139,25 @@ async fn run_download(
         .await?;
         temp_files.push(audio_temp.clone());
 
-        // 8. 合并音视频
         merge_streams(ffmpeg_path, &video_temp, &audio_temp, output_path).await?;
     } else {
-        // 无独立音频流，直接重命名视频文件
+        // 仅视频流（无独立音频）
+        let video_temp = download_stream(
+            app,
+            download_id,
+            &streams.video_urls,
+            credential,
+            temp_dir,
+            "video",
+        )
+        .await?;
+        temp_files.push(video_temp.clone());
+
         tokio::fs::rename(&video_temp, output_path).await?;
+        temp_files.pop(); // 文件已重命名，不需要清理
     }
 
-    // 9. 清理临时文件
+    // 清理临时文件
     cleanup_temp_files(&temp_files).await;
 
     Ok(())

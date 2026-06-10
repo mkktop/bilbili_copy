@@ -1,6 +1,7 @@
 use tauri::Emitter;
 use crate::bilibili::credential::Credential;
 use anyhow::{Context, Result};
+use reqwest::header::{HeaderMap, HeaderValue};
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 use tauri::AppHandle;
@@ -9,6 +10,7 @@ use tokio::io::AsyncWriteExt;
 const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) \
     AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36";
 const REFERER: &str = "https://www.bilibili.com/";
+const MAX_RETRIES: usize = 3;
 
 /// 下载进度事件载荷
 #[derive(Clone, Serialize)]
@@ -34,6 +36,44 @@ pub struct DownloadError {
     pub error: String,
 }
 
+/// 构建视频流下载请求头
+fn create_download_headers() -> HeaderMap {
+    let mut headers = HeaderMap::new();
+    headers.insert("User-Agent", HeaderValue::from_static(USER_AGENT));
+    headers.insert("Referer", HeaderValue::from_static(REFERER));
+    headers.insert("Accept", HeaderValue::from_static("*/*"));
+    headers.insert(
+        "Accept-Language",
+        HeaderValue::from_static("zh-CN,zh;q=0.9,en;q=0.8"),
+    );
+    headers.insert(
+        "sec-ch-ua",
+        HeaderValue::from_static(
+            "\"Chromium\";v=\"140\", \"Not=A?Brand\";v=\"24\", \"Google Chrome\";v=\"140\"",
+        ),
+    );
+    headers.insert("sec-ch-ua-mobile", HeaderValue::from_static("?0"));
+    headers.insert(
+        "sec-ch-ua-platform",
+        HeaderValue::from_static("\"Windows\""),
+    );
+    headers.insert("sec-fetch-dest", HeaderValue::from_static("empty"));
+    headers.insert("sec-fetch-mode", HeaderValue::from_static("cors"));
+    headers.insert("sec-fetch-site", HeaderValue::from_static("cross-site"));
+    headers
+}
+
+/// 创建带超时的 HTTP 客户端
+fn download_client() -> Result<reqwest::Client> {
+    reqwest::Client::builder()
+        .user_agent(USER_AGENT)
+        .cookie_store(false)
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .read_timeout(std::time::Duration::from_secs(30))
+        .build()
+        .context("创建HTTP客户端失败")
+}
+
 /// 清理文件名中的非法字符
 pub fn sanitize_filename(title: &str) -> String {
     let sanitized: String = title
@@ -43,29 +83,93 @@ pub fn sanitize_filename(title: &str) -> String {
             _ => c,
         })
         .collect();
-    // 截断到200字符
     let truncated: String = sanitized.chars().take(200).collect();
     truncated.trim().to_string()
 }
 
-/// 下载单个流到临时文件，带进度事件
+/// 下载单个流到临时文件（支持多 URL 回退 + 重试）
 pub async fn download_stream(
     app: &AppHandle,
     download_id: &str,
-    url: &str,
+    urls: &[String],
     credential: &Credential,
     temp_dir: &Path,
     stream_label: &str,
 ) -> Result<PathBuf> {
-    let client = reqwest::Client::builder()
-        .user_agent(USER_AGENT)
-        .cookie_store(false)
-        .build()
-        .context("创建HTTP客户端失败")?;
+    let client = download_client()?;
+    let extension = if stream_label == "video" {
+        "video.tmp"
+    } else {
+        "audio.tmp"
+    };
+    let temp_path = temp_dir.join(format!("{}.{}", download_id, extension));
 
+    let mut last_error = String::new();
+
+    // 依次尝试所有 URL（主 URL + 备用 URL）
+    for (url_idx, url) in urls.iter().enumerate() {
+        for retry in 0..=MAX_RETRIES {
+            match download_single(
+                &client,
+                app,
+                download_id,
+                url,
+                credential,
+                &temp_path,
+                stream_label,
+            )
+            .await
+            {
+                Ok(()) => {
+                    // 下载完成，验证文件大小
+                    let metadata =
+                        tokio::fs::metadata(&temp_path)
+                            .await
+                            .context("读取下载文件信息失败")?;
+                    if metadata.len() < 1024 {
+                        // 小于 1KB 可能是错误页面
+                        last_error = "下载文件过小，可能是错误响应".to_string();
+                        let _ = tokio::fs::remove_file(&temp_path).await;
+                        break; // 换下一个 URL
+                    }
+                    return Ok(temp_path.clone());
+                }
+                Err(e) => {
+                    last_error = format!(
+                        "URL#{} 重试#{}: {}",
+                        url_idx,
+                        retry,
+                        e
+                    );
+                    if retry < MAX_RETRIES {
+                        tokio::time::sleep(std::time::Duration::from_millis(500 * (retry as u64 + 1)))
+                            .await;
+                    }
+                }
+            }
+        }
+    }
+
+    anyhow::bail!(
+        "下载 {} 流失败（已尝试所有URL和重试）: {}",
+        stream_label,
+        last_error
+    )
+}
+
+/// 下载单个 URL 到文件
+async fn download_single(
+    client: &reqwest::Client,
+    app: &AppHandle,
+    download_id: &str,
+    url: &str,
+    credential: &Credential,
+    temp_path: &Path,
+    stream_label: &str,
+) -> Result<()> {
     let response = client
         .get(url)
-        .header("Referer", REFERER)
+        .headers(create_download_headers())
         .header("Cookie", credential.cookie_header())
         .send()
         .await
@@ -76,10 +180,8 @@ pub async fn download_stream(
     }
 
     let total_size = response.content_length().unwrap_or(0);
-    let extension = if stream_label == "video" { "video.tmp" } else { "audio.tmp" };
-    let temp_path = temp_dir.join(format!("{}.{}", download_id, extension));
 
-    let mut file = tokio::fs::File::create(&temp_path)
+    let mut file = tokio::fs::File::create(temp_path)
         .await
         .context("创建临时文件失败")?;
 
@@ -96,7 +198,9 @@ pub async fn download_stream(
         downloaded += chunk.len() as u64;
 
         // 每512KB或完成时报告进度
-        if downloaded - last_report >= report_interval || (total_size > 0 && downloaded >= total_size) {
+        if downloaded - last_report >= report_interval
+            || (total_size > 0 && downloaded >= total_size)
+        {
             let percent = if total_size > 0 {
                 (downloaded as f64 / total_size as f64) * 100.0
             } else {
@@ -119,7 +223,7 @@ pub async fn download_stream(
     }
 
     file.flush().await.context("刷新文件失败")?;
-    Ok(temp_path)
+    Ok(())
 }
 
 /// 使用 ffmpeg 合并视频和音频流
@@ -129,11 +233,18 @@ pub async fn merge_streams(
     audio_path: &Path,
     output_path: &Path,
 ) -> Result<()> {
-    let ffmpeg = if ffmpeg_path.is_empty() {
-        "ffmpeg".to_string()
-    } else {
-        ffmpeg_path.to_string()
-    };
+    // 合并前验证文件存在且大小合理
+    validate_temp_file(video_path, "视频").await?;
+    validate_temp_file(audio_path, "音频").await?;
+
+    let ffmpeg = resolve_ffmpeg_path(ffmpeg_path);
+
+    // 确保输出目录存在
+    if let Some(parent) = output_path.parent() {
+        tokio::fs::create_dir_all(parent)
+            .await
+            .context("创建输出目录失败")?;
+    }
 
     let output = tokio::process::Command::new(&ffmpeg)
         .args([
@@ -161,6 +272,74 @@ pub async fn merge_streams(
     }
 
     Ok(())
+}
+
+/// 使用 ffmpeg 将 FLV/durl 等旧格式转封装为 MP4
+pub async fn remux_to_mp4(
+    ffmpeg_path: &str,
+    input_path: &Path,
+    output_path: &Path,
+) -> Result<()> {
+    validate_temp_file(input_path, "视频").await?;
+
+    let ffmpeg = resolve_ffmpeg_path(ffmpeg_path);
+
+    // 确保输出目录存在
+    if let Some(parent) = output_path.parent() {
+        tokio::fs::create_dir_all(parent)
+            .await
+            .context("创建输出目录失败")?;
+    }
+
+    let output = tokio::process::Command::new(&ffmpeg)
+        .args([
+            "-i",
+            input_path.to_str().unwrap_or(""),
+            "-c",
+            "copy",
+            "-movflags",
+            "+faststart",
+            "-y",
+            output_path.to_str().unwrap_or(""),
+        ])
+        .output()
+        .await
+        .context(format!(
+            "执行ffmpeg转封装失败，请确认ffmpeg已安装。当前路径: {}",
+            ffmpeg
+        ))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!("ffmpeg转封装失败: {}", stderr);
+    }
+
+    Ok(())
+}
+
+/// 验证临时文件是否存在且大小合理
+async fn validate_temp_file(path: &Path, label: &str) -> Result<()> {
+    if !path.exists() {
+        anyhow::bail!("{}临时文件不存在: {:?}", label, path);
+    }
+    let metadata = tokio::fs::metadata(path).await?;
+    if metadata.len() < 1024 {
+        anyhow::bail!("{}临时文件过小 ({} bytes)，可能下载不完整", label, metadata.len());
+    }
+    Ok(())
+}
+
+/// 解析 ffmpeg 路径（支持目录路径自动补全 ffmpeg.exe）
+fn resolve_ffmpeg_path(ffmpeg_path: &str) -> String {
+    if ffmpeg_path.is_empty() {
+        return "ffmpeg".to_string();
+    }
+    let path = Path::new(ffmpeg_path);
+    // 如果是目录，自动补全 ffmpeg.exe
+    if path.is_dir() {
+        return path.join("ffmpeg.exe").to_string_lossy().to_string();
+    }
+    ffmpeg_path.to_string()
 }
 
 /// 清理临时文件

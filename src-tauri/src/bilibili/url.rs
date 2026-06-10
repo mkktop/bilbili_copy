@@ -7,6 +7,8 @@ pub struct ParsedUrl {
     pub bvid: Option<String>,
     pub aid: Option<u64>,
     pub page: Option<u32>,
+    /// 需要异步解析的短链接（b23.tv）
+    pub short_url: Option<String>,
 }
 
 /// 从 URL 字符串中提取 BV 号、AV 号和分P页码
@@ -26,6 +28,7 @@ pub fn parse_bilibili_url(input: &str) -> Result<ParsedUrl> {
             bvid: Some(bvid),
             aid: Some(aid),
             page: None,
+            short_url: None,
         });
     }
 
@@ -36,6 +39,7 @@ pub fn parse_bilibili_url(input: &str) -> Result<ParsedUrl> {
             bvid: None,
             aid: Some(aid),
             page: None,
+            short_url: None,
         });
     }
 
@@ -53,6 +57,7 @@ fn parse_from_url(url: &str) -> Result<ParsedUrl> {
             bvid: Some(bvid),
             aid: Some(aid),
             page,
+            short_url: None,
         });
     }
 
@@ -62,15 +67,37 @@ fn parse_from_url(url: &str) -> Result<ParsedUrl> {
             bvid: None,
             aid: Some(aid),
             page,
+            short_url: None,
         });
     }
 
-    // 检查短链接
+    // 短链接（b23.tv）需要异步解析重定向
     if url.contains("b23.tv") {
-        anyhow::bail!("暂不支持短链接，请使用完整视频链接（如 bilibili.com/video/BVxxxxxx）");
+        return Ok(ParsedUrl {
+            bvid: None,
+            aid: None,
+            page: None,
+            short_url: Some(url.to_string()),
+        });
     }
 
     anyhow::bail!("无法从链接中提取视频 ID: {}", url)
+}
+
+/// 解析 b23.tv 短链接，跟随重定向获取真实 URL 后提取视频 ID
+pub async fn resolve_short_url(short_url: &str) -> Result<ParsedUrl> {
+    let client = reqwest::Client::builder()
+        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36")
+        .redirect(reqwest::policy::Policy::limited(5))
+        .build()?;
+
+    // 用 HEAD 请求跟随重定向，获取最终 URL
+    let resp = client.head(short_url).send().await?;
+
+    let final_url = resp.url().to_string();
+
+    // 从最终 URL 中提取视频 ID
+    parse_bilibili_url(&final_url)
 }
 
 fn extract_page_param(url: &str) -> Option<u32> {
