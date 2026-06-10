@@ -99,64 +99,38 @@ async fn run_download(
 
     let mut temp_files: Vec<std::path::PathBuf> = Vec::new();
 
-    if streams.is_legacy_format {
-        // 旧格式（durl/FLV）：下载后转封装
-        let video_temp = download_stream(
-            app,
-            download_id,
-            &streams.video_urls,
-            credential,
-            temp_dir,
-            "video",
-        )
-        .await?;
-        temp_files.push(video_temp.clone());
-
-        remux_to_mp4(&video_temp, output_path).await?;
-    } else if streams.has_audio() {
-        // DASH 格式：分别下载视频和音频，然后合并
-        let video_temp = download_stream(
-            app,
-            download_id,
-            &streams.video_urls,
-            credential,
-            temp_dir,
-            "video",
-        )
-        .await?;
-        temp_files.push(video_temp.clone());
-
-        let audio_temp = download_stream(
-            app,
-            download_id,
-            &streams.audio_urls,
-            credential,
-            temp_dir,
-            "audio",
-        )
-        .await?;
-        temp_files.push(audio_temp.clone());
-
-        merge_streams(&video_temp, &audio_temp, output_path).await?;
-    } else {
-        // 仅视频流（无独立音频）
-        let video_temp = download_stream(
-            app,
-            download_id,
-            &streams.video_urls,
-            credential,
-            temp_dir,
-            "video",
-        )
-        .await?;
-        temp_files.push(video_temp.clone());
-
-        tokio::fs::rename(&video_temp, output_path).await?;
-        temp_files.pop(); // 文件已重命名，不需要清理
+    // 用闭包封装实际逻辑，确保无论成功失败都清理临时文件
+    let result = async {
+        if streams.is_legacy_format {
+            let video_temp = download_stream(
+                app, download_id, &streams.video_urls, credential, temp_dir, "video",
+            ).await?;
+            temp_files.push(video_temp.clone());
+            remux_to_mp4(&video_temp, output_path).await?;
+        } else if streams.has_audio() {
+            let video_temp = download_stream(
+                app, download_id, &streams.video_urls, credential, temp_dir, "video",
+            ).await?;
+            temp_files.push(video_temp.clone());
+            let audio_temp = download_stream(
+                app, download_id, &streams.audio_urls, credential, temp_dir, "audio",
+            ).await?;
+            temp_files.push(audio_temp.clone());
+            merge_streams(&video_temp, &audio_temp, output_path).await?;
+        } else {
+            let video_temp = download_stream(
+                app, download_id, &streams.video_urls, credential, temp_dir, "video",
+            ).await?;
+            temp_files.push(video_temp.clone());
+            tokio::fs::rename(&video_temp, output_path).await?;
+            temp_files.pop(); // 文件已重命名，不需要清理
+        }
+        Ok::<(), anyhow::Error>(())
     }
+    .await;
 
-    // 清理临时文件
+    // 无论成功失败都清理临时文件
     cleanup_temp_files(&temp_files).await;
 
-    Ok(())
+    result
 }
