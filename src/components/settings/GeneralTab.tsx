@@ -83,44 +83,36 @@ export function GeneralTab({
         </div>
       </section>
 
-      {/* FFmpeg 设置 */}
-      <section className="space-y-2">
+      {/* FFmpeg 设置（可选，内置已满足需求） */}
+      <section className="space-y-2 opacity-60 hover:opacity-100 transition-opacity">
         <header className="space-y-1">
-          <h3 className="text-sm font-medium text-gray-700">FFmpeg 设置</h3>
-          <p className="text-xs text-gray-400">用于合并B站分离的音视频流</p>
+          <h3 className="text-sm font-medium text-gray-500">FFmpeg 路径（可选）</h3>
+          <p className="text-xs text-gray-400">已内置 FFmpeg，通常无需手动设置</p>
         </header>
 
-        <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1.5">
-            FFmpeg 路径
-          </label>
-          <p className="text-xs text-gray-400 mb-2">
-            不设置时，将使用内置 FFmpeg 或系统 PATH 中的 <code className="bg-gray-100 px-1 rounded">ffmpeg</code>
-          </p>
-          <div className="flex items-center gap-2">
-            <input
-              type="text"
-              value={ffmpegPath}
-              readOnly
-              placeholder="未设置（使用内置 FFmpeg）"
-              className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded-lg bg-gray-50 text-gray-700 truncate"
-            />
+        <div className="flex items-center gap-2">
+          <input
+            type="text"
+            value={ffmpegPath}
+            readOnly
+            placeholder="使用内置 FFmpeg"
+            className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg bg-gray-50 text-gray-500 truncate"
+          />
+          <button
+            onClick={handleSelectFfmpeg}
+            className="flex items-center gap-1.5 px-3 py-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors text-sm"
+          >
+            <FolderOpen size={14} />
+            选择
+          </button>
+          {ffmpegPath && (
             <button
-              onClick={handleSelectFfmpeg}
-              className="flex items-center gap-1.5 px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors text-sm"
+              onClick={() => onFfmpegPathChange("")}
+              className="px-3 py-2 text-sm text-gray-500 hover:text-gray-700 transition-colors"
             >
-              <FolderOpen size={14} />
-              选择
+              重置
             </button>
-            {ffmpegPath && (
-              <button
-                onClick={() => onFfmpegPathChange("")}
-                className="px-3 py-2 text-sm text-gray-500 hover:text-gray-700 transition-colors"
-              >
-                重置
-              </button>
-            )}
-          </div>
+          )}
         </div>
       </section>
 
