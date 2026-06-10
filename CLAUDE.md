@@ -20,6 +20,8 @@ Version must be synced in **three files** before release:
 
 Only change version when explicitly asked. CI triggers on `v*` tag push.
 
+**Release flow: batch all changes, then tag once.** Code fixes + version sync must be in a single commit. Only create the tag after confirming everything is ready. Never push multiple tags for the same version — each tag push triggers CI and forces users to update.
+
 ## Architecture
 
 Tauri 2 desktop app: Rust backend + React 18 frontend (Vite + Tailwind CSS).
