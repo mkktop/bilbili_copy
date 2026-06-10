@@ -8,6 +8,15 @@ const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) \
 const REFERER: &str = "https://www.bilibili.com/";
 const ORIGIN: &str = "https://www.bilibili.com";
 
+/// 将 http:// URL 替换为 https://，避免混合内容被 WebView 拦截
+fn http_to_https(url: &str) -> String {
+    if url.starts_with("http://") {
+        url.replacen("http://", "https://", 1)
+    } else {
+        url.to_string()
+    }
+}
+
 #[derive(Debug, Deserialize)]
 struct BilibiliResponse<T> {
     code: i64,
@@ -171,7 +180,7 @@ pub async fn validate_credentials(cred: &Credential) -> Result<UserInfo> {
     Ok(UserInfo {
         mid: data.mid,
         uname: data.uname,
-        face: data.face,
+        face: http_to_https(&data.face),
     })
 }
 
