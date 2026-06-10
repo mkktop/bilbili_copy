@@ -1,0 +1,50 @@
+name: Build FFmpeg (one-time)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install MinGW
+        run: sudo apt-get update && sudo apt-get install -y mingw-w64 nasm
+
+      - name: Download FFmpeg source
+        run: git clone --depth 1 --branch n7.1.1 https://git.ffmpeg.org/ffmpeg.git ffmpeg-src
+
+      - name: Configure
+        run: |
+          cd ffmpeg-src
+          ./configure \
+            --target-os=mingw64 \
+            --arch=x86_64 \
+            --cross-prefix=x86_64-w64-mingw32- \
+            --disable-everything \
+            --enable-demuxer=flv,mov,mpegts,matroska \
+            --enable-muxer=mp4 \
+            --enable-protocol=file,pipe \
+            --enable-parser=h264,hevc,aac,aac_latm \
+            --enable-bsf=aac_adtstoasc,h264_mp4toannexb \
+            --disable-doc \
+            --disable-network \
+            --disable-debug \
+            --enable-ffmpeg \
+            --disable-ffplay \
+            --disable-ffprobe
+
+      - name: Build
+        run: cd ffmpeg-src && make -j$(nproc)
+
+      - name: Check result
+        run: ls -lh ffmpeg-src/ffmpeg.exe
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ffmpeg-windows
+          path: ffmpeg-src/ffmpeg.exe
+          retention-days: 90

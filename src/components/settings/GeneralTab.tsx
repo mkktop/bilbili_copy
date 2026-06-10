@@ -95,14 +95,14 @@ export function GeneralTab({
             FFmpeg 路径
           </label>
           <p className="text-xs text-gray-400 mb-2">
-            不设置时，将使用系统 PATH 中的 <code className="bg-gray-100 px-1 rounded">ffmpeg</code>
+            不设置时，将使用内置 FFmpeg 或系统 PATH 中的 <code className="bg-gray-100 px-1 rounded">ffmpeg</code>
           </p>
           <div className="flex items-center gap-2">
             <input
               type="text"
               value={ffmpegPath}
               readOnly
-              placeholder="未设置（使用系统 PATH）"
+              placeholder="未设置（使用内置 FFmpeg）"
               className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded-lg bg-gray-50 text-gray-700 truncate"
             />
             <button

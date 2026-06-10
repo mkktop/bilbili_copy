@@ -329,17 +329,30 @@ async fn validate_temp_file(path: &Path, label: &str) -> Result<()> {
     Ok(())
 }
 
-/// 解析 ffmpeg 路径（支持目录路径自动补全 ffmpeg.exe）
+/// 解析 ffmpeg 路径
+/// 优先级：用户设置 > exe 同目录内置 > 系统 PATH
 fn resolve_ffmpeg_path(ffmpeg_path: &str) -> String {
-    if ffmpeg_path.is_empty() {
-        return "ffmpeg".to_string();
+    // 1. 用户手动配置的路径，最优先
+    if !ffmpeg_path.is_empty() {
+        let path = Path::new(ffmpeg_path);
+        if path.is_dir() {
+            return path.join("ffmpeg.exe").to_string_lossy().to_string();
+        }
+        return ffmpeg_path.to_string();
     }
-    let path = Path::new(ffmpeg_path);
-    // 如果是目录，自动补全 ffmpeg.exe
-    if path.is_dir() {
-        return path.join("ffmpeg.exe").to_string_lossy().to_string();
+
+    // 2. 尝试 exe 同目录下的内置 ffmpeg.exe
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(parent) = exe_path.parent() {
+            let bundled = parent.join("ffmpeg.exe");
+            if bundled.exists() {
+                return bundled.to_string_lossy().to_string();
+            }
+        }
     }
-    ffmpeg_path.to_string()
+
+    // 3. 兜底使用系统 PATH
+    "ffmpeg".to_string()
 }
 
 /// 清理临时文件
