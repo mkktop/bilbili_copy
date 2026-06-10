@@ -92,7 +92,6 @@ pub struct DashStream {
     pub id: i64,
     pub base_url: String,
     pub backup_url: Option<Vec<String>>,
-    pub codecid: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -113,19 +112,6 @@ pub struct SelectedStreams {
 }
 
 impl SelectedStreams {
-    /// 获取主视频 URL
-    pub fn video_url(&self) -> &str {
-        match self.video_urls.first() {
-            Some(url) => url,
-            None => "",
-        }
-    }
-
-    /// 获取主音频 URL
-    pub fn audio_url(&self) -> Option<&str> {
-        self.audio_urls.first().map(|s| s.as_str())
-    }
-
     /// 是否有音频流
     pub fn has_audio(&self) -> bool {
         !self.audio_urls.is_empty()
