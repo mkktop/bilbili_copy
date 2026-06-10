@@ -324,17 +324,22 @@ async fn validate_temp_file(path: &Path, label: &str) -> Result<()> {
 /// 解析 ffmpeg 路径
 /// 优先级：exe 同目录内置 > 系统 PATH
 fn resolve_ffmpeg_path() -> String {
-    // 1. 尝试 exe 同目录下的内置 ffmpeg.exe
     if let Ok(exe_path) = std::env::current_exe() {
         if let Some(parent) = exe_path.parent() {
+            // 1. exe 同目录下的 ffmpeg.exe
             let bundled = parent.join("ffmpeg.exe");
             if bundled.exists() {
                 return bundled.to_string_lossy().to_string();
             }
+            // 2. resources 子目录下的 ffmpeg.exe（Tauri MSI 安装后的实际位置）
+            let resources = parent.join("resources").join("ffmpeg.exe");
+            if resources.exists() {
+                return resources.to_string_lossy().to_string();
+            }
         }
     }
 
-    // 2. 兜底使用系统 PATH
+    // 3. 兜底使用系统 PATH
     "ffmpeg".to_string()
 }
 
