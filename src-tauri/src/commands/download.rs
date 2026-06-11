@@ -27,8 +27,12 @@ pub async fn download_video(
     // 2. 加载设置
     let settings = get_settings().map_err(|e| e.to_string())?;
 
-    // 2.5 使用用户指定的画质，未指定则取设置中的默认最大画质
-    let effective_qn = qn.or(Some(settings.default_max_quality));
+    // 2.5 画质参数
+    let video_max_qn = qn.unwrap_or(settings.video_max_quality);
+    let video_min_qn = settings.video_min_quality;
+    let audio_max_qn = settings.audio_max_quality;
+    let audio_min_qn = settings.audio_min_quality;
+    let codec_priority = settings.video_codec_priority;
 
     // 3. 确定下载目录
     let download_dir = if settings.default_download_dir.is_empty() {
@@ -59,7 +63,11 @@ pub async fn download_video(
         &download_id,
         &bvid,
         cid,
-        effective_qn,
+        video_max_qn,
+        video_min_qn,
+        audio_max_qn,
+        audio_min_qn,
+        &codec_priority,
         &credential,
         &download_dir,
         &output_path,
@@ -96,13 +104,20 @@ async fn run_download(
     download_id: &str,
     bvid: &str,
     cid: i64,
-    qn: Option<i64>,
+    video_max_qn: i64,
+    video_min_qn: i64,
+    audio_max_qn: i64,
+    audio_min_qn: i64,
+    codec_priority: &[String],
     credential: &Credential,
     temp_dir: &std::path::Path,
     output_path: &std::path::Path,
 ) -> anyhow::Result<()> {
     // 5. 获取视频流地址
-    let streams = get_playurl(bvid, cid, credential, qn).await?;
+    let streams = get_playurl(
+        bvid, cid, credential, video_max_qn, video_min_qn,
+        audio_max_qn, audio_min_qn, codec_priority,
+    ).await?;
 
     let mut temp_files: Vec<std::path::PathBuf> = Vec::new();
 

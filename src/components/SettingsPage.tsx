@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { ArrowLeft } from "lucide-react";
 import { GeneralTab } from "./settings/GeneralTab";
+import { QualityTab } from "./settings/QualityTab";
 import { AboutTab } from "./settings/AboutTab";
 import type { AppSettings } from "../hooks/useSettings";
 import { cn } from "../lib/utils";
 
-type Tab = "general" | "about";
+type Tab = "general" | "quality" | "about";
 
 interface SettingsPageProps {
   settings: AppSettings;
@@ -16,7 +17,11 @@ interface SettingsPageProps {
 export function SettingsPage({ settings, onSave, onBack }: SettingsPageProps) {
   const [activeTab, setActiveTab] = useState<Tab>("general");
   const [dir, setDir] = useState(settings.default_download_dir);
-  const [maxQuality, setMaxQuality] = useState(settings.default_max_quality || 80);
+  const [videoMaxQuality, setVideoMaxQuality] = useState(settings.video_max_quality);
+  const [videoMinQuality, setVideoMinQuality] = useState(settings.video_min_quality);
+  const [audioMaxQuality, setAudioMaxQuality] = useState(settings.audio_max_quality);
+  const [audioMinQuality, setAudioMinQuality] = useState(settings.audio_min_quality);
+  const [codecPriority, setCodecPriority] = useState<string[]>(settings.video_codec_priority);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
@@ -26,13 +31,23 @@ export function SettingsPage({ settings, onSave, onBack }: SettingsPageProps) {
       await onSave({
         default_download_dir: dir,
         auto_update: settings.auto_update,
-        default_max_quality: maxQuality,
+        video_max_quality: videoMaxQuality,
+        video_min_quality: videoMinQuality,
+        audio_max_quality: audioMaxQuality,
+        audio_min_quality: audioMinQuality,
+        video_codec_priority: codecPriority,
       });
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } finally {
       setSaving(false);
     }
+  };
+
+  const tabLabels: Record<Tab, string> = {
+    general: "通用",
+    quality: "视频质量",
+    about: "关于",
   };
 
   return (
@@ -50,7 +65,7 @@ export function SettingsPage({ settings, onSave, onBack }: SettingsPageProps) {
 
       {/* Tab bar */}
       <div className="flex border-b border-gray-200 px-6">
-        {(["general", "about"] as Tab[]).map((tab) => (
+        {(["general", "quality", "about"] as Tab[]).map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -61,24 +76,40 @@ export function SettingsPage({ settings, onSave, onBack }: SettingsPageProps) {
                 : "border-transparent text-gray-500 hover:text-gray-700"
             )}
           >
-            {tab === "general" ? "通用" : "关于"}
+            {tabLabels[tab]}
           </button>
         ))}
       </div>
 
       {/* Tab content */}
       <div className="flex-1 overflow-y-auto px-6 py-6">
-        {activeTab === "general" ? (
+        {activeTab === "general" && (
           <GeneralTab
             dir={dir}
             onDirChange={(d) => { setDir(d); setSaved(false); }}
-            maxQuality={maxQuality}
-            onMaxQualityChange={(q) => { setMaxQuality(q); setSaved(false); }}
             saving={saving}
             saved={saved}
             onSave={handleSave}
           />
-        ) : (
+        )}
+        {activeTab === "quality" && (
+          <QualityTab
+            videoMaxQuality={videoMaxQuality}
+            onVideoMaxQualityChange={(q) => { setVideoMaxQuality(q); setSaved(false); }}
+            videoMinQuality={videoMinQuality}
+            onVideoMinQualityChange={(q) => { setVideoMinQuality(q); setSaved(false); }}
+            audioMaxQuality={audioMaxQuality}
+            onAudioMaxQualityChange={(q) => { setAudioMaxQuality(q); setSaved(false); }}
+            audioMinQuality={audioMinQuality}
+            onAudioMinQualityChange={(q) => { setAudioMinQuality(q); setSaved(false); }}
+            codecPriority={codecPriority}
+            onCodecPriorityChange={(p) => { setCodecPriority(p); setSaved(false); }}
+            saving={saving}
+            saved={saved}
+            onSave={handleSave}
+          />
+        )}
+        {activeTab === "about" && (
           <AboutTab />
         )}
       </div>
