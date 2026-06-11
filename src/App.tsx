@@ -12,7 +12,7 @@ import { UserProfile } from "./components/UserProfile";
 import { useUpdate } from "./contexts/UpdateContext";
 import { useSettings } from "./hooks/useSettings";
 import { useLogin } from "./hooks/useLogin";
-import { Settings, Download, Loader2 } from "lucide-react";
+import { Settings, Download } from "lucide-react";
 import type { AppSettings } from "./hooks/useSettings";
 import type { ParsedItem, DownloadTask, ParsedVideoInfo } from "./types";
 
@@ -45,7 +45,7 @@ export default function App() {
   const downloadingIds = useRef<Set<string>>(new Set());
 
   const { phase, updateInfo } = useUpdate();
-  const { settings, loading: settingsLoading, save } = useSettings();
+  const { settings, save } = useSettings();
   const { userInfo, logout, generateQrcode, pollQrcode } = useLogin();
   const [version, setVersion] = useState("");
   const [loginDialogOpen, setLoginDialogOpen] = useState(false);
@@ -53,15 +53,6 @@ export default function App() {
 
   // 用于 UserProfile 外部点击关闭
   const profileRef = useRef<HTMLDivElement>(null);
-
-  // 设置加载中显示 loading（所有 hooks 必须在 early return 之前）
-  if (settingsLoading) {
-    return (
-      <div className="flex items-center justify-center h-screen bg-gray-50">
-        <Loader2 size={24} className="animate-spin text-blue-500" />
-      </div>
-    );
-  }
 
   useEffect(() => {
     getVersion().then((v) => setVersion(v));
