@@ -4,35 +4,19 @@ import {
   CheckCircle2,
   XCircle,
   X,
-  Clock,
-  User,
-  Layers,
-  ChevronRight,
 } from "lucide-react";
-import type { DownloadEntry } from "../types";
-import { formatDuration } from "../types";
+import type { DownloadTask } from "../types";
 import { cn } from "../lib/utils";
 
 interface DownloadListProps {
-  downloads: DownloadEntry[];
+  downloads: DownloadTask[];
   onRemove: (id: string) => void;
-  onSelect: (entry: DownloadEntry) => void;
 }
 
 const STATUS_CONFIG: Record<
   string,
   { icon: React.ReactNode; text: string; color: string }
 > = {
-  pending: {
-    icon: <Download size={14} />,
-    text: "点击查看",
-    color: "text-blue-400",
-  },
-  parsing: {
-    icon: <Loader2 size={14} className="animate-spin" />,
-    text: "解析中",
-    color: "text-blue-500",
-  },
   downloading: {
     icon: <Loader2 size={14} className="animate-spin" />,
     text: "下载中",
@@ -50,12 +34,12 @@ const STATUS_CONFIG: Record<
   },
 };
 
-export function DownloadList({ downloads, onRemove, onSelect }: DownloadListProps) {
+export function DownloadList({ downloads, onRemove }: DownloadListProps) {
   if (downloads.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-full text-gray-400 gap-2">
         <Download size={40} strokeWidth={1.5} />
-        <p className="text-sm">输入视频链接开始下载</p>
+        <p className="text-sm">暂无下载任务</p>
       </div>
     );
   }
@@ -63,32 +47,17 @@ export function DownloadList({ downloads, onRemove, onSelect }: DownloadListProp
   return (
     <div className="space-y-2">
       {downloads.map((item) => {
-        const status = STATUS_CONFIG[item.status] || STATUS_CONFIG.pending;
-        const info = item.videoInfo;
+        const status = STATUS_CONFIG[item.status] || STATUS_CONFIG.downloading;
 
         return (
           <div
             key={item.id}
-            onClick={() => {
-              if (item.status !== "parsing" && item.status !== "downloading") onSelect(item);
-            }}
-            className={cn(
-              "flex items-start gap-3 px-4 py-3 bg-white border border-gray-200 rounded-lg",
-              item.status !== "parsing" && item.status !== "downloading" && "cursor-pointer hover:bg-gray-50 hover:border-gray-300 transition-colors"
-            )}
+            className="flex items-start gap-3 px-4 py-3 bg-white border border-gray-200 rounded-lg"
           >
-            {/* 封面缩略图 */}
-            {info?.pic ? (
-              <img
-                src={info.pic}
-                alt={info.title}
-                className="w-24 h-16 rounded object-cover shrink-0 bg-gray-100"
-              />
-            ) : (
-              <div className="w-24 h-16 rounded bg-gray-100 flex items-center justify-center shrink-0">
-                <Download size={20} className="text-gray-300" />
-              </div>
-            )}
+            {/* 文件图标 */}
+            <div className="w-10 h-10 rounded bg-gray-100 flex items-center justify-center shrink-0">
+              <Download size={18} className="text-gray-400" />
+            </div>
 
             {/* 信息区 */}
             <div className="flex-1 min-w-0">
@@ -96,31 +65,7 @@ export function DownloadList({ downloads, onRemove, onSelect }: DownloadListProp
                 {item.title}
               </p>
 
-              {/* 元信息行 */}
-              {info && (
-                <div className="flex items-center gap-3 mt-1.5 text-xs text-gray-400">
-                  {info.owner_name && (
-                    <span className="flex items-center gap-0.5">
-                      <User size={10} />
-                      {info.owner_name}
-                    </span>
-                  )}
-                  {info.duration > 0 && (
-                    <span className="flex items-center gap-0.5">
-                      <Clock size={10} />
-                      {formatDuration(info.duration)}
-                    </span>
-                  )}
-                  {info.pages.length > 1 && (
-                    <span className="flex items-center gap-0.5">
-                      <Layers size={10} />
-                      {info.pages.length}P
-                    </span>
-                  )}
-                </div>
-              )}
-
-              {/* 状态 + 进度条 */}
+              {/* 状态 + 进度 */}
               <div className="mt-1">
                 <div className="flex items-center gap-1">
                   <span className={cn("text-xs", status.color)}>
@@ -153,21 +98,13 @@ export function DownloadList({ downloads, onRemove, onSelect }: DownloadListProp
               </div>
             </div>
 
-            {/* 右侧：箭头 + 删除 */}
-            <div className="flex items-center gap-1 shrink-0 mt-1">
-              {item.status !== "parsing" && item.status !== "downloading" && (
-                <ChevronRight size={14} className="text-gray-300" />
-              )}
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onRemove(item.id);
-                }}
-                className="p-1 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
-              >
-                <X size={14} />
-              </button>
-            </div>
+            {/* 删除 */}
+            <button
+              onClick={() => onRemove(item.id)}
+              className="p-1 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors shrink-0 mt-1"
+            >
+              <X size={14} />
+            </button>
           </div>
         );
       })}

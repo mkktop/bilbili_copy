@@ -30,7 +30,7 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDYxQkY0NjM2MUMxQzg1ODEKUldTQmhSd2NOa2EvWVdVZ0dnUTVFVC8zeTdtUTVKVDZZSmJaRnAzSFZJa3ZMYVBYcHFrcjlZYWcK",
       "endpoints": [
-        "https://github.com/mkktop/bilbli_copy/releases/latest/download/latest.json"
+        "https://github.com/mkktop/bilbili_copy/releases/latest/download/latest.json"
       ]
     }
   },

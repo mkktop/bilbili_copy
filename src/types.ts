@@ -30,6 +30,25 @@ export interface DownloadEntry {
   videoInfo?: ParsedVideoInfo;
 }
 
+/** 解析列表条目 */
+export interface ParsedItem {
+  id: string;
+  url: string;
+  title: string;
+  status: "parsing" | "pending" | "error";
+  errorMsg?: string;
+  videoInfo?: ParsedVideoInfo;
+}
+
+/** 下载任务条目 */
+export interface DownloadTask {
+  id: string;
+  title: string;
+  status: "downloading" | "done" | "error";
+  progress?: number;
+  errorMsg?: string;
+}
+
 /** 格式化秒数为 mm:ss 或 hh:mm:ss */
 export function formatDuration(seconds: number): string {
   const h = Math.floor(seconds / 3600);

@@ -4,6 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { DownloadInput } from "./components/DownloadInput";
 import { DownloadList } from "./components/DownloadList";
+import { ParseList } from "./components/ParseList";
 import { VideoDetail } from "./components/VideoDetail";
 import { SettingsPage } from "./components/SettingsPage";
 import { LoginDialog } from "./components/LoginDialog";
@@ -11,11 +12,11 @@ import { UserProfile } from "./components/UserProfile";
 import { useUpdate } from "./contexts/UpdateContext";
 import { useSettings } from "./hooks/useSettings";
 import { useLogin } from "./hooks/useLogin";
-import { Settings } from "lucide-react";
+import { Settings, Download } from "lucide-react";
 import type { AppSettings } from "./hooks/useSettings";
-import type { DownloadEntry, ParsedVideoInfo } from "./types";
+import type { ParsedItem, DownloadTask, ParsedVideoInfo } from "./types";
 
-type View = "main" | "settings" | "detail";
+type View = "main" | "settings" | "detail" | "downloads";
 
 interface DownloadProgress {
   id: string;
@@ -37,9 +38,10 @@ interface DownloadError {
 
 export default function App() {
   const [currentView, setCurrentView] = useState<View>("main");
-  const [downloads, setDownloads] = useState<DownloadEntry[]>([]);
+  const [parsedItems, setParsedItems] = useState<ParsedItem[]>([]);
+  const [downloads, setDownloads] = useState<DownloadTask[]>([]);
   const [isParsing, setIsParsing] = useState(false);
-  const [selectedEntry, setSelectedEntry] = useState<DownloadEntry | null>(null);
+  const [selectedItem, setSelectedItem] = useState<ParsedItem | null>(null);
 
   const { phase, updateInfo } = useUpdate();
   const { settings, save } = useSettings();
@@ -62,7 +64,7 @@ export default function App() {
           const { id, percent } = event.payload;
           setDownloads((prev) =>
             prev.map((d) =>
-              d.id === id ? { ...d, status: "downloading", progress: percent } : d
+              d.id === id ? { ...d, status: "downloading" as const, progress: percent } : d
             )
           );
         })
@@ -73,7 +75,7 @@ export default function App() {
           const { id } = event.payload;
           setDownloads((prev) =>
             prev.map((d) =>
-              d.id === id ? { ...d, status: "done", progress: 100 } : d
+              d.id === id ? { ...d, status: "done" as const, progress: 100 } : d
             )
           );
         })
@@ -84,7 +86,7 @@ export default function App() {
           const { id, error } = event.payload;
           setDownloads((prev) =>
             prev.map((d) =>
-              d.id === id ? { ...d, status: "error", errorMsg: error } : d
+              d.id === id ? { ...d, status: "error" as const, errorMsg: error } : d
             )
           );
         })
@@ -96,6 +98,7 @@ export default function App() {
   }, []);
 
   const hasUpdate = phase === "available" && updateInfo;
+  const activeDownloads = downloads.filter((d) => d.status === "downloading").length;
 
   const handleSaveSettings = async (s: AppSettings) => {
     await save(s);
@@ -103,30 +106,30 @@ export default function App() {
 
   const handleParse = async (url: string) => {
     const id = Date.now().toString();
-    const entry: DownloadEntry = {
+    const item: ParsedItem = {
       id,
       url,
       title: url,
       status: "parsing",
     };
-    setDownloads((prev) => [entry, ...prev]);
+    setParsedItems((prev) => [item, ...prev]);
     setIsParsing(true);
 
     try {
       const videoInfo = await invoke<ParsedVideoInfo>("parse_video", { urlStr: url });
-      setDownloads((prev) =>
-        prev.map((d) =>
-          d.id === id
-            ? { ...d, title: videoInfo.title, status: "pending" as const, videoInfo }
-            : d
+      setParsedItems((prev) =>
+        prev.map((p) =>
+          p.id === id
+            ? { ...p, title: videoInfo.title, status: "pending" as const, videoInfo }
+            : p
         )
       );
     } catch (err) {
-      setDownloads((prev) =>
-        prev.map((d) =>
-          d.id === id
-            ? { ...d, status: "error" as const, errorMsg: String(err) }
-            : d
+      setParsedItems((prev) =>
+        prev.map((p) =>
+          p.id === id
+            ? { ...p, status: "error" as const, errorMsg: String(err) }
+            : p
         )
       );
     } finally {
@@ -141,40 +144,34 @@ export default function App() {
     title: string,
     qn: number = 80
   ) => {
-    setDownloads((prev) => {
-      const existing = prev.find((d) => d.id === id);
-      if (existing) {
-        return prev.map((d) =>
-          d.id === id ? { ...d, status: "downloading" as const, progress: 0 } : d
-        );
-      } else {
-        return [
-          { id, url: "", title, status: "downloading" as const, progress: 0 },
-          ...prev,
-        ];
-      }
-    });
+    // 添加到下载列表
+    setDownloads((prev) => [
+      { id, title, status: "downloading" as const, progress: 0 },
+      ...prev,
+    ]);
 
     try {
       await invoke("download_video", { id, bvid, cid, title, qn });
     } catch (err) {
-      // 错误已通过 download://error 事件处理
-      // 但也在这里兜底
       setDownloads((prev) =>
         prev.map((d) =>
-          d.id === id ? { ...d, status: "error", errorMsg: String(err) } : d
+          d.id === id ? { ...d, status: "error" as const, errorMsg: String(err) } : d
         )
       );
     }
   };
 
-  const handleSelectEntry = (entry: DownloadEntry) => {
-    if (!entry.videoInfo) return;
-    setSelectedEntry(entry);
+  const handleSelectItem = (item: ParsedItem) => {
+    if (!item.videoInfo) return;
+    setSelectedItem(item);
     setCurrentView("detail");
   };
 
-  const handleRemove = (id: string) => {
+  const handleRemoveParsed = (id: string) => {
+    setParsedItems((prev) => prev.filter((p) => p.id !== id));
+  };
+
+  const handleRemoveDownload = (id: string) => {
     setDownloads((prev) => prev.filter((d) => d.id !== id));
   };
 
@@ -191,15 +188,43 @@ export default function App() {
     );
   }
 
+  // Downloads view
+  if (currentView === "downloads") {
+    return (
+      <div className="flex flex-col h-screen bg-gray-50 text-gray-900">
+        {/* Header */}
+        <div className="flex items-center gap-3 px-6 py-4 border-b border-gray-200 bg-white">
+          <button
+            onClick={() => setCurrentView("main")}
+            className="p-1.5 rounded-lg border border-gray-300 hover:bg-gray-50 transition-colors"
+          >
+            <Download size={16} className="rotate-180" />
+          </button>
+          <h1 className="text-lg font-semibold text-gray-800">下载列表</h1>
+          {activeDownloads > 0 && (
+            <span className="text-xs text-blue-500 font-medium">
+              {activeDownloads} 个任务进行中
+            </span>
+          )}
+        </div>
+
+        {/* Download list */}
+        <div className="flex-1 overflow-auto px-6 py-4">
+          <DownloadList downloads={downloads} onRemove={handleRemoveDownload} />
+        </div>
+      </div>
+    );
+  }
+
   // Detail view
-  if (currentView === "detail" && selectedEntry) {
+  if (currentView === "detail" && selectedItem) {
     return (
       <div className="flex flex-col h-screen bg-gray-50 text-gray-900">
         <VideoDetail
-          entry={selectedEntry}
+          entry={selectedItem}
           onBack={() => {
             setCurrentView("main");
-            setSelectedEntry(null);
+            setSelectedItem(null);
           }}
           onDownload={handleDownload}
           defaultQn={settings.default_max_quality || 80}
@@ -249,6 +274,22 @@ export default function App() {
             </button>
           )}
 
+          {/* 下载列表入口 */}
+          <div className="relative">
+            <button
+              onClick={() => setCurrentView("downloads")}
+              title="下载列表"
+              className="p-1 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+            >
+              <Download size={16} />
+            </button>
+            {activeDownloads > 0 && (
+              <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 flex items-center justify-center rounded-full bg-blue-500 text-white text-[10px] font-medium px-1">
+                {activeDownloads}
+              </span>
+            )}
+          </div>
+
           {/* 设置按钮 */}
           <div className="relative">
             <button
@@ -271,12 +312,12 @@ export default function App() {
         <DownloadInput onParse={handleParse} isParsing={isParsing} />
       </div>
 
-      {/* 下载列表 */}
+      {/* 解析列表 */}
       <div className="flex-1 overflow-auto px-6 py-2">
-        <DownloadList
-          downloads={downloads}
-          onRemove={handleRemove}
-          onSelect={handleSelectEntry}
+        <ParseList
+          items={parsedItems}
+          onRemove={handleRemoveParsed}
+          onSelect={handleSelectItem}
         />
       </div>
 

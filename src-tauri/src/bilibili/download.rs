@@ -246,7 +246,7 @@ pub async fn merge_streams(
             .context("创建输出目录失败")?;
     }
 
-    let output = tokio::process::Command::new(&ffmpeg)
+    let output = create_ffmpeg_command(&ffmpeg)
         .args([
             "-i",
             video_path.to_str().unwrap_or(""),
@@ -287,7 +287,7 @@ pub async fn remux_to_mp4(
             .context("创建输出目录失败")?;
     }
 
-    let output = tokio::process::Command::new(&ffmpeg)
+    let output = create_ffmpeg_command(&ffmpeg)
         .args([
             "-i",
             input_path.to_str().unwrap_or(""),
@@ -320,6 +320,18 @@ async fn validate_temp_file(path: &Path, label: &str) -> Result<()> {
         anyhow::bail!("{}临时文件过小 ({} bytes)，可能下载不完整", label, metadata.len());
     }
     Ok(())
+}
+
+/// 创建 ffmpeg 子进程（隐藏控制台窗口）
+fn create_ffmpeg_command(ffmpeg: &str) -> tokio::process::Command {
+    let mut cmd = tokio::process::Command::new(ffmpeg);
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        // CREATE_NO_WINDOW = 0x08000000，防止弹出控制台窗口
+        cmd.creation_flags(0x08000000);
+    }
+    cmd
 }
 
 /// 解析 ffmpeg 路径

@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { ArrowLeft, Download, Clock, ChevronRight } from "lucide-react";
-import type { DownloadEntry } from "../types";
+import { ArrowLeft, Download, Clock, CheckCircle2 } from "lucide-react";
+import type { ParsedItem } from "../types";
 import { formatDuration } from "../types";
 import { cn } from "../lib/utils";
 
@@ -16,7 +16,7 @@ const QUALITY_OPTIONS = [
 ];
 
 interface VideoDetailProps {
-  entry: DownloadEntry;
+  entry: ParsedItem;
   onBack: () => void;
   onDownload: (
     id: string,
@@ -32,6 +32,7 @@ export function VideoDetail({ entry, onBack, onDownload, defaultQn }: VideoDetai
   const info = entry.videoInfo;
   const [selectedQn, setSelectedQn] = useState(defaultQn || 80);
   const [selectedPages, setSelectedPages] = useState<Set<number>>(new Set());
+  const [downloadedIds, setDownloadedIds] = useState<Set<string>>(new Set());
 
   if (!info) {
     return (
@@ -60,6 +61,7 @@ export function VideoDetail({ entry, onBack, onDownload, defaultQn }: VideoDetai
   const deselectAll = () => setSelectedPages(new Set());
 
   const handleDownload = () => {
+    const ids: string[] = [];
     if (isMultiPage) {
       selectedPages.forEach((page) => {
         const p = info.pages.find((pg) => pg.page === page);
@@ -68,14 +70,26 @@ export function VideoDetail({ entry, onBack, onDownload, defaultQn }: VideoDetai
             selectedPages.size > 1
               ? `${info.title} - P${p.page} ${p.part}`
               : info.title;
-          onDownload(`${entry.id}_P${p.page}`, info.bvid, p.cid, title, selectedQn);
+          const id = `${entry.id}_P${p.page}`;
+          onDownload(id, info.bvid, p.cid, title, selectedQn);
+          ids.push(id);
         }
       });
     } else {
       onDownload(entry.id, info.bvid, info.pages[0].cid, info.title, selectedQn);
+      ids.push(entry.id);
     }
-    onBack();
+    setDownloadedIds((prev) => {
+      const next = new Set(prev);
+      ids.forEach((id) => next.add(id));
+      return next;
+    });
   };
+
+  // 单页视频已下载
+  const isSingleDownloaded = !isMultiPage && downloadedIds.has(entry.id);
+  // 多页视频全部选中已下载
+  const isAllDownloaded = isMultiPage && selectedPages.size > 0 && [...selectedPages].every((p) => downloadedIds.has(`${entry.id}_P${p}`));
 
   return (
     <div className="flex flex-col h-full">
@@ -88,6 +102,12 @@ export function VideoDetail({ entry, onBack, onDownload, defaultQn }: VideoDetai
           <ArrowLeft size={16} />
         </button>
         <h1 className="text-lg font-semibold text-gray-800">视频详情</h1>
+        {downloadedIds.size > 0 && (
+          <span className="text-xs text-green-500 font-medium flex items-center gap-1">
+            <CheckCircle2 size={12} />
+            已提交 {downloadedIds.size} 个下载
+          </span>
+        )}
       </div>
 
       {/* 内容区 */}
@@ -175,32 +195,42 @@ export function VideoDetail({ entry, onBack, onDownload, defaultQn }: VideoDetai
                 </div>
               </div>
               <div className="space-y-1 max-h-48 overflow-y-auto">
-                {info.pages.map((p) => (
-                  <label
-                    key={p.page}
-                    className={cn(
-                      "flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer transition-colors",
-                      selectedPages.has(p.page)
-                        ? "bg-blue-50 border border-blue-200"
-                        : "hover:bg-gray-50 border border-transparent"
-                    )}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={selectedPages.has(p.page)}
-                      onChange={() => togglePage(p.page)}
-                      className="w-4 h-4 rounded border-gray-300 text-blue-500 focus:ring-blue-300"
-                    />
-                    <span className="text-sm text-gray-700 flex-1">
-                      P{p.page} {p.part}
-                    </span>
-                    {p.duration > 0 && (
-                      <span className="text-xs text-gray-400">
-                        {formatDuration(p.duration)}
+                {info.pages.map((p) => {
+                  const pageId = `${entry.id}_P${p.page}`;
+                  const isDownloaded = downloadedIds.has(pageId);
+                  return (
+                    <label
+                      key={p.page}
+                      className={cn(
+                        "flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer transition-colors",
+                        isDownloaded
+                          ? "bg-green-50 border border-green-200"
+                          : selectedPages.has(p.page)
+                            ? "bg-blue-50 border border-blue-200"
+                            : "hover:bg-gray-50 border border-transparent"
+                      )}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedPages.has(p.page)}
+                        onChange={() => togglePage(p.page)}
+                        disabled={isDownloaded}
+                        className="w-4 h-4 rounded border-gray-300 text-blue-500 focus:ring-blue-300 disabled:opacity-50"
+                      />
+                      <span className="text-sm text-gray-700 flex-1">
+                        P{p.page} {p.part}
                       </span>
-                    )}
-                  </label>
-                ))}
+                      {isDownloaded && (
+                        <CheckCircle2 size={14} className="text-green-500" />
+                      )}
+                      {p.duration > 0 && (
+                        <span className="text-xs text-gray-400">
+                          {formatDuration(p.duration)}
+                        </span>
+                      )}
+                    </label>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -208,18 +238,20 @@ export function VideoDetail({ entry, onBack, onDownload, defaultQn }: VideoDetai
           {/* 下载按钮 */}
           <button
             onClick={handleDownload}
-            disabled={!hasSelection}
+            disabled={!hasSelection || isSingleDownloaded || isAllDownloaded}
             className={cn(
               "w-full flex items-center justify-center gap-2 py-3 rounded-lg text-sm font-medium transition-colors",
-              hasSelection
+              hasSelection && !isSingleDownloaded && !isAllDownloaded
                 ? "bg-blue-500 text-white hover:bg-blue-600"
                 : "bg-gray-100 text-gray-400 cursor-not-allowed"
             )}
           >
             <Download size={16} />
-            {isMultiPage
-              ? `下载选中 (${selectedPages.size}P)`
-              : "开始下载"}
+            {isSingleDownloaded || isAllDownloaded
+              ? "已提交下载"
+              : isMultiPage
+                ? `下载选中 (${selectedPages.size}P)`
+                : "开始下载"}
           </button>
         </div>
       </div>
