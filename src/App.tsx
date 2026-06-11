@@ -1,5 +1,5 @@
 import { getVersion } from "@tauri-apps/api/app";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { DownloadInput } from "./components/DownloadInput";
@@ -42,6 +42,7 @@ export default function App() {
   const [downloads, setDownloads] = useState<DownloadTask[]>([]);
   const [isParsing, setIsParsing] = useState(false);
   const [selectedItem, setSelectedItem] = useState<ParsedItem | null>(null);
+  const downloadingIds = useRef<Set<string>>(new Set());
 
   const { phase, updateInfo } = useUpdate();
   const { settings, save } = useSettings();
@@ -144,7 +145,10 @@ export default function App() {
     title: string,
     qn: number = 80
   ) => {
-    // 添加到下载列表
+    // 用 ref 防止重复提交（不受 React 批量更新影响）
+    if (downloadingIds.current.has(id)) return;
+    downloadingIds.current.add(id);
+
     setDownloads((prev) => [
       { id, title, status: "downloading" as const, progress: 0 },
       ...prev,
