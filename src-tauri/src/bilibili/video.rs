@@ -11,6 +11,12 @@ pub struct PageInfo {
     pub page: u32,
     pub part: String,
     pub duration: u64,
+    /// 番剧每集独立 bvid
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bvid: Option<String>,
+    /// 番剧每集 ep_id
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ep_id: Option<u64>,
 }
 
 /// 视频详细信息
@@ -29,6 +35,9 @@ pub struct VideoInfo {
     /// 番剧 ep_id，非番剧为 None
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ep_id: Option<u64>,
+    /// 预告/花絮等非正片内容
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub extra_pages: Vec<PageInfo>,
 }
 
 /// view API 返回的 JSON 结构
@@ -139,6 +148,8 @@ pub async fn get_video_info(
             page: p.page,
             part: p.part,
             duration: p.duration,
+            bvid: None,
+            ep_id: None,
         })
         .collect();
 
@@ -154,6 +165,7 @@ pub async fn get_video_info(
         duration: data.duration,
         pages,
         ep_id: None,
+        extra_pages: vec![],
     })
 }
 
@@ -200,17 +212,36 @@ async fn try_bangumi_season_info(
         .as_array()
         .context("番剧 season 响应无 episodes")?;
 
+    // 过滤非正片内容（section_type=1 为预告/花絮）
+    let main_episodes: Vec<&serde_json::Value> = episodes
+        .iter()
+        .filter(|ep| ep["section_type"].as_i64().unwrap_or(0) != 1)
+        .collect();
+
+    log::info!(
+        "[bangumi-season] 共 {} 集, 过滤后正片 {} 集",
+        episodes.len(),
+        main_episodes.len()
+    );
+
+    let episodes_for_search = if main_episodes.is_empty() {
+        // 兜底：如果没有正片则用全部
+        episodes.iter().collect()
+    } else {
+        main_episodes.clone()
+    };
+
     let mut target_episode: Option<&serde_json::Value> = None;
-    for ep in episodes {
+    for ep in &episodes_for_search {
         if ep["id"].as_i64() == Some(ep_id as i64) {
-            target_episode = Some(ep);
+            target_episode = Some(*ep);
             break;
         }
     }
 
     // 如果找不到精确匹配，用第一集
     let episode = target_episode
-        .or(episodes.first())
+        .or(episodes_for_search.first().copied())
         .context("番剧 episodes 为空")?;
 
     let ep_bvid = episode["bvid"].as_str().unwrap_or("").to_string();
@@ -230,28 +261,44 @@ async fn try_bangumi_season_info(
         format!("{} {} {}", title, ep_title, ep_long_title)
     };
 
-    // 把所有剧集作为分P构造 pages
-    let pages: Vec<PageInfo> = episodes
+    // 构造 PageInfo 的辅助闭包
+    let make_page = |i: usize, ep: &serde_json::Value| PageInfo {
+        cid: ep["cid"].as_i64().unwrap_or(0),
+        page: (i + 1) as u32,
+        part: {
+            let t = ep["long_title"].as_str().unwrap_or("");
+            if t.is_empty() {
+                format!("第{}话", ep["title"].as_str().unwrap_or("?"))
+            } else {
+                format!("第{}话 {}", ep["title"].as_str().unwrap_or("?"), t)
+            }
+        },
+        duration: ep["duration"].as_i64().unwrap_or(0) as u64 / 1000,
+        bvid: Some(ep["bvid"].as_str().unwrap_or("").to_string()),
+        ep_id: ep["id"].as_i64().map(|v| v as u64),
+    };
+
+    // 正片
+    let pages: Vec<PageInfo> = main_episodes
         .iter()
         .enumerate()
-        .map(|(i, ep)| PageInfo {
-            cid: ep["cid"].as_i64().unwrap_or(0),
-            page: (i + 1) as u32,
-            part: {
-                let t = ep["long_title"].as_str().unwrap_or("");
-                if t.is_empty() {
-                    format!("第{}话", ep["title"].as_str().unwrap_or("?"))
-                } else {
-                    format!("第{}话 {}", ep["title"].as_str().unwrap_or("?"), t)
-                }
-            },
-            duration: ep["duration"].as_i64().unwrap_or(0) as u64 / 1000,
-        })
+        .map(|(i, ep)| make_page(i, ep))
+        .collect();
+
+    // 预告/花絮
+    let extra_episodes: Vec<&serde_json::Value> = episodes
+        .iter()
+        .filter(|ep| ep["section_type"].as_i64().unwrap_or(0) == 1)
+        .collect();
+    let extra_pages: Vec<PageInfo> = extra_episodes
+        .iter()
+        .enumerate()
+        .map(|(i, ep)| make_page(i, ep))
         .collect();
 
     log::info!(
-        "[bangumi-season] 解析成功: {} ({}集), 当前 ep={}: bvid={}, cid={}",
-        title, pages.len(), ep_id, ep_bvid, ep_cid
+        "[bangumi-season] 解析成功: {} (正片{}集, 预告{}集), 当前 ep={}: bvid={}, cid={}",
+        title, pages.len(), extra_pages.len(), ep_id, ep_bvid, ep_cid
     );
 
     Ok(VideoInfo {
@@ -273,5 +320,6 @@ async fn try_bangumi_season_info(
         duration: ep_duration,
         pages,
         ep_id: Some(ep_id),
+        extra_pages,
     })
 }

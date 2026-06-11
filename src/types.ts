@@ -5,6 +5,8 @@ export interface VideoPage {
   page: number;
   part: string;
   duration: number;
+  bvid?: string;
+  ep_id?: number;
 }
 
 export interface ParsedVideoInfo {
@@ -19,6 +21,7 @@ export interface ParsedVideoInfo {
   duration: number;
   pages: VideoPage[];
   ep_id?: number;
+  extra_pages?: VideoPage[];
 }
 
 export interface DownloadEntry {

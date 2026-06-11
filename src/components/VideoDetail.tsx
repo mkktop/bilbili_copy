@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { ArrowLeft, Download, Clock, CheckCircle2 } from "lucide-react";
-import type { ParsedItem } from "../types";
+import type { ParsedItem, VideoPage } from "../types";
 import { formatDuration } from "../types";
 import { cn } from "../lib/utils";
 
@@ -14,6 +14,8 @@ const QUALITY_OPTIONS = [
   { value: 32, label: "480P" },
   { value: 16, label: "360P" },
 ];
+
+type EpisodeTab = "main" | "extra";
 
 interface VideoDetailProps {
   entry: ParsedItem;
@@ -34,6 +36,7 @@ export function VideoDetail({ entry, onBack, onDownload, defaultQn }: VideoDetai
   const [selectedQn, setSelectedQn] = useState(defaultQn || 80);
   const [selectedPages, setSelectedPages] = useState<Set<number>>(new Set());
   const [downloadedIds, setDownloadedIds] = useState<Set<string>>(new Set());
+  const [episodeTab, setEpisodeTab] = useState<EpisodeTab>("main");
 
   if (!info) {
     return (
@@ -46,8 +49,18 @@ export function VideoDetail({ entry, onBack, onDownload, defaultQn }: VideoDetai
     );
   }
 
-  const isMultiPage = info.pages.length > 1;
+  const hasExtra = (info.extra_pages?.length ?? 0) > 0;
+  const currentPages = episodeTab === "main" ? info.pages : (info.extra_pages ?? []);
+  const isMultiPage = info.pages.length > 1 || hasExtra;
   const hasSelection = !isMultiPage || selectedPages.size > 0;
+
+  // 切换 tab 时清空选中
+  const switchTab = (tab: EpisodeTab) => {
+    if (tab !== episodeTab) {
+      setEpisodeTab(tab);
+      setSelectedPages(new Set());
+    }
+  };
 
   const togglePage = (page: number) => {
     setSelectedPages((prev) => {
@@ -58,28 +71,34 @@ export function VideoDetail({ entry, onBack, onDownload, defaultQn }: VideoDetai
     });
   };
 
-  const selectAll = () => setSelectedPages(new Set(info.pages.map((p) => p.page)));
+  const selectAll = () => setSelectedPages(new Set(currentPages.map((p) => p.page)));
   const deselectAll = () => setSelectedPages(new Set());
 
   const handleDownload = () => {
     const ids: string[] = [];
-    const epId = info.ep_id;
-    if (isMultiPage) {
+    // 单页视频（无 extra，只有 1 个 page）
+    if (!isMultiPage) {
+      const p = info.pages[0];
+      const pageBvid = p.bvid || info.bvid;
+      const pageEpId = p.ep_id || info.ep_id;
+      onDownload(entry.id, pageBvid, p.cid, info.title, selectedQn, pageEpId);
+      ids.push(entry.id);
+    } else {
+      // 多页：从当前 tab 列表下载
       selectedPages.forEach((page) => {
-        const p = info.pages.find((pg) => pg.page === page);
+        const p = currentPages.find((pg) => pg.page === page);
         if (p) {
+          const pageBvid = p.bvid || info.bvid;
+          const pageEpId = p.ep_id || info.ep_id;
           const title =
             selectedPages.size > 1
               ? `${info.title} - P${p.page} ${p.part}`
               : info.title;
           const id = `${entry.id}_P${p.page}`;
-          onDownload(id, info.bvid, p.cid, title, selectedQn, epId);
+          onDownload(id, pageBvid, p.cid, title, selectedQn, pageEpId);
           ids.push(id);
         }
       });
-    } else {
-      onDownload(entry.id, info.bvid, info.pages[0].cid, info.title, selectedQn, epId);
-      ids.push(entry.id);
     }
     setDownloadedIds((prev) => {
       const next = new Set(prev);
@@ -174,12 +193,40 @@ export function VideoDetail({ entry, onBack, onDownload, defaultQn }: VideoDetai
             </select>
           </div>
 
+          {/* 正片/预告 切换（仅番剧显示） */}
+          {hasExtra && (
+            <div className="inline-flex rounded-lg border border-gray-200 p-0.5 bg-gray-50">
+              <button
+                onClick={() => switchTab("main")}
+                className={cn(
+                  "px-4 py-1.5 text-xs font-medium rounded-md transition-all",
+                  episodeTab === "main"
+                    ? "bg-white text-blue-600 shadow-sm border border-gray-200"
+                    : "text-gray-500 hover:text-gray-700"
+                )}
+              >
+                正片（{info.pages.length}）
+              </button>
+              <button
+                onClick={() => switchTab("extra")}
+                className={cn(
+                  "px-4 py-1.5 text-xs font-medium rounded-md transition-all",
+                  episodeTab === "extra"
+                    ? "bg-white text-blue-600 shadow-sm border border-gray-200"
+                    : "text-gray-500 hover:text-gray-700"
+                )}
+              >
+                预告/花絮（{info.extra_pages!.length}）
+              </button>
+            </div>
+          )}
+
           {/* 分P列表 */}
-          {isMultiPage && (
+          {isMultiPage && currentPages.length > 0 && (
             <div>
               <div className="flex items-center justify-between mb-2">
                 <label className="text-xs font-medium text-gray-600">
-                  分P列表（已选 {selectedPages.size}/{info.pages.length}）
+                  分P列表（已选 {selectedPages.size}/{currentPages.length}）
                 </label>
                 <div className="flex gap-2">
                   <button
@@ -197,12 +244,12 @@ export function VideoDetail({ entry, onBack, onDownload, defaultQn }: VideoDetai
                 </div>
               </div>
               <div className="space-y-1 max-h-48 overflow-y-auto">
-                {info.pages.map((p) => {
+                {currentPages.map((p) => {
                   const pageId = `${entry.id}_P${p.page}`;
                   const isDownloaded = downloadedIds.has(pageId);
                   return (
                     <label
-                      key={p.page}
+                      key={`${episodeTab}-${p.page}`}
                       className={cn(
                         "flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer transition-colors",
                         isDownloaded
