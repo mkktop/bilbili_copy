@@ -22,6 +22,8 @@ Only change version when explicitly asked. CI triggers on `v*` tag push.
 
 **Release flow: batch all changes, then tag once.** Code fixes + version sync must be in a single commit. Only create the tag after confirming everything is ready. Never push multiple tags for the same version — each tag push triggers CI and forces users to update.
 
+**Release notes: write `RELEASE_NOTES.md` before tagging.** CI reads this file as the GitHub Release body and as the in-app update changelog. Every time a tag is created, write `RELEASE_NOTES.md` with the actual changes since the last version (features, fixes, improvements). Format: markdown with `## 更新内容` section listing bullet points, followed by install/upgrade instructions. Commit it together with the version bump before tagging.
+
 ## Architecture
 
 Tauri 2 desktop app: Rust backend + React 18 frontend (Vite + Tailwind CSS).
