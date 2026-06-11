@@ -23,6 +23,7 @@ pub async fn parse_video(url_str: String) -> Result<VideoInfo, String> {
     let info = video::get_video_info(
         parsed.bvid.as_deref(),
         parsed.aid,
+        parsed.ep_id,
         credential.as_ref(),
     )
     .await

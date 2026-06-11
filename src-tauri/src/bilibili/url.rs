@@ -9,6 +9,8 @@ pub struct ParsedUrl {
     pub page: Option<u32>,
     /// 需要异步解析的短链接（b23.tv）
     pub short_url: Option<String>,
+    /// 番剧 ep_id（/bangumi/play/ep12345）
+    pub ep_id: Option<u64>,
 }
 
 /// 从 URL 字符串中提取 BV 号、AV 号和分P页码
@@ -29,6 +31,7 @@ pub fn parse_bilibili_url(input: &str) -> Result<ParsedUrl> {
             aid: Some(aid),
             page: None,
             short_url: None,
+            ep_id: None,
         });
     }
 
@@ -40,6 +43,7 @@ pub fn parse_bilibili_url(input: &str) -> Result<ParsedUrl> {
             aid: Some(aid),
             page: None,
             short_url: None,
+            ep_id: None,
         });
     }
 
@@ -58,6 +62,7 @@ fn parse_from_url(url: &str) -> Result<ParsedUrl> {
             aid: Some(aid),
             page,
             short_url: None,
+            ep_id: None,
         });
     }
 
@@ -68,6 +73,18 @@ fn parse_from_url(url: &str) -> Result<ParsedUrl> {
             aid: Some(aid),
             page,
             short_url: None,
+            ep_id: None,
+        });
+    }
+
+    // 提取番剧 ep_id（/bangumi/play/ep12345）
+    if let Some(ep_id) = extract_ep_id(url) {
+        return Ok(ParsedUrl {
+            bvid: None,
+            aid: None,
+            page,
+            short_url: None,
+            ep_id: Some(ep_id),
         });
     }
 
@@ -78,6 +95,7 @@ fn parse_from_url(url: &str) -> Result<ParsedUrl> {
             aid: None,
             page: None,
             short_url: Some(url.to_string()),
+            ep_id: None,
         });
     }
 
@@ -128,6 +146,17 @@ fn extract_aid(url: &str) -> Option<u64> {
         if let Some(av_part) = segment.strip_prefix("av") {
             let aid_str = av_part.split('?').next().unwrap_or(av_part);
             return aid_str.parse().ok();
+        }
+    }
+    None
+}
+
+/// 从番剧 URL 提取 ep_id（如 /bangumi/play/ep827835）
+fn extract_ep_id(url: &str) -> Option<u64> {
+    for segment in url.split('/') {
+        if let Some(ep_str) = segment.strip_prefix("ep") {
+            let ep_id = ep_str.split('?').next().unwrap_or(ep_str);
+            return ep_id.parse().ok();
         }
     }
     None

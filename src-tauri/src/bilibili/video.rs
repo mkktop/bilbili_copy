@@ -68,10 +68,11 @@ fn bilibili_client() -> Result<Client> {
         .context("创建 HTTP 客户端失败")
 }
 
-/// 根据BV号获取视频详细信息
+/// 根据BV号/AV号/ep_id获取视频详细信息
 pub async fn get_video_info(
     bvid: Option<&str>,
     aid: Option<u64>,
+    ep_id: Option<u64>,
     credential: Option<&Credential>,
 ) -> Result<VideoInfo> {
     let client = bilibili_client()?;
@@ -80,13 +81,15 @@ pub async fn get_video_info(
         .get("https://api.bilibili.com/x/web-interface/view")
         .header("Referer", REFERER);
 
-    // 优先使用 bvid，否则使用 aid
+    // 优先使用 bvid，其次 aid，最后 ep_id
     if let Some(bvid) = bvid {
         request = request.query(&[("bvid", bvid)]);
     } else if let Some(aid) = aid {
         request = request.query(&[("aid", &aid.to_string())]);
+    } else if let Some(ep_id) = ep_id {
+        request = request.query(&[("ep_id", &ep_id.to_string())]);
     } else {
-        anyhow::bail!("必须提供 bvid 或 aid");
+        anyhow::bail!("必须提供 bvid、aid 或 ep_id");
     }
 
     // 如果已登录，带上 Cookie
