@@ -46,15 +46,6 @@ export default function App() {
 
   const { phase, updateInfo } = useUpdate();
   const { settings, loading: settingsLoading, save } = useSettings();
-
-  // 设置加载中显示 loading
-  if (settingsLoading) {
-    return (
-      <div className="flex items-center justify-center h-screen bg-gray-50">
-        <Loader2 size={24} className="animate-spin text-blue-500" />
-      </div>
-    );
-  }
   const { userInfo, logout, generateQrcode, pollQrcode } = useLogin();
   const [version, setVersion] = useState("");
   const [loginDialogOpen, setLoginDialogOpen] = useState(false);
@@ -62,6 +53,15 @@ export default function App() {
 
   // 用于 UserProfile 外部点击关闭
   const profileRef = useRef<HTMLDivElement>(null);
+
+  // 设置加载中显示 loading（所有 hooks 必须在 early return 之前）
+  if (settingsLoading) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-gray-50">
+        <Loader2 size={24} className="animate-spin text-blue-500" />
+      </div>
+    );
+  }
 
   useEffect(() => {
     getVersion().then((v) => setVersion(v));
