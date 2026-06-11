@@ -67,6 +67,20 @@ jobs:
           $trimmed = $env:RAW_KEY.Trim()
           "TAURI_SIGNING_PRIVATE_KEY=$trimmed" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
 
+      - name: Read release notes
+        id: release_notes
+        shell: bash
+        run: |
+          if [ -f "RELEASE_NOTES.md" ]; then
+            {
+              echo "NOTES<<EOF"
+              cat RELEASE_NOTES.md
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
+          else
+            echo "NOTES=版本 ${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
         env:
@@ -75,20 +89,7 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "BilbliCopy for Windows ${{ github.ref_name }}"
-          releaseBody: |
-            ## 📺 B站视频下载
-
-            快速下载Bilibili视频到本地。
-
-            ## 📥 安装
-
-            1. 下载下方 `.msi` 文件
-            2. 双击运行，按提示安装
-
-            ## 🔄 升级
-
-            - **自动更新**：已安装旧版本的用户，启动应用后会自动检测新版本，点击「立即更新」即可
-            - **手动更新**：下载最新 `.msi` 重新安装，覆盖旧版本
+          releaseBody: ${{ steps.release_notes.outputs.NOTES }}
           releaseDraft: false
           prerelease: false
           tauriScript: pnpm tauri
