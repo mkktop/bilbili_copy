@@ -81,6 +81,9 @@ pub struct DashStream {
     pub id: i64,
     pub base_url: String,
     pub backup_url: Option<Vec<String>>,
+    // 编解码器 ID: 7=AVC, 12=HEVC, 13=AV1
+    #[serde(default)]
+    pub codecid: i64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -118,14 +121,28 @@ const QUALITY_LEVELS: &[i64] = &[
     16,  // 360P
 ];
 
+/// B站 API codec ID → 编解码器名称
+fn codec_name(codecid: i64) -> &'static str {
+    match codecid {
+        7 => "AVC",
+        12 => "HEV",
+        13 => "AV1",
+        _ => "UNKNOWN",
+    }
+}
+
 // ==================== 核心 API 调用 ====================
 
-/// 获取视频的流地址（带画质降级 + 番剧 API 回退）
+/// 获取视频的流地址（带画质降级 + 编解码器优先级 + 番剧 API 回退）
 pub async fn get_playurl(
     bvid: &str,
     cid: i64,
     credential: &Credential,
-    qn: Option<i64>,
+    video_max_qn: i64,
+    video_min_qn: i64,
+    audio_max_qn: i64,
+    audio_min_qn: i64,
+    codec_priority: &[String],
 ) -> Result<SelectedStreams> {
     let client = Client::builder()
         .user_agent(USER_AGENT)
@@ -133,13 +150,18 @@ pub async fn get_playurl(
         .build()
         .context("创建HTTP客户端失败")?;
 
-    // 用户指定的最大画质，未指定则不限制
-    let max_qn = qn.unwrap_or(127);
-
-    log::info!("[playurl] 开始获取流地址: bvid={}, cid={}, max_qn={}", bvid, cid, max_qn);
+    log::info!(
+        "[playurl] 开始获取流地址: bvid={}, cid={}, video_max={}, video_min={}, audio_max={}, audio_min={}",
+        bvid, cid, video_max_qn, video_min_qn, audio_max_qn, audio_min_qn
+    );
 
     // 1. 尝试标准 playurl API（带画质降级链）
-    match try_playurl_with_fallback(&client, bvid, cid, credential, max_qn).await {
+    match try_playurl_with_fallback(
+        &client, bvid, cid, credential, video_max_qn, video_min_qn,
+        audio_max_qn, audio_min_qn, codec_priority,
+    )
+    .await
+    {
         Ok(streams) => return Ok(streams),
         Err(e) => {
             log::warn!("[playurl] 标准API全部失败: {}", e);
@@ -147,7 +169,12 @@ pub async fn get_playurl(
     }
 
     // 2. 尝试番剧 API 回退
-    match try_bangumi_playurl(&client, bvid, cid, credential, max_qn).await {
+    match try_bangumi_playurl(
+        &client, bvid, cid, credential, video_max_qn, video_min_qn,
+        audio_max_qn, audio_min_qn, codec_priority,
+    )
+    .await
+    {
         Ok(streams) => return Ok(streams),
         Err(e) => {
             log::warn!("[playurl] 番剧API失败: {}", e);
@@ -156,15 +183,18 @@ pub async fn get_playurl(
     }
 }
 
-/// 标准 playurl API — 带画质降级链（仅尝试 <= max_qn 的画质等级）
+/// 标准 playurl API — 带画质降级链
 async fn try_playurl_with_fallback(
     client: &Client,
     bvid: &str,
     cid: i64,
     credential: &Credential,
     max_qn: i64,
+    min_qn: i64,
+    audio_max_qn: i64,
+    audio_min_qn: i64,
+    codec_priority: &[String],
 ) -> Result<SelectedStreams> {
-    // 只尝试不超过用户设置的最大画质
     let levels: Vec<i64> = QUALITY_LEVELS
         .iter()
         .filter(|&&q| q <= max_qn)
@@ -176,7 +206,9 @@ async fn try_playurl_with_fallback(
     for &qn in &levels {
         match try_playurl_once(client, bvid, cid, qn, credential).await {
             Ok(data) => {
-                if let Some(streams) = parse_streams(&data, max_qn) {
+                if let Some(streams) =
+                    parse_streams(&data, max_qn, min_qn, audio_max_qn, audio_min_qn, codec_priority)
+                {
                     return Ok(streams);
                 }
                 last_error = "API返回成功但无法解析流".to_string();
@@ -240,7 +272,6 @@ async fn try_playurl_once(
             .await?;
 
         let status = resp.status();
-        // 412 = WBI 签名过期
         if status == reqwest::StatusCode::PRECONDITION_FAILED && attempt == 0 {
             log::warn!("[playurl] HTTP 412, 刷新WBI密钥重试");
             continue;
@@ -254,7 +285,6 @@ async fn try_playurl_once(
 
         if resp.code != 0 {
             let msg = resp.message.unwrap_or_else(|| "未知错误".to_string());
-            // -404 可能是签名问题，刷新密钥重试
             if resp.code == -404 && attempt == 0 {
                 log::warn!("[playurl] API -404, 刷新WBI密钥重试");
                 continue;
@@ -268,13 +298,17 @@ async fn try_playurl_once(
     anyhow::bail!("WBI签名重试后仍然失败")
 }
 
-/// 番剧 API 回退（仅尝试 <= max_qn 的画质等级）
+/// 番剧 API 回退
 async fn try_bangumi_playurl(
     client: &Client,
     bvid: &str,
     cid: i64,
     credential: &Credential,
     max_qn: i64,
+    min_qn: i64,
+    audio_max_qn: i64,
+    audio_min_qn: i64,
+    codec_priority: &[String],
 ) -> Result<SelectedStreams> {
     let mut last_error = String::new();
 
@@ -318,7 +352,9 @@ async fn try_bangumi_playurl(
         }
 
         let data = resp.result.or(resp.data).context("番剧 API 响应无数据")?;
-        if let Some(streams) = parse_streams(&data, max_qn) {
+        if let Some(streams) =
+            parse_streams(&data, max_qn, min_qn, audio_max_qn, audio_min_qn, codec_priority)
+        {
             return Ok(streams);
         }
     }
@@ -328,39 +364,35 @@ async fn try_bangumi_playurl(
 
 // ==================== 流解析 ====================
 
-fn parse_streams(data: &PlayUrlData, max_qn: i64) -> Option<SelectedStreams> {
+fn parse_streams(
+    data: &PlayUrlData,
+    max_qn: i64,
+    min_qn: i64,
+    audio_max_qn: i64,
+    audio_min_qn: i64,
+    codec_priority: &[String],
+) -> Option<SelectedStreams> {
     if let Some(ref dash) = data.dash {
         if dash.video.is_empty() {
             return None;
         }
 
-        // 选择不超过 max_qn 的最高画质视频流
+        // 选择画质范围内的最高画质视频流
         let video_stream = dash
             .video
             .iter()
-            .filter(|s| s.id <= max_qn)
+            .filter(|s| s.id <= max_qn && s.id >= min_qn)
             .max_by_key(|s| s.id)
             .or_else(|| dash.video.first())?;
 
+        // 如果有同画质的多个编码流，按编解码器优先级选择
+        let video_stream = select_best_codec(dash, video_stream.id, codec_priority)
+            .unwrap_or(video_stream);
+
         let video_urls = build_url_list(&video_stream.base_url, &video_stream.backup_url);
 
-        let audio_urls = if let Some(audio) = dash.audio.iter().max_by_key(|s| s.id) {
-            build_url_list(&audio.base_url, &audio.backup_url)
-        } else if let Some(ref flac) = dash.flac {
-            if let Some(ref audio) = flac.audio {
-                build_url_list(&audio.base_url, &audio.backup_url)
-            } else {
-                Vec::new()
-            }
-        } else if let Some(ref dolby) = dash.dolby {
-            if let Some(ref audio) = dolby.audio {
-                build_url_list(&audio.base_url, &audio.backup_url)
-            } else {
-                Vec::new()
-            }
-        } else {
-            Vec::new()
-        };
+        // 选择音频流：按质量范围过滤
+        let audio_urls = select_audio(dash, audio_max_qn, audio_min_qn);
 
         return Some(SelectedStreams {
             video_urls,
@@ -381,6 +413,89 @@ fn parse_streams(data: &PlayUrlData, max_qn: i64) -> Option<SelectedStreams> {
     }
 
     None
+}
+
+/// 在同画质的多个编码流中，按编解码器优先级选择最优的
+fn select_best_codec<'a>(
+    dash: &'a DashData,
+    target_qn: i64,
+    codec_priority: &[String],
+) -> Option<&'a DashStream> {
+    let candidates: Vec<&DashStream> = dash
+        .video
+        .iter()
+        .filter(|s| s.id == target_qn)
+        .collect();
+
+    if candidates.len() <= 1 {
+        return candidates.into_iter().next();
+    }
+
+    // 按编解码器优先级选择：优先级列表中越靠前越优先
+    let mut best = candidates[0];
+    let mut best_priority = codec_index(codec_name(best.codecid), codec_priority);
+
+    for candidate in &candidates[1..] {
+        let priority = codec_index(codec_name(candidate.codecid), codec_priority);
+        if priority < best_priority {
+            best = candidate;
+            best_priority = priority;
+        }
+    }
+
+    log::info!(
+        "[playurl] 编解码器选择: qn={}, codec={} (优先级={})",
+        target_qn,
+        codec_name(best.codecid),
+        best_priority
+    );
+
+    Some(best)
+}
+
+/// 获取编解码器在优先级列表中的位置（越小越优先）
+fn codec_index(codec: &str, priority: &[String]) -> usize {
+    priority
+        .iter()
+        .position(|p| p == codec)
+        .unwrap_or(usize::MAX)
+}
+
+/// 选择音频流：按质量范围过滤，选最高质量
+fn select_audio(dash: &DashData, max_qn: i64, min_qn: i64) -> Vec<String> {
+    // 收集所有音频流
+    let mut all_audio: Vec<&DashStream> = Vec::new();
+    all_audio.extend(dash.audio.iter());
+    if let Some(ref flac) = dash.flac {
+        if let Some(ref audio) = flac.audio {
+            all_audio.push(audio);
+        }
+    }
+    if let Some(ref dolby) = dash.dolby {
+        if let Some(ref audio) = dolby.audio {
+            all_audio.push(audio);
+        }
+    }
+
+    // 按质量范围过滤后选最高质量
+    let best = all_audio
+        .iter()
+        .filter(|s| {
+            let id = s.id;
+            (min_qn == 0 || id >= min_qn) && (max_qn == 0 || id <= max_qn)
+        })
+        .max_by_key(|s| s.id);
+
+    if let Some(audio) = best {
+        return build_url_list(&audio.base_url, &audio.backup_url);
+    }
+
+    // 没有符合范围的，退而求其次选最高质量的
+    if let Some(audio) = all_audio.iter().max_by_key(|s| s.id) {
+        return build_url_list(&audio.base_url, &audio.backup_url);
+    }
+
+    Vec::new()
 }
 
 fn build_url_list(primary: &str, backup: &Option<Vec<String>>) -> Vec<String> {
