@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use tauri::AppHandle;
 use tokio::io::AsyncWriteExt;
 
-const MAX_RETRIES: usize = 3;
+const MAX_RETRIES: usize = 2;
 
 /// 下载进度事件载荷
 #[derive(Clone, Serialize)]
@@ -67,7 +67,7 @@ fn download_client() -> Result<reqwest::Client> {
         .user_agent(USER_AGENT)
         .cookie_store(false)
         .connect_timeout(std::time::Duration::from_secs(10))
-        .read_timeout(std::time::Duration::from_secs(30))
+        .read_timeout(std::time::Duration::from_secs(15))
         .build()
         .context("创建HTTP客户端失败")
 }
@@ -141,7 +141,22 @@ pub async fn download_stream(
                             .context("读取下载文件信息失败")?;
                     if metadata.len() < 1024 {
                         // 小于 1KB 可能是错误页面
-                        last_error = "下载文件过小，可能是错误响应".to_string();
+                        last_error = format!(
+                            "下载文件过小 ({}bytes)，可能是错误响应",
+                            metadata.len()
+                        );
+                        log::warn!(
+                            "[download] {} 流文件过小: id={}, size={}bytes, 可能是CDN错误响应",
+                            stream_label, download_id, metadata.len()
+                        );
+                        // 尝试读取文件内容用于诊断
+                        if let Ok(content) = tokio::fs::read_to_string(&temp_path).await {
+                            log::debug!(
+                                "[download] 错误响应内容: id={}, 内容={}",
+                                download_id,
+                                &content[..content.len().min(500)]
+                            );
+                        }
                         let _ = tokio::fs::remove_file(&temp_path).await;
                         break; // 换下一个 URL
                     }
@@ -153,6 +168,15 @@ pub async fn download_stream(
                         url_idx,
                         retry,
                         e
+                    );
+                    log::warn!(
+                        "[download] {} 流下载失败: id={}, {}, 将{}",
+                        stream_label, download_id, last_error,
+                        if retry < MAX_RETRIES {
+                            format!("{}ms后重试", 500 * (retry as u64 + 1))
+                        } else {
+                            "尝试下一个URL".to_string()
+                        }
                     );
                     if retry < MAX_RETRIES {
                         tokio::time::sleep(std::time::Duration::from_millis(500 * (retry as u64 + 1)))
@@ -180,6 +204,13 @@ async fn download_single(
     temp_path: &Path,
     stream_label: &str,
 ) -> Result<()> {
+    // 只打印 URL 的域名部分，避免超长日志
+    let url_host = url.split('/').nth(2).unwrap_or("unknown");
+    log::info!(
+        "[download] {} 流开始下载: id={}, host={}",
+        stream_label, download_id, url_host
+    );
+
     let response = client
         .get(url)
         .headers(create_download_headers())
@@ -188,11 +219,20 @@ async fn download_single(
         .await
         .context("请求视频流失败")?;
 
-    if !response.status().is_success() {
-        anyhow::bail!("视频流请求失败: HTTP {}", response.status());
+    let status = response.status();
+    if !status.is_success() {
+        log::error!(
+            "[download] {} 流请求失败: id={}, HTTP {}, host={}",
+            stream_label, download_id, status, url_host
+        );
+        anyhow::bail!("视频流请求失败: HTTP {}", status);
     }
 
     let total_size = response.content_length().unwrap_or(0);
+    log::info!(
+        "[download] {} 流连接成功: id={}, HTTP {}, Content-Length={}, host={}",
+        stream_label, download_id, status, total_size, url_host
+    );
 
     let mut file = tokio::fs::File::create(temp_path)
         .await
@@ -237,6 +277,10 @@ async fn download_single(
     }
 
     file.flush().await.context("刷新文件失败")?;
+    log::info!(
+        "[download] {} 流下载完成: id={}, size={}bytes, host={}",
+        stream_label, download_id, downloaded, url_host
+    );
     Ok(())
 }
 

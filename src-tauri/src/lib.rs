@@ -74,12 +74,16 @@ fn init_logger() {
         .set_thread_mode(ThreadLogMode::Both)
         .build();
 
+    // 用 LineWriter 包装，确保每行日志立即刷盘（避免缓冲导致看不到关键日志）
+    let line_writer = std::io::LineWriter::new(file);
+
     let _ = CombinedLogger::init(vec![
         TermLogger::new(LevelFilter::Warn, config.clone(), TerminalMode::Mixed, ColorChoice::Auto),
-        WriteLogger::new(LevelFilter::Debug, config, file),
+        WriteLogger::new(LevelFilter::Debug, config, line_writer),
     ]);
 
     log::info!("========== 应用启动 ==========");
+    log::logger().flush();
 }
 
 pub fn run() {

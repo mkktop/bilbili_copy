@@ -274,10 +274,10 @@ async fn try_playurl_once(
         }
 
         let body_text = resp.text().await?;
-        log::debug!("[playurl] qn={}, HTTP {}, 响应: {}", qn, status, &body_text[..body_text.len().min(500)]);
+        log::debug!("[playurl] qn={}, HTTP {}, 响应: {}", qn, status, &body_text.chars().take(500).collect::<String>());
 
         let resp: PlayUrlResponse = serde_json::from_str(&body_text)
-            .context(format!("响应解析失败: {}", &body_text[..body_text.len().min(200)]))?;
+            .context(format!("响应解析失败: {}", &body_text.chars().take(200).collect::<String>()))?;
 
         if resp.code != 0 {
             let msg = resp.message.unwrap_or_else(|| "未知错误".to_string());
@@ -333,7 +333,7 @@ async fn try_bangumi_playurl(
             .await?;
 
         let body_text = resp.text().await?;
-        log::debug!("[bangumi] qn={}, 响应: {}", qn, &body_text[..body_text.len().min(500)]);
+        log::debug!("[bangumi] qn={}, 响应: {}", qn, &body_text.chars().take(500).collect::<String>());
 
         let resp: PlayUrlResponse = serde_json::from_str(&body_text).unwrap_or(PlayUrlResponse {
             code: -1,

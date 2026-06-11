@@ -76,6 +76,11 @@ pub async fn download_video(
 
     match result {
         Ok(()) => {
+            log::info!(
+                "[download] 下载完成: id={}, path={}",
+                download_id,
+                output_path.display()
+            );
             let _ = app.emit(
                 "download://complete",
                 DownloadComplete {
@@ -87,6 +92,11 @@ pub async fn download_video(
         }
         Err(e) => {
             let error_msg = e.to_string();
+            log::error!(
+                "[download] 下载失败: id={}, error={}",
+                download_id,
+                error_msg
+            );
             let _ = app.emit(
                 "download://error",
                 DownloadError {
@@ -114,10 +124,19 @@ async fn run_download(
     output_path: &std::path::Path,
 ) -> anyhow::Result<()> {
     // 5. 获取视频流地址
+    log::info!(
+        "[download] 开始获取流地址: id={}, bvid={}, cid={}",
+        download_id, bvid, cid
+    );
     let streams = get_playurl(
         bvid, cid, credential, video_max_qn, video_min_qn,
         audio_max_qn, audio_min_qn, codec_priority,
     ).await?;
+    log::info!(
+        "[download] 流地址获取成功: id={}, legacy={}, has_audio={}, video_urls={}, audio_urls={}",
+        download_id, streams.is_legacy_format, streams.has_audio(),
+        streams.video_urls.len(), streams.audio_urls.len()
+    );
 
     let mut temp_files: Vec<std::path::PathBuf> = Vec::new();
 
