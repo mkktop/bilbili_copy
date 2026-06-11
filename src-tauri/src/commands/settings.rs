@@ -23,6 +23,18 @@ fn default_codec_priority() -> Vec<String> {
     vec!["AVC".into(), "HEV".into(), "AV1".into()]
 }
 
+fn default_max_concurrent_downloads() -> usize {
+    2
+}
+
+fn default_max_pages_per_video() -> usize {
+    2
+}
+
+fn default_parallel_threads() -> usize {
+    4
+}
+
 // ==================== 旧格式（用于向后兼容迁移） ====================
 
 #[derive(Debug, Deserialize)]
@@ -63,6 +75,13 @@ pub struct AppSettings {
     pub audio_min_quality: i64,
     #[serde(default = "default_codec_priority")]
     pub video_codec_priority: Vec<String>,
+    // 下载并发设置
+    #[serde(default = "default_max_concurrent_downloads")]
+    pub max_concurrent_downloads: usize,
+    #[serde(default = "default_max_pages_per_video")]
+    pub max_pages_per_video: usize,
+    #[serde(default = "default_parallel_threads")]
+    pub parallel_threads: usize,
 }
 
 impl Default for AppSettings {
@@ -75,6 +94,9 @@ impl Default for AppSettings {
             audio_max_quality: default_audio_max_quality(),
             audio_min_quality: default_audio_min_quality(),
             video_codec_priority: default_codec_priority(),
+            max_concurrent_downloads: default_max_concurrent_downloads(),
+            max_pages_per_video: default_max_pages_per_video(),
+            parallel_threads: default_parallel_threads(),
         }
     }
 }
@@ -97,6 +119,9 @@ impl From<LegacySettings> for AppSettings {
             video_codec_priority: legacy
                 .video_codec_priority
                 .unwrap_or_else(default_codec_priority),
+            max_concurrent_downloads: default_max_concurrent_downloads(),
+            max_pages_per_video: default_max_pages_per_video(),
+            parallel_threads: default_parallel_threads(),
         }
     }
 }

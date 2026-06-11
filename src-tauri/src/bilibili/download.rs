@@ -17,7 +17,6 @@ const MAX_RETRIES: usize = 2;
 // ==================== Feature 1: 并行下载常量 ====================
 const MIN_PARALLEL_SIZE: u64 = 4 * 1024 * 1024; // 4MB 以下不分片
 const MIN_SEGMENT_SIZE: u64 = 1 * 1024 * 1024; // 每片至少 1MB
-const PARALLEL_THREADS: usize = 4; // 默认分片数
 
 // ==================== Feature 2: 坏 CDN 节点缓存 ====================
 const BAD_CDN_TTL: Duration = Duration::from_secs(600); // 10 分钟
@@ -180,6 +179,7 @@ pub fn sanitize_filename(title: &str) -> String {
 
 /// 下载单个流到临时文件
 /// 支持：多 URL 回退 + 重试 + 坏节点缓存 + 断点续传 + Range 分片并行
+/// `parallel_threads`: Range 分片线程数（1 = 关闭并行）
 pub async fn download_stream(
     app: &AppHandle,
     download_id: &str,
@@ -187,6 +187,7 @@ pub async fn download_stream(
     credential: &Credential,
     temp_dir: &Path,
     stream_label: &str,
+    parallel_threads: usize,
 ) -> Result<PathBuf> {
     let client = download_client()?;
     let extension = if stream_label == "video" {
@@ -225,6 +226,7 @@ pub async fn download_stream(
                 &temp_path,
                 stream_label,
                 existing_size,
+                parallel_threads,
             )
             .await
             {
@@ -275,6 +277,7 @@ pub async fn download_stream(
 }
 
 /// 下载单个 URL 到文件（自动选择并行/单线程 + 支持断点续传）
+/// `parallel_threads`: Range 分片线程数（1 = 关闭并行）
 async fn download_file(
     client: &reqwest::Client,
     app: &AppHandle,
@@ -283,7 +286,8 @@ async fn download_file(
     credential: &Credential,
     temp_path: &Path,
     stream_label: &str,
-    existing_size: u64, // Feature 5: 已有文件大小（0 = 全新下载）
+    existing_size: u64,
+    parallel_threads: usize,
 ) -> Result<()> {
     let url_host = url.split('/').nth(2).unwrap_or("unknown");
     log::info!("[download] {} 流开始下载: id={}, host={}", stream_label, download_id, url_host);
@@ -304,15 +308,15 @@ async fn download_file(
 
     // Feature 1: 判断是否走并行下载
     let remaining = if total_size > 0 { total_size - resume_from } else { 0 };
-    let use_parallel = range_supported && remaining >= MIN_PARALLEL_SIZE && resume_from == 0;
+    let use_parallel = parallel_threads > 1 && range_supported && remaining >= MIN_PARALLEL_SIZE && resume_from == 0;
 
     if use_parallel {
         log::info!(
             "[download] {} 流启用并行下载: id={}, size={}bytes, 分片数={}",
             stream_label, download_id, total_size,
-            calculate_segments(total_size)
+            calculate_segments(total_size, parallel_threads)
         );
-        match download_parallel(client, app, url, credential, temp_path, download_id, stream_label, total_size).await {
+        match download_parallel(client, app, url, credential, temp_path, download_id, stream_label, total_size, parallel_threads).await {
             Ok(()) => return Ok(()),
             Err(e) => {
                 log::warn!("[download] 并行下载失败，降级为单线程: {}", e);
@@ -372,9 +376,9 @@ async fn probe_range_support(client: &reqwest::Client, url: &str, credential: &C
 }
 
 /// 计算分片数
-fn calculate_segments(total_size: u64) -> usize {
+fn calculate_segments(total_size: u64, threads: usize) -> usize {
     let max_segments = ((total_size + MIN_SEGMENT_SIZE - 1) / MIN_SEGMENT_SIZE) as usize;
-    PARALLEL_THREADS.min(max_segments).max(1)
+    threads.min(max_segments).max(1)
 }
 
 /// Feature 1: Range 分片并行下载
@@ -387,8 +391,9 @@ async fn download_parallel(
     download_id: &str,
     stream_label: &str,
     total_size: u64,
+    threads: usize,
 ) -> Result<()> {
-    let segment_count = calculate_segments(total_size);
+    let segment_count = calculate_segments(total_size, threads);
     let segment_size = total_size / segment_count as u64;
 
     // 预分配文件

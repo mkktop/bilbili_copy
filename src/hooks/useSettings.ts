@@ -9,6 +9,10 @@ export interface AppSettings {
   audio_max_quality: number;    // 默认 30280 (192K)
   audio_min_quality: number;    // 默认 0 (不限制)
   video_codec_priority: string[];  // 默认 ["AVC", "HEV", "AV1"]
+  // 下载并发设置
+  max_concurrent_downloads: number;  // 默认 2
+  max_pages_per_video: number;       // 默认 2
+  parallel_threads: number;          // 默认 4
 }
 
 export function useSettings() {
@@ -20,6 +24,9 @@ export function useSettings() {
     audio_max_quality: 30280,
     audio_min_quality: 0,
     video_codec_priority: ["AVC", "HEV", "AV1"],
+    max_concurrent_downloads: 2,
+    max_pages_per_video: 2,
+    parallel_threads: 4,
   });
   const [loading, setLoading] = useState(true);
 

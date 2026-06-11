@@ -10,32 +10,41 @@ use crate::bilibili::download::{
     DownloadComplete, DownloadError,
 };
 use crate::bilibili::playurl::get_playurl;
-use crate::commands::settings::get_settings;
+use crate::commands::settings::{get_settings, AppSettings};
 use tauri::AppHandle;
 
-// ==================== Feature 3: 全局下载并发限制 ====================
-const MAX_GLOBAL_DOWNLOADS: usize = 2;
-static DOWNLOAD_SEMAPHORE: Lazy<Semaphore> = Lazy::new(|| Semaphore::new(MAX_GLOBAL_DOWNLOADS));
+// ==================== 动态并发控制（从 settings 读取） ====================
 
-// ==================== Feature 4: 分P独立并发限制 ====================
-const MAX_PAGES_PER_VIDEO: usize = 2;
+/// 根据当前设置创建/获取全局 Semaphore
+/// 使用 Arc<Semaphore> + Lazy 组合，每次设置变更时重建
+static DOWNLOAD_SEMAPHORE: Lazy<Mutex<Arc<Semaphore>>> = Lazy::new(|| {
+    Mutex::new(Arc::new(Semaphore::new(2)))
+});
+
 static VIDEO_SEMAPHORES: Lazy<Mutex<HashMap<String, Arc<Semaphore>>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
-/// 获取指定 bvid 的 per-video Semaphore
-fn get_video_semaphore(bvid: &str) -> Arc<Semaphore> {
+/// 确保全局 Semaphore 的 permits 数与设置一致
+fn ensure_global_semaphore(settings: &AppSettings) -> Arc<Semaphore> {
+    let mut guard = DOWNLOAD_SEMAPHORE.lock().unwrap();
+    let current = guard.clone();
+    if current.available_permits() != settings.max_concurrent_downloads {
+        *guard = Arc::new(Semaphore::new(settings.max_concurrent_downloads));
+    }
+    guard.clone()
+}
+
+fn get_video_semaphore(bvid: &str, max_pages: usize) -> Arc<Semaphore> {
     let mut map = VIDEO_SEMAPHORES.lock().unwrap();
     map.entry(bvid.to_string())
-        .or_insert_with(|| Arc::new(Semaphore::new(MAX_PAGES_PER_VIDEO)))
+        .or_insert_with(|| Arc::new(Semaphore::new(max_pages)))
         .clone()
 }
 
-/// 清理无持有者的 per-video Semaphore（防止内存泄漏）
-fn cleanup_video_semaphore(bvid: &str) {
+fn cleanup_video_semaphore(bvid: &str, max_pages: usize) {
     let mut map = VIDEO_SEMAPHORES.lock().unwrap();
     if let Some(sem) = map.get(bvid) {
-        // 如果 Semaphore 的可用 permit 数 == 最大值，说明没人持有
-        if sem.available_permits() == MAX_PAGES_PER_VIDEO {
+        if sem.available_permits() == max_pages {
             map.remove(bvid);
         }
     }
@@ -52,14 +61,19 @@ pub async fn download_video(
 ) -> Result<(), String> {
     let download_id = id;
 
+    // 从设置中读取并发参数
+    let settings = get_settings().map_err(|e| e.to_string())?;
+    let global_sem = ensure_global_semaphore(&settings);
+    let max_pages = settings.max_pages_per_video;
+
     // Feature 3: 获取全局下载 permit
-    let _global_permit = DOWNLOAD_SEMAPHORE
+    let _global_permit = global_sem
         .acquire()
         .await
         .map_err(|e| format!("获取下载许可失败: {}", e))?;
 
     // Feature 4: 获取 per-video 分P permit
-    let video_sem = get_video_semaphore(&bvid);
+    let video_sem = get_video_semaphore(&bvid, max_pages);
     let _video_permit = video_sem
         .acquire()
         .await
@@ -68,7 +82,7 @@ pub async fn download_video(
     log::info!(
         "[download] 获得并发许可: id={}, 全局可用={}, 视频{}可用={}",
         download_id,
-        DOWNLOAD_SEMAPHORE.available_permits(),
+        global_sem.available_permits(),
         bvid,
         video_sem.available_permits()
     );
@@ -78,10 +92,7 @@ pub async fn download_video(
         .map_err(|_| "请先登录".to_string())?
         .ok_or_else(|| "请先登录".to_string())?;
 
-    // 2. 加载设置
-    let settings = get_settings().map_err(|e| e.to_string())?;
-
-    // 2.5 画质参数
+    // 2. 画质参数（复用已加载的 settings）
     let video_max_qn = qn.unwrap_or(settings.video_max_quality);
     let video_min_qn = settings.video_min_quality;
     let audio_max_qn = settings.audio_max_quality;
@@ -125,11 +136,12 @@ pub async fn download_video(
         &credential,
         &download_dir,
         &output_path,
+        settings.parallel_threads,
     )
     .await;
 
     // 清理 per-video semaphore（_video_permit 和 _global_permit 在函数返回时自动释放）
-    cleanup_video_semaphore(&bvid);
+    cleanup_video_semaphore(&bvid, max_pages);
 
     match result {
         Ok(()) => {
@@ -179,6 +191,7 @@ async fn run_download(
     credential: &Credential,
     temp_dir: &std::path::Path,
     output_path: &std::path::Path,
+    parallel_threads: usize,
 ) -> anyhow::Result<()> {
     // 5. 获取视频流地址
     log::info!(
@@ -201,23 +214,23 @@ async fn run_download(
     let result = async {
         if streams.is_legacy_format {
             let video_temp = download_stream(
-                app, download_id, &streams.video_urls, credential, temp_dir, "video",
+                app, download_id, &streams.video_urls, credential, temp_dir, "video", parallel_threads,
             ).await?;
             temp_files.push(video_temp.clone());
             remux_to_mp4(&video_temp, output_path).await?;
         } else if streams.has_audio() {
             let video_temp = download_stream(
-                app, download_id, &streams.video_urls, credential, temp_dir, "video",
+                app, download_id, &streams.video_urls, credential, temp_dir, "video", parallel_threads,
             ).await?;
             temp_files.push(video_temp.clone());
             let audio_temp = download_stream(
-                app, download_id, &streams.audio_urls, credential, temp_dir, "audio",
+                app, download_id, &streams.audio_urls, credential, temp_dir, "audio", parallel_threads,
             ).await?;
             temp_files.push(audio_temp.clone());
             merge_streams(&video_temp, &audio_temp, output_path).await?;
         } else {
             let video_temp = download_stream(
-                app, download_id, &streams.video_urls, credential, temp_dir, "video",
+                app, download_id, &streams.video_urls, credential, temp_dir, "video", parallel_threads,
             ).await?;
             temp_files.push(video_temp.clone());
             tokio::fs::rename(&video_temp, output_path).await?;

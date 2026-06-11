@@ -2,11 +2,12 @@ import { useState, useEffect } from "react";
 import { ArrowLeft } from "lucide-react";
 import { GeneralTab } from "./settings/GeneralTab";
 import { QualityTab } from "./settings/QualityTab";
+import { DownloadTab } from "./settings/DownloadTab";
 import { AboutTab } from "./settings/AboutTab";
 import type { AppSettings } from "../hooks/useSettings";
 import { cn } from "../lib/utils";
 
-type Tab = "general" | "quality" | "about";
+type Tab = "general" | "quality" | "download" | "about";
 
 interface SettingsPageProps {
   settings: AppSettings;
@@ -22,10 +23,13 @@ export function SettingsPage({ settings, onSave, onBack }: SettingsPageProps) {
   const [audioMaxQuality, setAudioMaxQuality] = useState(settings.audio_max_quality);
   const [audioMinQuality, setAudioMinQuality] = useState(settings.audio_min_quality);
   const [codecPriority, setCodecPriority] = useState<string[]>(settings.video_codec_priority);
+  const [maxConcurrentDownloads, setMaxConcurrentDownloads] = useState(settings.max_concurrent_downloads);
+  const [maxPagesPerVideo, setMaxPagesPerVideo] = useState(settings.max_pages_per_video);
+  const [parallelThreads, setParallelThreads] = useState(settings.parallel_threads);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
-  // 当外部 settings 变化时（如 AboutTab 修改了 auto_update），同步本地状态
+  // 当外部 settings 变化时同步本地状态
   useEffect(() => {
     setDir(settings.default_download_dir);
     setVideoMaxQuality(settings.video_max_quality);
@@ -33,6 +37,9 @@ export function SettingsPage({ settings, onSave, onBack }: SettingsPageProps) {
     setAudioMaxQuality(settings.audio_max_quality);
     setAudioMinQuality(settings.audio_min_quality);
     setCodecPriority(settings.video_codec_priority);
+    setMaxConcurrentDownloads(settings.max_concurrent_downloads);
+    setMaxPagesPerVideo(settings.max_pages_per_video);
+    setParallelThreads(settings.parallel_threads);
   }, [settings]);
 
   const handleSave = async () => {
@@ -46,6 +53,9 @@ export function SettingsPage({ settings, onSave, onBack }: SettingsPageProps) {
         audio_max_quality: audioMaxQuality,
         audio_min_quality: audioMinQuality,
         video_codec_priority: codecPriority,
+        max_concurrent_downloads: maxConcurrentDownloads,
+        max_pages_per_video: maxPagesPerVideo,
+        parallel_threads: parallelThreads,
       });
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
@@ -57,6 +67,7 @@ export function SettingsPage({ settings, onSave, onBack }: SettingsPageProps) {
   const tabLabels: Record<Tab, string> = {
     general: "通用",
     quality: "视频质量",
+    download: "下载",
     about: "关于",
   };
 
@@ -75,7 +86,7 @@ export function SettingsPage({ settings, onSave, onBack }: SettingsPageProps) {
 
       {/* Tab bar */}
       <div className="flex border-b border-gray-200 px-6">
-        {(["general", "quality", "about"] as Tab[]).map((tab) => (
+        {(["general", "quality", "download", "about"] as Tab[]).map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -114,6 +125,19 @@ export function SettingsPage({ settings, onSave, onBack }: SettingsPageProps) {
             onAudioMinQualityChange={(q) => { setAudioMinQuality(q); setSaved(false); }}
             codecPriority={codecPriority}
             onCodecPriorityChange={(p) => { setCodecPriority(p); setSaved(false); }}
+            saving={saving}
+            saved={saved}
+            onSave={handleSave}
+          />
+        )}
+        {activeTab === "download" && (
+          <DownloadTab
+            maxConcurrentDownloads={maxConcurrentDownloads}
+            onMaxConcurrentDownloadsChange={(v) => { setMaxConcurrentDownloads(v); setSaved(false); }}
+            maxPagesPerVideo={maxPagesPerVideo}
+            onMaxPagesPerVideoChange={(v) => { setMaxPagesPerVideo(v); setSaved(false); }}
+            parallelThreads={parallelThreads}
+            onParallelThreadsChange={(v) => { setParallelThreads(v); setSaved(false); }}
             saving={saving}
             saved={saved}
             onSave={handleSave}
