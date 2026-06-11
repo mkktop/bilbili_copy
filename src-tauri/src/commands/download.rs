@@ -1,4 +1,9 @@
+use once_cell::sync::Lazy;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 use tauri::Emitter;
+use tokio::sync::Semaphore;
+
 use crate::bilibili::credential::Credential;
 use crate::bilibili::download::{
     cleanup_temp_files, download_stream, merge_streams, remux_to_mp4, sanitize_filename,
@@ -7,6 +12,34 @@ use crate::bilibili::download::{
 use crate::bilibili::playurl::get_playurl;
 use crate::commands::settings::get_settings;
 use tauri::AppHandle;
+
+// ==================== Feature 3: 全局下载并发限制 ====================
+const MAX_GLOBAL_DOWNLOADS: usize = 2;
+static DOWNLOAD_SEMAPHORE: Lazy<Semaphore> = Lazy::new(|| Semaphore::new(MAX_GLOBAL_DOWNLOADS));
+
+// ==================== Feature 4: 分P独立并发限制 ====================
+const MAX_PAGES_PER_VIDEO: usize = 2;
+static VIDEO_SEMAPHORES: Lazy<Mutex<HashMap<String, Arc<Semaphore>>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
+
+/// 获取指定 bvid 的 per-video Semaphore
+fn get_video_semaphore(bvid: &str) -> Arc<Semaphore> {
+    let mut map = VIDEO_SEMAPHORES.lock().unwrap();
+    map.entry(bvid.to_string())
+        .or_insert_with(|| Arc::new(Semaphore::new(MAX_PAGES_PER_VIDEO)))
+        .clone()
+}
+
+/// 清理无持有者的 per-video Semaphore（防止内存泄漏）
+fn cleanup_video_semaphore(bvid: &str) {
+    let mut map = VIDEO_SEMAPHORES.lock().unwrap();
+    if let Some(sem) = map.get(bvid) {
+        // 如果 Semaphore 的可用 permit 数 == 最大值，说明没人持有
+        if sem.available_permits() == MAX_PAGES_PER_VIDEO {
+            map.remove(bvid);
+        }
+    }
+}
 
 #[tauri::command]
 pub async fn download_video(
@@ -18,6 +51,27 @@ pub async fn download_video(
     qn: Option<i64>,
 ) -> Result<(), String> {
     let download_id = id;
+
+    // Feature 3: 获取全局下载 permit
+    let _global_permit = DOWNLOAD_SEMAPHORE
+        .acquire()
+        .await
+        .map_err(|e| format!("获取下载许可失败: {}", e))?;
+
+    // Feature 4: 获取 per-video 分P permit
+    let video_sem = get_video_semaphore(&bvid);
+    let _video_permit = video_sem
+        .acquire()
+        .await
+        .map_err(|e| format!("获取分P下载许可失败: {}", e))?;
+
+    log::info!(
+        "[download] 获得并发许可: id={}, 全局可用={}, 视频{}可用={}",
+        download_id,
+        DOWNLOAD_SEMAPHORE.available_permits(),
+        bvid,
+        video_sem.available_permits()
+    );
 
     // 1. 加载凭证（必须已登录）
     let credential = Credential::load()
@@ -73,6 +127,9 @@ pub async fn download_video(
         &output_path,
     )
     .await;
+
+    // 清理 per-video semaphore（_video_permit 和 _global_permit 在函数返回时自动释放）
+    cleanup_video_semaphore(&bvid);
 
     match result {
         Ok(()) => {

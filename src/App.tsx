@@ -161,25 +161,7 @@ export default function App() {
     }
   };
 
-  // 下载队列：限制并发数，防止同时冲击 CDN/代理
-  const MAX_CONCURRENT_DOWNLOADS = 2;
-  const downloadQueue = useRef<{
-    queue: Array<() => Promise<void>>;
-    running: number;
-  }>({ queue: [], running: 0 });
-
-  const processQueue = useCallback(() => {
-    const q = downloadQueue.current;
-    while (q.running < MAX_CONCURRENT_DOWNLOADS && q.queue.length > 0) {
-      const next = q.queue.shift()!;
-      q.running++;
-      next().finally(() => {
-        q.running--;
-        processQueue();
-      });
-    }
-  }, []);
-
+  // 并发控制已移到 Rust 后端（Semaphore），前端直接 invoke 即可
   const handleDownload = async (
     id: string,
     bvid: string,
@@ -187,7 +169,7 @@ export default function App() {
     title: string,
     qn: number = 80
   ) => {
-    // 用 ref 防止重复提交（不受 React 批量更新影响）
+    // 用 ref 防止重复提交
     if (downloadingIds.current.has(id)) return;
     downloadingIds.current.add(id);
 
@@ -197,22 +179,18 @@ export default function App() {
       ...prev,
     ]);
 
-    // 加入下载队列
-    downloadQueue.current.queue.push(async () => {
-      try {
-        await invoke("download_video", { id, bvid, cid, title, qn });
-        // downloadingIds 在 download://complete 事件中清理
-      } catch (err) {
-        downloadingIds.current.delete(id);
-        setDownloads((prev) =>
-          prev.map((d) =>
-            d.id === id ? { ...d, status: "error" as const, errorMsg: String(err) } : d
-          )
-        );
-      }
-    });
-
-    processQueue();
+    // 直接 invoke，并发由 Rust 端 Semaphore 控制
+    try {
+      await invoke("download_video", { id, bvid, cid, title, qn });
+      // downloadingIds 在 download://complete 事件中清理
+    } catch (err) {
+      downloadingIds.current.delete(id);
+      setDownloads((prev) =>
+        prev.map((d) =>
+          d.id === id ? { ...d, status: "error" as const, errorMsg: String(err) } : d
+        )
+      );
+    }
   };
 
   const handleSelectItem = (item: ParsedItem) => {

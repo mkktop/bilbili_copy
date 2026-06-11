@@ -2,13 +2,79 @@ use tauri::Emitter;
 use crate::bilibili::credential::Credential;
 use crate::bilibili::{USER_AGENT, REFERER};
 use anyhow::{Context, Result};
+use once_cell::sync::Lazy;
 use reqwest::header::{HeaderMap, HeaderValue};
 use serde::Serialize;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 use tauri::AppHandle;
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncSeekExt, AsyncWriteExt};
 
 const MAX_RETRIES: usize = 2;
+
+// ==================== Feature 1: 并行下载常量 ====================
+const MIN_PARALLEL_SIZE: u64 = 4 * 1024 * 1024; // 4MB 以下不分片
+const MIN_SEGMENT_SIZE: u64 = 1 * 1024 * 1024; // 每片至少 1MB
+const PARALLEL_THREADS: usize = 4; // 默认分片数
+
+// ==================== Feature 2: 坏 CDN 节点缓存 ====================
+const BAD_CDN_TTL: Duration = Duration::from_secs(600); // 10 分钟
+
+static BAD_CDN_HOSTS: Lazy<Mutex<HashMap<String, Instant>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
+
+/// 提取 URL 中的 host
+fn extract_host(url: &str) -> Option<String> {
+    url.split('/')
+        .nth(2)
+        .map(|h| h.split(':').next().unwrap_or(h).to_string())
+}
+
+/// 清理过期的坏节点记录
+fn prune_expired(cache: &mut HashMap<String, Instant>) {
+    let now = Instant::now();
+    cache.retain(|_, marked_at| now.duration_since(*marked_at) <= BAD_CDN_TTL);
+}
+
+/// 检查 URL 是否在坏节点黑名单中
+fn is_bad_host(url: &str) -> bool {
+    if let Some(host) = extract_host(url) {
+        let mut cache = BAD_CDN_HOSTS.lock().unwrap();
+        prune_expired(&mut cache);
+        cache.contains_key(&host)
+    } else {
+        false
+    }
+}
+
+/// 将 URL 标记为坏节点
+fn mark_bad_host(url: &str) {
+    if let Some(host) = extract_host(url) {
+        let mut cache = BAD_CDN_HOSTS.lock().unwrap();
+        prune_expired(&mut cache);
+        let is_new = !cache.contains_key(&host);
+        cache.insert(host.clone(), Instant::now());
+        if is_new {
+            log::warn!("[download] 标记坏CDN节点: {} (缓存{}分钟)", host, BAD_CDN_TTL.as_secs() / 60);
+        }
+    }
+}
+
+/// 检查错误是否为证书/连接类错误（应该标记为坏节点）
+fn is_bad_host_error(err: &anyhow::Error) -> bool {
+    let msg = format!("{:#}", err).to_ascii_lowercase();
+    msg.contains("certificate")
+        || msg.contains("tls")
+        || msg.contains("ssl")
+        || msg.contains("connect_timeout")
+        || msg.contains("connection refused")
+        || msg.contains("connection reset")
+        || msg.contains("名称解析") // DNS
+}
+
+// ==================== 事件载荷 ====================
 
 /// 下载进度事件载荷
 #[derive(Clone, Serialize)]
@@ -33,6 +99,8 @@ pub struct DownloadError {
     pub id: String,
     pub error: String,
 }
+
+// ==================== HTTP 客户端 & 请求头 ====================
 
 /// 构建视频流下载请求头
 fn create_download_headers() -> HeaderMap {
@@ -66,11 +134,23 @@ fn download_client() -> Result<reqwest::Client> {
     reqwest::Client::builder()
         .user_agent(USER_AGENT)
         .cookie_store(false)
-        .connect_timeout(std::time::Duration::from_secs(10))
-        .read_timeout(std::time::Duration::from_secs(15))
+        .connect_timeout(Duration::from_secs(10))
+        .read_timeout(Duration::from_secs(15))
         .build()
         .context("创建HTTP客户端失败")
 }
+
+// ==================== Feature 5: 断点续传辅助 ====================
+
+/// 获取已下载的临时文件大小（用于断点续传）
+async fn get_existing_size(temp_path: &Path) -> u64 {
+    match tokio::fs::metadata(temp_path).await {
+        Ok(meta) if meta.len() > 0 => meta.len(),
+        _ => 0,
+    }
+}
+
+// ==================== 核心下载逻辑 ====================
 
 /// 清理文件名中的非法字符（Windows 兼容）
 pub fn sanitize_filename(title: &str) -> String {
@@ -78,7 +158,6 @@ pub fn sanitize_filename(title: &str) -> String {
         .chars()
         .map(|c| match c {
             '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
-            // 替换控制字符（0x00-0x1F）
             c if c.is_control() => '_',
             _ => c,
         })
@@ -86,7 +165,6 @@ pub fn sanitize_filename(title: &str) -> String {
     let truncated: String = sanitized.chars().take(200).collect();
     let result = truncated.trim_end_matches(|c: char| c == '.' || c == ' ');
 
-    // 检查 Windows 保留文件名
     let upper = result.to_uppercase();
     let reserved = [
         "CON", "PRN", "AUX", "NUL",
@@ -100,7 +178,8 @@ pub fn sanitize_filename(title: &str) -> String {
     result.to_string()
 }
 
-/// 下载单个流到临时文件（支持多 URL 回退 + 重试）
+/// 下载单个流到临时文件
+/// 支持：多 URL 回退 + 重试 + 坏节点缓存 + 断点续传 + Range 分片并行
 pub async fn download_stream(
     app: &AppHandle,
     download_id: &str,
@@ -119,10 +198,25 @@ pub async fn download_stream(
 
     let mut last_error = String::new();
 
+    // Feature 5: 断点续传 — 检查已有文件大小
+    let existing_size = get_existing_size(&temp_path).await;
+    if existing_size > 0 {
+        log::info!(
+            "[download] {} 流检测到断点续传: id={}, 已有{}bytes",
+            stream_label, download_id, existing_size
+        );
+    }
+
     // 依次尝试所有 URL（主 URL + 备用 URL）
     for (url_idx, url) in urls.iter().enumerate() {
+        // Feature 2: 跳过坏节点
+        if is_bad_host(url) {
+            log::info!("[download] {} 流跳过坏CDN节点: id={}, host=URL#{}", stream_label, download_id, url_idx);
+            continue;
+        }
+
         for retry in 0..=MAX_RETRIES {
-            match download_single(
+            match download_file(
                 &client,
                 app,
                 download_id,
@@ -130,45 +224,32 @@ pub async fn download_stream(
                 credential,
                 &temp_path,
                 stream_label,
+                existing_size,
             )
             .await
             {
                 Ok(()) => {
                     // 下载完成，验证文件大小
-                    let metadata =
-                        tokio::fs::metadata(&temp_path)
-                            .await
-                            .context("读取下载文件信息失败")?;
+                    let metadata = tokio::fs::metadata(&temp_path)
+                        .await
+                        .context("读取下载文件信息失败")?;
                     if metadata.len() < 1024 {
-                        // 小于 1KB 可能是错误页面
-                        last_error = format!(
-                            "下载文件过小 ({}bytes)，可能是错误响应",
-                            metadata.len()
-                        );
-                        log::warn!(
-                            "[download] {} 流文件过小: id={}, size={}bytes, 可能是CDN错误响应",
-                            stream_label, download_id, metadata.len()
-                        );
-                        // 尝试读取文件内容用于诊断
+                        last_error = format!("下载文件过小 ({}bytes)", metadata.len());
+                        log::warn!("[download] {} 流文件过小: id={}, size={}bytes", stream_label, download_id, metadata.len());
                         if let Ok(content) = tokio::fs::read_to_string(&temp_path).await {
-                            log::debug!(
-                                "[download] 错误响应内容: id={}, 内容={}",
-                                download_id,
-                                &content[..content.len().min(500)]
-                            );
+                            log::debug!("[download] 错误响应内容: id={}, 内容={}", download_id, &content[..content.len().min(500)]);
                         }
                         let _ = tokio::fs::remove_file(&temp_path).await;
-                        break; // 换下一个 URL
+                        break;
                     }
                     return Ok(temp_path.clone());
                 }
                 Err(e) => {
-                    last_error = format!(
-                        "URL#{} 重试#{}: {}",
-                        url_idx,
-                        retry,
-                        e
-                    );
+                    // Feature 2: 标记坏节点
+                    if is_bad_host_error(&e) {
+                        mark_bad_host(url);
+                    }
+                    last_error = format!("URL#{} 重试#{}: {}", url_idx, retry, e);
                     log::warn!(
                         "[download] {} 流下载失败: id={}, {}, 将{}",
                         stream_label, download_id, last_error,
@@ -179,8 +260,7 @@ pub async fn download_stream(
                         }
                     );
                     if retry < MAX_RETRIES {
-                        tokio::time::sleep(std::time::Duration::from_millis(500 * (retry as u64 + 1)))
-                            .await;
+                        tokio::time::sleep(Duration::from_millis(500 * (retry as u64 + 1))).await;
                     }
                 }
             }
@@ -194,7 +274,286 @@ pub async fn download_stream(
     )
 }
 
-/// 下载单个 URL 到文件
+/// 下载单个 URL 到文件（自动选择并行/单线程 + 支持断点续传）
+async fn download_file(
+    client: &reqwest::Client,
+    app: &AppHandle,
+    download_id: &str,
+    url: &str,
+    credential: &Credential,
+    temp_path: &Path,
+    stream_label: &str,
+    existing_size: u64, // Feature 5: 已有文件大小（0 = 全新下载）
+) -> Result<()> {
+    let url_host = url.split('/').nth(2).unwrap_or("unknown");
+    log::info!("[download] {} 流开始下载: id={}, host={}", stream_label, download_id, url_host);
+
+    // Feature 1: 先探测文件大小和 Range 支持
+    let (total_size, range_supported) = probe_range_support(client, url, credential).await;
+
+    // Feature 5: 断点续传 — 如果已有部分文件，调整起始位置
+    let resume_from = if existing_size > 0 && range_supported && total_size > 0 && existing_size < total_size {
+        log::info!(
+            "[download] {} 流断点续传: id={}, 从{}bytes继续 (总{}bytes)",
+            stream_label, download_id, existing_size, total_size
+        );
+        existing_size
+    } else {
+        0
+    };
+
+    // Feature 1: 判断是否走并行下载
+    let remaining = if total_size > 0 { total_size - resume_from } else { 0 };
+    let use_parallel = range_supported && remaining >= MIN_PARALLEL_SIZE && resume_from == 0;
+
+    if use_parallel {
+        log::info!(
+            "[download] {} 流启用并行下载: id={}, size={}bytes, 分片数={}",
+            stream_label, download_id, total_size,
+            calculate_segments(total_size)
+        );
+        match download_parallel(client, app, url, credential, temp_path, download_id, stream_label, total_size).await {
+            Ok(()) => return Ok(()),
+            Err(e) => {
+                log::warn!("[download] 并行下载失败，降级为单线程: {}", e);
+                // 降级到单线程，删除可能的不完整文件
+                let _ = tokio::fs::remove_file(temp_path).await;
+            }
+        }
+    }
+
+    // 单线程下载（含断点续传）
+    download_single(client, app, download_id, url, credential, temp_path, stream_label, resume_from).await
+}
+
+/// 探测 Range 支持和文件大小
+async fn probe_range_support(client: &reqwest::Client, url: &str, credential: &Credential) -> (u64, bool) {
+    // 先发 HEAD 请求
+    if let Ok(resp) = client
+        .head(url)
+        .headers(create_download_headers())
+        .header("Cookie", credential.cookie_header())
+        .send()
+        .await
+    {
+        let total = resp.content_length().unwrap_or(0);
+        let range = resp.headers()
+            .get("accept-ranges")
+            .and_then(|v| v.to_str().ok())
+            .map(|v| v.contains("bytes"))
+            .unwrap_or(false);
+        if total > 0 {
+            return (total, range);
+        }
+    }
+
+    // HEAD 失败，用 Range: bytes=0-0 探测
+    if let Ok(resp) = client
+        .get(url)
+        .headers(create_download_headers())
+        .header("Cookie", credential.cookie_header())
+        .header("Range", "bytes=0-0")
+        .send()
+        .await
+    {
+        if resp.status() == reqwest::StatusCode::PARTIAL_CONTENT {
+            if let Some(cr) = resp.headers().get("content-range").and_then(|v| v.to_str().ok()) {
+                // Content-Range: bytes 0-0/12345678
+                if let Some(total_str) = cr.split('/').last() {
+                    if let Ok(total) = total_str.parse::<u64>() {
+                        return (total, true);
+                    }
+                }
+            }
+        }
+    }
+
+    (0, false)
+}
+
+/// 计算分片数
+fn calculate_segments(total_size: u64) -> usize {
+    let max_segments = ((total_size + MIN_SEGMENT_SIZE - 1) / MIN_SEGMENT_SIZE) as usize;
+    PARALLEL_THREADS.min(max_segments).max(1)
+}
+
+/// Feature 1: Range 分片并行下载
+async fn download_parallel(
+    client: &reqwest::Client,
+    app: &AppHandle,
+    url: &str,
+    credential: &Credential,
+    temp_path: &Path,
+    download_id: &str,
+    stream_label: &str,
+    total_size: u64,
+) -> Result<()> {
+    let segment_count = calculate_segments(total_size);
+    let segment_size = total_size / segment_count as u64;
+
+    // 预分配文件
+    {
+        let file = tokio::fs::File::create(temp_path).await?;
+        file.set_len(total_size).await?;
+    }
+
+    // 构建分片任务
+    let tasks: Vec<_> = (0..segment_count)
+        .map(|i| {
+            let start = i as u64 * segment_size;
+            let end = if i == segment_count - 1 {
+                total_size - 1
+            } else {
+                start + segment_size - 1
+            };
+            (
+                i,
+                start,
+                end,
+            )
+        })
+        .collect();
+
+    let total_for_progress = total_size;
+    let downloaded_counter = Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let last_report = Arc::new(std::sync::atomic::AtomicU64::new(0));
+
+    let segment_results: Vec<u64> = futures::future::try_join_all(
+        tasks.into_iter().map(|(seg_idx, start, end)| {
+            let client = client.clone();
+            let url = url.to_string();
+            let cookie = credential.cookie_header();
+            let temp_path = temp_path.to_path_buf();
+            let download_id = download_id.to_string();
+            let stream_label = stream_label.to_string();
+            let downloaded_counter = downloaded_counter.clone();
+            let last_report = last_report.clone();
+            let app = app.clone();
+
+            async move {
+                download_range_segment(
+                    &client,
+                    &url,
+                    &cookie,
+                    &temp_path,
+                    start,
+                    end,
+                    seg_idx,
+                    &download_id,
+                    &stream_label,
+                    &downloaded_counter,
+                    &last_report,
+                    total_for_progress,
+                    &app,
+                )
+                .await
+            }
+        }),
+    )
+    .await?;
+
+    // 验证总大小
+    let total_downloaded: u64 = segment_results.into_iter().sum();
+    if total_downloaded < total_size.saturating_sub(1024) {
+        anyhow::bail!(
+            "并行下载不完整: 已下载{} / 总{}",
+            total_downloaded,
+            total_size
+        );
+    }
+
+    log::info!(
+        "[download] {} 流并行下载完成: id={}, size={}bytes",
+        stream_label, download_id, total_downloaded
+    );
+    Ok(())
+}
+
+/// 下载单个 Range 分片并写入文件的对应偏移位置
+async fn download_range_segment(
+    client: &reqwest::Client,
+    url: &str,
+    cookie: &str,
+    temp_path: &Path,
+    start: u64,
+    end: u64,
+    seg_idx: usize,
+    download_id: &str,
+    stream_label: &str,
+    downloaded_counter: &Arc<std::sync::atomic::AtomicU64>,
+    last_report: &Arc<std::sync::atomic::AtomicU64>,
+    total_size: u64,
+    app: &AppHandle,
+) -> Result<u64> {
+    let range_header = format!("bytes={}-{}", start, end);
+    log::debug!(
+        "[download] {} 流分片#{}: id={}, range={}",
+        stream_label, seg_idx, download_id, range_header
+    );
+
+    let response = client
+        .get(url)
+        .headers(create_download_headers())
+        .header("Cookie", cookie)
+        .header("Range", &range_header)
+        .send()
+        .await
+        .context(format!("分片#{} 请求失败", seg_idx))?;
+
+    if response.status() != reqwest::StatusCode::PARTIAL_CONTENT {
+        anyhow::bail!("分片#{} 服务器不支持 Range: HTTP {}", seg_idx, response.status());
+    }
+
+    // 打开文件并 seek 到对应偏移
+    let mut file = tokio::fs::OpenOptions::new()
+        .write(true)
+        .open(temp_path)
+        .await
+        .context("打开临时文件失败")?;
+    file.seek(tokio::io::SeekFrom::Start(start)).await?;
+
+    let mut stream = response.bytes_stream();
+    use futures_util::StreamExt;
+    let mut segment_downloaded: u64 = 0;
+
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.context(format!("分片#{} 读取失败", seg_idx))?;
+        file.write_all(&chunk).await?;
+        segment_downloaded += chunk.len() as u64;
+
+        // 全局进度报告
+        let global_downloaded = downloaded_counter.fetch_add(chunk.len() as u64, std::sync::atomic::Ordering::Relaxed) + chunk.len() as u64;
+        let prev = last_report.load(std::sync::atomic::Ordering::Relaxed);
+        if global_downloaded - prev >= 512 * 1024 {
+            let _ = last_report.compare_exchange(
+                prev,
+                global_downloaded,
+                std::sync::atomic::Ordering::Relaxed,
+                std::sync::atomic::Ordering::Relaxed,
+            );
+            let percent = (global_downloaded as f64 / total_size as f64) * 100.0;
+            let _ = app.emit(
+                "download://progress",
+                DownloadProgress {
+                    id: download_id.to_string(),
+                    label: stream_label.to_string(),
+                    downloaded: global_downloaded,
+                    total: total_size,
+                    percent,
+                },
+            );
+        }
+    }
+
+    file.flush().await?;
+    log::debug!(
+        "[download] {} 流分片#{} 完成: id={}, size={}bytes",
+        stream_label, seg_idx, download_id, segment_downloaded
+    );
+    Ok(segment_downloaded)
+}
+
+/// 单线程下载（支持断点续传）
 async fn download_single(
     client: &reqwest::Client,
     app: &AppHandle,
@@ -203,44 +562,51 @@ async fn download_single(
     credential: &Credential,
     temp_path: &Path,
     stream_label: &str,
+    resume_from: u64, // Feature 5: 断点续传起始位置
 ) -> Result<()> {
-    // 只打印 URL 的域名部分，避免超长日志
     let url_host = url.split('/').nth(2).unwrap_or("unknown");
-    log::info!(
-        "[download] {} 流开始下载: id={}, host={}",
-        stream_label, download_id, url_host
-    );
 
-    let response = client
+    let mut request = client
         .get(url)
         .headers(create_download_headers())
-        .header("Cookie", credential.cookie_header())
-        .send()
-        .await
-        .context("请求视频流失败")?;
+        .header("Cookie", credential.cookie_header());
+
+    // Feature 5: 断点续传 — 添加 Range 头
+    if resume_from > 0 {
+        request = request.header("Range", format!("bytes={}-", resume_from));
+    }
+
+    let response = request.send().await.context("请求视频流失败")?;
 
     let status = response.status();
-    if !status.is_success() {
-        log::error!(
-            "[download] {} 流请求失败: id={}, HTTP {}, host={}",
-            stream_label, download_id, status, url_host
-        );
+    // 206 (Partial Content) 或 200 都可以接受
+    if !status.is_success() && status != reqwest::StatusCode::PARTIAL_CONTENT {
         anyhow::bail!("视频流请求失败: HTTP {}", status);
     }
 
     let total_size = response.content_length().unwrap_or(0);
     log::info!(
-        "[download] {} 流连接成功: id={}, HTTP {}, Content-Length={}, host={}",
-        stream_label, download_id, status, total_size, url_host
+        "[download] {} 流连接成功: id={}, HTTP {}, Content-Length={}, host={}, resume={}",
+        stream_label, download_id, status, total_size, url_host, resume_from
     );
 
-    let mut file = tokio::fs::File::create(temp_path)
-        .await
-        .context("创建临时文件失败")?;
+    // Feature 5: 断点续传 — append 模式打开文件
+    let mut file = if resume_from > 0 {
+        tokio::fs::OpenOptions::new()
+            .append(true)
+            .open(temp_path)
+            .await
+            .context("打开临时文件(续传)失败")?
+    } else {
+        tokio::fs::File::create(temp_path)
+            .await
+            .context("创建临时文件失败")?
+    };
 
-    let mut downloaded: u64 = 0;
-    let mut last_report: u64 = 0;
-    let report_interval: u64 = 512 * 1024; // 每512KB报告一次
+    let mut downloaded: u64 = resume_from;
+    let mut last_report: u64 = resume_from;
+    let report_interval: u64 = 512 * 1024;
+    let effective_total = if total_size > 0 { total_size + resume_from } else { 0 };
 
     let mut stream = response.bytes_stream();
     use futures_util::StreamExt;
@@ -250,14 +616,12 @@ async fn download_single(
         file.write_all(&chunk).await.context("写入临时文件失败")?;
         downloaded += chunk.len() as u64;
 
-        // 每512KB或完成时报告进度
         if downloaded - last_report >= report_interval
-            || (total_size > 0 && downloaded >= total_size)
+            || (effective_total > 0 && downloaded >= effective_total)
         {
-            let percent = if total_size > 0 {
-                (downloaded as f64 / total_size as f64) * 100.0
+            let percent = if effective_total > 0 {
+                (downloaded as f64 / effective_total as f64) * 100.0
             } else {
-                // 无法获取总大小时，用已下载量驱动进度（每50MB循环一次）
                 ((downloaded as f64 / (50.0 * 1024.0 * 1024.0)) % 1.0) * 100.0
             };
 
@@ -267,7 +631,7 @@ async fn download_single(
                     id: download_id.to_string(),
                     label: stream_label.to_string(),
                     downloaded,
-                    total: total_size,
+                    total: effective_total,
                     percent,
                 },
             );
@@ -284,19 +648,19 @@ async fn download_single(
     Ok(())
 }
 
+// ==================== ffmpeg 合并 / 转封装 ====================
+
 /// 使用 ffmpeg 合并视频和音频流
 pub async fn merge_streams(
     video_path: &Path,
     audio_path: &Path,
     output_path: &Path,
 ) -> Result<()> {
-    // 合并前验证文件存在且大小合理
     validate_temp_file(video_path, "视频").await?;
     validate_temp_file(audio_path, "音频").await?;
 
     let ffmpeg = resolve_ffmpeg_path();
 
-    // 确保输出目录存在
     if let Some(parent) = output_path.parent() {
         tokio::fs::create_dir_all(parent)
             .await
@@ -305,14 +669,10 @@ pub async fn merge_streams(
 
     let output = create_ffmpeg_command(&ffmpeg)
         .args([
-            "-i",
-            video_path.to_str().unwrap_or(""),
-            "-i",
-            audio_path.to_str().unwrap_or(""),
-            "-c",
-            "copy",
-            "-strict",
-            "unofficial",
+            "-i", video_path.to_str().unwrap_or(""),
+            "-i", audio_path.to_str().unwrap_or(""),
+            "-c", "copy",
+            "-strict", "unofficial",
             "-y",
             output_path.to_str().unwrap_or(""),
         ])
@@ -337,7 +697,6 @@ pub async fn remux_to_mp4(
 
     let ffmpeg = resolve_ffmpeg_path();
 
-    // 确保输出目录存在
     if let Some(parent) = output_path.parent() {
         tokio::fs::create_dir_all(parent)
             .await
@@ -346,12 +705,9 @@ pub async fn remux_to_mp4(
 
     let output = create_ffmpeg_command(&ffmpeg)
         .args([
-            "-i",
-            input_path.to_str().unwrap_or(""),
-            "-c",
-            "copy",
-            "-movflags",
-            "+faststart",
+            "-i", input_path.to_str().unwrap_or(""),
+            "-c", "copy",
+            "-movflags", "+faststart",
             "-y",
             output_path.to_str().unwrap_or(""),
         ])
@@ -366,6 +722,8 @@ pub async fn remux_to_mp4(
 
     Ok(())
 }
+
+// ==================== 辅助函数 ====================
 
 /// 验证临时文件是否存在且大小合理
 async fn validate_temp_file(path: &Path, label: &str) -> Result<()> {
@@ -385,31 +743,25 @@ fn create_ffmpeg_command(ffmpeg: &str) -> tokio::process::Command {
     #[cfg(target_os = "windows")]
     {
         use std::os::windows::process::CommandExt;
-        // CREATE_NO_WINDOW = 0x08000000，防止弹出控制台窗口
         cmd.creation_flags(0x08000000);
     }
     cmd
 }
 
 /// 解析 ffmpeg 路径
-/// 优先级：exe 同目录内置 > 系统 PATH
 fn resolve_ffmpeg_path() -> String {
     if let Ok(exe_path) = std::env::current_exe() {
         if let Some(parent) = exe_path.parent() {
-            // 1. exe 同目录下的 ffmpeg.exe
             let bundled = parent.join("ffmpeg.exe");
             if bundled.exists() {
                 return bundled.to_string_lossy().to_string();
             }
-            // 2. resources 子目录下的 ffmpeg.exe（Tauri MSI 安装后的实际位置）
             let resources = parent.join("resources").join("ffmpeg.exe");
             if resources.exists() {
                 return resources.to_string_lossy().to_string();
             }
         }
     }
-
-    // 3. 兜底使用系统 PATH
     "ffmpeg".to_string()
 }
 
