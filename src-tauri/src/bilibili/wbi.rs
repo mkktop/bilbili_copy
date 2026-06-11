@@ -1,16 +1,12 @@
 use crate::bilibili::credential::Credential;
+use crate::bilibili::{USER_AGENT, REFERER, ORIGIN};
 use anyhow::{Context, Result};
 use md5::{Digest, Md5};
 use reqwest::header::{HeaderMap, HeaderValue};
 use reqwest::Client;
 use serde::Deserialize;
-use std::sync::RwLock;
+use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
-
-const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) \
-    AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36";
-const REFERER: &str = "https://www.bilibili.com/";
-const ORIGIN: &str = "https://www.bilibili.com";
 
 /// 构建模拟浏览器的 API 请求头
 fn create_api_headers() -> HeaderMap {
@@ -37,8 +33,14 @@ const MIXIN_KEY_ENC_TAB: [usize; 64] = [
     4, 22, 25, 54, 21, 56, 59, 6, 63, 57, 62, 11, 36, 20, 34, 44, 52,
 ];
 
-/// WBI密钥缓存（支持刷新，B站会定期轮换密钥）
-static WBI_KEYS: RwLock<Option<WbiKeys>> = RwLock::new(None);
+/// WBI密钥缓存（使用 OnceLock 实现只获取一次，刷新时用 RwLock 覆盖）
+static WBI_KEYS: OnceLock<RwLock<Option<WbiKeys>>> = OnceLock::new();
+
+use std::sync::RwLock;
+
+fn wbi_keys_store() -> &'static RwLock<Option<WbiKeys>> {
+    WBI_KEYS.get_or_init(|| RwLock::new(None))
+}
 
 #[derive(Debug, Clone)]
 pub struct WbiKeys {
@@ -113,7 +115,7 @@ pub fn sign_params(params: &mut Vec<(String, String)>, mixin_key: &str) {
     let hash = hasher.finalize();
     let w_rid = format!("{:x}", hash);
 
-    log::info!("[wbi] 签名完成: wts={}, w_rid={}, query={}", params.iter().find(|(k,_)| k=="wts").map(|(_,v)| v.as_str()).unwrap_or(""), w_rid, &query[..query.len().min(200)]);
+    log::debug!("[wbi] 签名完成: wts={}, w_rid={}, query={}", params.iter().find(|(k,_)| k=="wts").map(|(_,v)| v.as_str()).unwrap_or(""), w_rid, &query[..query.len().min(200)]);
     params.push(("w_rid".to_string(), w_rid));
 }
 
@@ -157,20 +159,26 @@ async fn fetch_wbi_keys(credential: &Credential) -> Result<WbiKeys> {
 
 /// 获取mixin_key用于签名（优先使用缓存）
 pub async fn get_mixin_key_cached(credential: &Credential) -> Result<String> {
+    let store = wbi_keys_store();
     // 先尝试读缓存
     {
-        let guard = WBI_KEYS.read().unwrap();
+        let guard = store.read().unwrap();
         if let Some(keys) = guard.as_ref() {
             return Ok(get_mixin_key(&keys.img_key, &keys.sub_key));
         }
     }
 
-    // 缓存为空，获取新的
+    // 缓存为空，获取新的（使用 double-check 避免重复获取）
     let keys = fetch_wbi_keys(credential).await?;
     let mixin_key = get_mixin_key(&keys.img_key, &keys.sub_key);
     {
-        let mut guard = WBI_KEYS.write().unwrap();
-        *guard = Some(keys);
+        let mut guard = store.write().unwrap();
+        // double-check: 如果其他任务已经写入了，使用已有的
+        if guard.is_none() {
+            *guard = Some(keys);
+        } else if let Some(existing) = guard.as_ref() {
+            return Ok(get_mixin_key(&existing.img_key, &existing.sub_key));
+        }
     }
     Ok(mixin_key)
 }
@@ -180,7 +188,8 @@ pub async fn refresh_mixin_key(credential: &Credential) -> Result<String> {
     let keys = fetch_wbi_keys(credential).await?;
     let mixin_key = get_mixin_key(&keys.img_key, &keys.sub_key);
     {
-        let mut guard = WBI_KEYS.write().unwrap();
+        let store = wbi_keys_store();
+        let mut guard = store.write().unwrap();
         *guard = Some(keys);
     }
     Ok(mixin_key)

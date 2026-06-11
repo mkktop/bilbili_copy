@@ -11,15 +11,19 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { useUpdate } from "../../contexts/UpdateContext";
-import { useSettings } from "../../hooks/useSettings";
+import type { AppSettings } from "../../hooks/useSettings";
 import { cn } from "../../lib/utils";
 
-const GITHUB_URL = "https://github.com/placeholder/bilbili_copy";
+const GITHUB_URL = "https://github.com/mkk/bilbili_copy";
 
-export function AboutTab() {
+interface AboutTabProps {
+  settings: AppSettings;
+  onSave: (settings: AppSettings) => Promise<void>;
+}
+
+export function AboutTab({ settings, onSave }: AboutTabProps) {
   const [version, setVersion] = useState("");
   const { phase, updateInfo, error, checkUpdate, installUpdate } = useUpdate();
-  const { settings, save } = useSettings();
 
   useEffect(() => {
     getVersion().then((v) => setVersion(v));
@@ -33,7 +37,7 @@ export function AboutTab() {
 
   const handleAutoUpdateToggle = async () => {
     const next = !settings.auto_update;
-    await save({ ...settings, auto_update: next });
+    await onSave({ ...settings, auto_update: next });
   };
 
   return (

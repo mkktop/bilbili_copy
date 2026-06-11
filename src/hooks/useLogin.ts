@@ -38,7 +38,11 @@ export function useLogin() {
   }, []);
 
   const logout = useCallback(async () => {
-    await invoke("login_logout");
+    try {
+      await invoke("login_logout");
+    } catch (err) {
+      console.error("登出失败:", err);
+    }
     setUserInfo(null);
   }, []);
 

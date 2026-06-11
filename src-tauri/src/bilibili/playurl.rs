@@ -1,14 +1,10 @@
 use crate::bilibili::credential::Credential;
 use crate::bilibili::wbi;
+use crate::bilibili::{USER_AGENT, REFERER, ORIGIN};
 use anyhow::{Context, Result};
 use reqwest::header::{HeaderMap, HeaderValue};
 use reqwest::Client;
 use serde::Deserialize;
-
-const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) \
-    AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36";
-const REFERER: &str = "https://www.bilibili.com/";
-const ORIGIN: &str = "https://www.bilibili.com";
 
 /// 构建模拟浏览器的 API 请求头
 fn create_api_headers() -> HeaderMap {
@@ -278,7 +274,7 @@ async fn try_playurl_once(
         }
 
         let body_text = resp.text().await?;
-        log::info!("[playurl] qn={}, HTTP {}, 响应: {}", qn, status, &body_text[..body_text.len().min(500)]);
+        log::debug!("[playurl] qn={}, HTTP {}, 响应: {}", qn, status, &body_text[..body_text.len().min(500)]);
 
         let resp: PlayUrlResponse = serde_json::from_str(&body_text)
             .context(format!("响应解析失败: {}", &body_text[..body_text.len().min(200)]))?;
@@ -337,7 +333,7 @@ async fn try_bangumi_playurl(
             .await?;
 
         let body_text = resp.text().await?;
-        log::info!("[bangumi] qn={}, 响应: {}", qn, &body_text[..body_text.len().min(500)]);
+        log::debug!("[bangumi] qn={}, 响应: {}", qn, &body_text[..body_text.len().min(500)]);
 
         let resp: PlayUrlResponse = serde_json::from_str(&body_text).unwrap_or(PlayUrlResponse {
             code: -1,

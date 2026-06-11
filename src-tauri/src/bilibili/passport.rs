@@ -1,28 +1,8 @@
 use crate::bilibili::credential::{Credential, UserInfo};
+use crate::bilibili::{USER_AGENT, REFERER, ORIGIN, BilibiliResponse, http_to_https};
 use anyhow::{Context, Result};
 use reqwest::Client;
 use serde::Deserialize;
-
-const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) \
-    AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36";
-const REFERER: &str = "https://www.bilibili.com/";
-const ORIGIN: &str = "https://www.bilibili.com";
-
-/// 将 http:// URL 替换为 https://，避免混合内容被 WebView 拦截
-fn http_to_https(url: &str) -> String {
-    if url.starts_with("http://") {
-        url.replacen("http://", "https://", 1)
-    } else {
-        url.to_string()
-    }
-}
-
-#[derive(Debug, Deserialize)]
-struct BilibiliResponse<T> {
-    code: i64,
-    data: Option<T>,
-    message: Option<String>,
-}
 
 #[derive(Debug, Deserialize)]
 pub struct QrGenerateData {
@@ -36,7 +16,7 @@ pub struct QrPollData {
     pub refresh_token: Option<String>,
 }
 
-/// 创建带标准 B站 headers 的 reqwest Client（不启用 cookie jar，手动处理 Set-Cookie）
+/// 创建启用 cookie jar 的 reqwest Client（用于一般请求，自动管理 cookies）
 fn bilibili_client() -> Result<Client> {
     Client::builder()
         .user_agent(USER_AGENT)

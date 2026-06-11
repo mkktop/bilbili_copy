@@ -44,7 +44,10 @@ impl Credential {
     pub fn save(&self) -> Result<()> {
         let path = credentials_path();
         let content = serde_json::to_string_pretty(self)?;
-        std::fs::write(&path, content)?;
+        // 原子写入：先写临时文件再 rename，防止崩溃导致数据丢失
+        let tmp_path = path.with_extension("json.tmp");
+        std::fs::write(&tmp_path, &content)?;
+        std::fs::rename(&tmp_path, &path)?;
         Ok(())
     }
 

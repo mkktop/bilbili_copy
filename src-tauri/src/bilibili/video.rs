@@ -1,18 +1,8 @@
 use crate::bilibili::credential::Credential;
+use crate::bilibili::{USER_AGENT, REFERER, BilibiliResponse, http_to_https};
 use anyhow::{Context, Result};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-
-const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) \
-    AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36";
-const REFERER: &str = "https://www.bilibili.com/";
-
-#[derive(Debug, Deserialize)]
-struct BilibiliResponse<T> {
-    code: i64,
-    data: Option<T>,
-    message: Option<String>,
-}
 
 /// 视频分P信息
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -67,15 +57,6 @@ struct ViewPage {
     part: String,
     #[serde(default)]
     duration: u64,
-}
-
-/// 将 http:// URL 替换为 https://，避免混合内容被 WebView 拦截
-fn http_to_https(url: &str) -> String {
-    if url.starts_with("http://") {
-        url.replacen("http://", "https://", 1)
-    } else {
-        url.to_string()
-    }
 }
 
 /// 创建 HTTP 客户端

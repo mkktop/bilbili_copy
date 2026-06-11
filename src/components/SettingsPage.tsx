@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { ArrowLeft } from "lucide-react";
 import { GeneralTab } from "./settings/GeneralTab";
 import { QualityTab } from "./settings/QualityTab";
@@ -24,6 +24,16 @@ export function SettingsPage({ settings, onSave, onBack }: SettingsPageProps) {
   const [codecPriority, setCodecPriority] = useState<string[]>(settings.video_codec_priority);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+
+  // 当外部 settings 变化时（如 AboutTab 修改了 auto_update），同步本地状态
+  useEffect(() => {
+    setDir(settings.default_download_dir);
+    setVideoMaxQuality(settings.video_max_quality);
+    setVideoMinQuality(settings.video_min_quality);
+    setAudioMaxQuality(settings.audio_max_quality);
+    setAudioMinQuality(settings.audio_min_quality);
+    setCodecPriority(settings.video_codec_priority);
+  }, [settings]);
 
   const handleSave = async () => {
     setSaving(true);
@@ -110,7 +120,10 @@ export function SettingsPage({ settings, onSave, onBack }: SettingsPageProps) {
           />
         )}
         {activeTab === "about" && (
-          <AboutTab />
+          <AboutTab
+            settings={settings}
+            onSave={onSave}
+          />
         )}
       </div>
     </div>

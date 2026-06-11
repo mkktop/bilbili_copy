@@ -12,7 +12,7 @@ import { UserProfile } from "./components/UserProfile";
 import { useUpdate } from "./contexts/UpdateContext";
 import { useSettings } from "./hooks/useSettings";
 import { useLogin } from "./hooks/useLogin";
-import { Settings, Download } from "lucide-react";
+import { Settings, Download, Loader2 } from "lucide-react";
 import type { AppSettings } from "./hooks/useSettings";
 import type { ParsedItem, DownloadTask, ParsedVideoInfo } from "./types";
 
@@ -45,57 +45,89 @@ export default function App() {
   const downloadingIds = useRef<Set<string>>(new Set());
 
   const { phase, updateInfo } = useUpdate();
-  const { settings, save } = useSettings();
+  const { settings, loading: settingsLoading, save } = useSettings();
+
+  // 设置加载中显示 loading
+  if (settingsLoading) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-gray-50">
+        <Loader2 size={24} className="animate-spin text-blue-500" />
+      </div>
+    );
+  }
   const { userInfo, logout, generateQrcode, pollQrcode } = useLogin();
   const [version, setVersion] = useState("");
   const [loginDialogOpen, setLoginDialogOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
 
+  // 用于 UserProfile 外部点击关闭
+  const profileRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     getVersion().then((v) => setVersion(v));
   }, []);
 
-  // 下载事件监听
+  // UserProfile 外部点击关闭
   useEffect(() => {
+    if (!profileOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (profileRef.current && !profileRef.current.contains(e.target as Node)) {
+        setProfileOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [profileOpen]);
+
+  // 下载事件监听（使用 mounted ref 防止卸载后更新状态）
+  useEffect(() => {
+    let cancelled = false;
     const unlisteners: UnlistenFn[] = [];
 
     const setup = async () => {
-      unlisteners.push(
-        await listen<DownloadProgress>("download://progress", (event) => {
+      const fns = await Promise.all([
+        listen<DownloadProgress>("download://progress", (event) => {
+          if (cancelled) return;
           const { id, percent } = event.payload;
           setDownloads((prev) =>
             prev.map((d) =>
               d.id === id ? { ...d, status: "downloading" as const, progress: percent } : d
             )
           );
-        })
-      );
-
-      unlisteners.push(
-        await listen<DownloadComplete>("download://complete", (event) => {
+        }),
+        listen<DownloadComplete>("download://complete", (event) => {
+          if (cancelled) return;
           const { id } = event.payload;
+          downloadingIds.current.delete(id);
           setDownloads((prev) =>
             prev.map((d) =>
               d.id === id ? { ...d, status: "done" as const, progress: 100 } : d
             )
           );
-        })
-      );
-
-      unlisteners.push(
-        await listen<DownloadError>("download://error", (event) => {
-          const { id, error } = event.payload;
+        }),
+        listen<DownloadError>("download://error", (event) => {
+          if (cancelled) return;
+          const { id } = event.payload;
+          downloadingIds.current.delete(id);
           setDownloads((prev) =>
             prev.map((d) =>
-              d.id === id ? { ...d, status: "error" as const, errorMsg: error } : d
+              d.id === id ? { ...d, status: "error" as const, errorMsg: event.payload.error } : d
             )
           );
-        })
-      );
+        }),
+      ]);
+      if (cancelled) {
+        fns.forEach((fn) => fn());
+      } else {
+        unlisteners.push(...fns);
+      }
     };
 
     setup();
-    return () => unlisteners.forEach((fn) => fn());
+    return () => {
+      cancelled = true;
+      unlisteners.forEach((fn) => fn());
+    };
   }, []);
 
   const hasUpdate = phase === "available" && updateInfo;
@@ -156,7 +188,10 @@ export default function App() {
 
     try {
       await invoke("download_video", { id, bvid, cid, title, qn });
+      // 注意：downloadingIds 在 download://complete 事件中清理，不在此时清理
+      // 因为 invoke 返回时后端可能仍在发送进度事件
     } catch (err) {
+      downloadingIds.current.delete(id);
       setDownloads((prev) =>
         prev.map((d) =>
           d.id === id ? { ...d, status: "error" as const, errorMsg: String(err) } : d
@@ -250,7 +285,7 @@ export default function App() {
         <div className="flex items-center gap-2">
           {/* 登录按钮 / 头像 */}
           {userInfo ? (
-            <div className="relative">
+            <div className="relative" ref={profileRef}>
               <button
                 onClick={() => setProfileOpen(!profileOpen)}
                 className="p-0.5 rounded-full hover:ring-2 hover:ring-blue-300 transition-all"

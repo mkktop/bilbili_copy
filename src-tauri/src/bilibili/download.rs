@@ -1,5 +1,6 @@
 use tauri::Emitter;
 use crate::bilibili::credential::Credential;
+use crate::bilibili::{USER_AGENT, REFERER};
 use anyhow::{Context, Result};
 use reqwest::header::{HeaderMap, HeaderValue};
 use serde::Serialize;
@@ -7,9 +8,6 @@ use std::path::{Path, PathBuf};
 use tauri::AppHandle;
 use tokio::io::AsyncWriteExt;
 
-const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) \
-    AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36";
-const REFERER: &str = "https://www.bilibili.com/";
 const MAX_RETRIES: usize = 3;
 
 /// 下载进度事件载荷
@@ -74,17 +72,32 @@ fn download_client() -> Result<reqwest::Client> {
         .context("创建HTTP客户端失败")
 }
 
-/// 清理文件名中的非法字符
+/// 清理文件名中的非法字符（Windows 兼容）
 pub fn sanitize_filename(title: &str) -> String {
     let sanitized: String = title
         .chars()
         .map(|c| match c {
-            '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|' | '\n' | '\r' => '_',
+            '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
+            // 替换控制字符（0x00-0x1F）
+            c if c.is_control() => '_',
             _ => c,
         })
         .collect();
     let truncated: String = sanitized.chars().take(200).collect();
-    truncated.trim().to_string()
+    let result = truncated.trim_end_matches(|c: char| c == '.' || c == ' ');
+
+    // 检查 Windows 保留文件名
+    let upper = result.to_uppercase();
+    let reserved = [
+        "CON", "PRN", "AUX", "NUL",
+        "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+        "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+    ];
+    if reserved.iter().any(|r| upper == *r) {
+        return format!("{}_video", result);
+    }
+
+    result.to_string()
 }
 
 /// 下载单个流到临时文件（支持多 URL 回退 + 重试）

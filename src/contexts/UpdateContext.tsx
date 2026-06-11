@@ -4,6 +4,7 @@ import {
   useState,
   useEffect,
   useCallback,
+  useRef,
   type ReactNode,
 } from "react";
 import { invoke } from "@tauri-apps/api/core";
@@ -33,6 +34,7 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isDismissed, setIsDismissed] = useState(false);
+  const installerRef = useRef<(() => Promise<void>) | null>(null);
 
   // Auto-check on mount, gated by auto_update setting
   useEffect(() => {
@@ -67,8 +69,7 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
         const dismissed = localStorage.getItem(DISMISSED_KEY);
         setIsDismissed(dismissed === result.info.version);
         // Store downloadAndInstall for later use
-        (window as unknown as Record<string, unknown>).__updateInstaller =
-          result.downloadAndInstall;
+        installerRef.current = result.downloadAndInstall;
       } else {
         setPhase("upToDate");
       }
@@ -79,8 +80,7 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const installUpdate = useCallback(async () => {
-    const installer = (window as unknown as Record<string, unknown>)
-      .__updateInstaller as (() => Promise<void>) | undefined;
+    const installer = installerRef.current;
     if (!installer) return;
 
     setPhase("downloading");

@@ -140,6 +140,13 @@ pub fn get_settings() -> Result<AppSettings, String> {
 pub fn save_settings(settings: AppSettings) -> Result<(), String> {
     let path = settings_path();
     let content = serde_json::to_string_pretty(&settings).map_err(|e| e.to_string())?;
-    std::fs::write(&path, content).map_err(|e| e.to_string())?;
+    // 原子写入：先写临时文件再 rename，防止崩溃导致数据丢失
+    let tmp_path = path.with_extension("json.tmp");
+    std::fs::write(&tmp_path, &content).map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp_path, &path).map_err(|e| {
+        // rename 失败时尝试清理临时文件
+        let _ = std::fs::remove_file(&tmp_path);
+        e.to_string()
+    })?;
     Ok(())
 }

@@ -85,7 +85,7 @@ fn parse_from_url(url: &str) -> Result<ParsedUrl> {
 }
 
 /// 解析 b23.tv 短链接，跟随重定向获取真实 URL 后提取视频 ID
-pub async fn resolve_short_url(short_url: &str) -> Result<ParsedUrl> {
+pub(crate) async fn resolve_short_url(short_url: &str) -> Result<ParsedUrl> {
     let client = reqwest::Client::builder()
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36")
         .build()?;
