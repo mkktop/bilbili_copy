@@ -24,7 +24,7 @@ function SettingCard({
 }: {
   icon: React.ElementType;
   title: string;
-  description: string;
+  description: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (

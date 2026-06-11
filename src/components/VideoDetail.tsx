@@ -23,7 +23,8 @@ interface VideoDetailProps {
     bvid: string,
     cid: number,
     title: string,
-    qn: number
+    qn: number,
+    epId?: number
   ) => void;
   defaultQn: number;
 }
@@ -62,6 +63,7 @@ export function VideoDetail({ entry, onBack, onDownload, defaultQn }: VideoDetai
 
   const handleDownload = () => {
     const ids: string[] = [];
+    const epId = info.ep_id;
     if (isMultiPage) {
       selectedPages.forEach((page) => {
         const p = info.pages.find((pg) => pg.page === page);
@@ -71,12 +73,12 @@ export function VideoDetail({ entry, onBack, onDownload, defaultQn }: VideoDetai
               ? `${info.title} - P${p.page} ${p.part}`
               : info.title;
           const id = `${entry.id}_P${p.page}`;
-          onDownload(id, info.bvid, p.cid, title, selectedQn);
+          onDownload(id, info.bvid, p.cid, title, selectedQn, epId);
           ids.push(id);
         }
       });
     } else {
-      onDownload(entry.id, info.bvid, info.pages[0].cid, info.title, selectedQn);
+      onDownload(entry.id, info.bvid, info.pages[0].cid, info.title, selectedQn, epId);
       ids.push(entry.id);
     }
     setDownloadedIds((prev) => {

@@ -58,6 +58,7 @@ pub async fn download_video(
     cid: i64,
     title: String,
     qn: Option<i64>,
+    ep_id: Option<u64>,
 ) -> Result<(), String> {
     let download_id = id;
 
@@ -137,6 +138,7 @@ pub async fn download_video(
         &download_dir,
         &output_path,
         settings.parallel_threads,
+        ep_id,
     )
     .await;
 
@@ -192,6 +194,7 @@ async fn run_download(
     temp_dir: &std::path::Path,
     output_path: &std::path::Path,
     parallel_threads: usize,
+    ep_id: Option<u64>,
 ) -> anyhow::Result<()> {
     // 5. 获取视频流地址
     log::info!(
@@ -200,7 +203,7 @@ async fn run_download(
     );
     let streams = get_playurl(
         bvid, cid, credential, video_max_qn, video_min_qn,
-        audio_max_qn, audio_min_qn, codec_priority,
+        audio_max_qn, audio_min_qn, codec_priority, ep_id,
     ).await?;
     log::info!(
         "[download] 流地址获取成功: id={}, legacy={}, has_audio={}, video_urls={}, audio_urls={}",

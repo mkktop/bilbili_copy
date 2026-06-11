@@ -18,6 +18,7 @@ export interface ParsedVideoInfo {
   owner_face: string;
   duration: number;
   pages: VideoPage[];
+  ep_id?: number;
 }
 
 export interface DownloadEntry {

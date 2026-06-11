@@ -139,6 +139,7 @@ pub async fn get_playurl(
     audio_max_qn: i64,
     audio_min_qn: i64,
     codec_priority: &[String],
+    ep_id: Option<u64>,
 ) -> Result<SelectedStreams> {
     let client = Client::builder()
         .user_agent(USER_AGENT)
@@ -147,8 +148,8 @@ pub async fn get_playurl(
         .context("创建HTTP客户端失败")?;
 
     log::info!(
-        "[playurl] 开始获取流地址: bvid={}, cid={}, video_max={}, video_min={}, audio_max={}, audio_min={}",
-        bvid, cid, video_max_qn, video_min_qn, audio_max_qn, audio_min_qn
+        "[playurl] 开始获取流地址: bvid={}, cid={}, ep_id={:?}, video_max={}, video_min={}, audio_max={}, audio_min={}",
+        bvid, cid, ep_id, video_max_qn, video_min_qn, audio_max_qn, audio_min_qn
     );
 
     // 1. 尝试标准 playurl API（带画质降级链）
@@ -167,7 +168,7 @@ pub async fn get_playurl(
     // 2. 尝试番剧 API 回退
     match try_bangumi_playurl(
         &client, bvid, cid, credential, video_max_qn, video_min_qn,
-        audio_max_qn, audio_min_qn, codec_priority,
+        audio_max_qn, audio_min_qn, codec_priority, ep_id,
     )
     .await
     {
@@ -305,6 +306,7 @@ async fn try_bangumi_playurl(
     audio_max_qn: i64,
     audio_min_qn: i64,
     codec_priority: &[String],
+    ep_id: Option<u64>,
 ) -> Result<SelectedStreams> {
     let mut last_error = String::new();
 
@@ -315,14 +317,20 @@ async fn try_bangumi_playurl(
         .collect();
 
     for &qn in &levels {
-        let params = vec![
-            ("bvid".to_string(), bvid.to_string()),
+        let mut params = vec![
             ("cid".to_string(), cid.to_string()),
             ("qn".to_string(), qn.to_string()),
             ("fnval".to_string(), "4048".to_string()),
             ("fourk".to_string(), "1".to_string()),
             ("otype".to_string(), "json".to_string()),
         ];
+
+        // 番剧 API 优先用 ep_id，其次用 bvid
+        if let Some(ep) = ep_id {
+            params.push(("ep_id".to_string(), ep.to_string()));
+        } else {
+            params.push(("bvid".to_string(), bvid.to_string()));
+        }
 
         let resp = client
             .get("https://api.bilibili.com/pgc/player/web/playurl")

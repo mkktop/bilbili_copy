@@ -26,6 +26,9 @@ pub struct VideoInfo {
     pub owner_face: String,
     pub duration: u64,
     pub pages: Vec<PageInfo>,
+    /// 番剧 ep_id，非番剧为 None
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ep_id: Option<u64>,
 }
 
 /// view API 返回的 JSON 结构
@@ -77,6 +80,20 @@ pub async fn get_video_info(
 ) -> Result<VideoInfo> {
     let client = bilibili_client()?;
 
+    // 如果只有 ep_id，优先尝试番剧专用 season API
+    if bvid.is_none() && aid.is_none() {
+        if let Some(ep) = ep_id {
+            log::info!("[video] 检测到 ep_id={}, 先尝试番剧 season API", ep);
+            match try_bangumi_season_info(&client, ep, credential).await {
+                Ok(info) => return Ok(info),
+                Err(e) => {
+                    log::warn!("[video] 番剧 season API 失败: {}, 回退到 view API", e);
+                }
+            }
+        }
+    }
+
+    // 标准 view API
     let mut request = client
         .get("https://api.bilibili.com/x/web-interface/view")
         .header("Referer", REFERER);
@@ -136,5 +153,125 @@ pub async fn get_video_info(
         owner_face: http_to_https(&owner.face),
         duration: data.duration,
         pages,
+        ep_id: None,
+    })
+}
+
+/// 通过番剧 season API 获取单集视频信息
+/// API: https://api.bilibili.com/pgc/view/web/season?ep_id={ep_id}
+async fn try_bangumi_season_info(
+    client: &Client,
+    ep_id: u64,
+    credential: Option<&Credential>,
+) -> Result<VideoInfo> {
+    let mut request = client
+        .get("https://api.bilibili.com/pgc/view/web/season")
+        .header("Referer", REFERER)
+        .query(&[("ep_id", ep_id.to_string())]);
+
+    if let Some(cred) = credential {
+        request = request.header("Cookie", cred.cookie_header());
+    }
+
+    let resp = request.send().await?;
+    let body_text = resp.text().await?;
+    log::debug!(
+        "[bangumi-season] ep_id={}, 响应: {}",
+        ep_id,
+        body_text.chars().take(500).collect::<String>()
+    );
+
+    let json: serde_json::Value = serde_json::from_str(&body_text)
+        .context("番剧 season API 响应解析失败")?;
+
+    let code = json["code"].as_i64().unwrap_or(-1);
+    if code != 0 {
+        anyhow::bail!(
+            "番剧 season API 失败: {}",
+            json["message"].as_str().unwrap_or("未知错误")
+        );
+    }
+
+    let result = json.get("result").context("番剧 season 响应无 result")?;
+    let title = result["title"].as_str().unwrap_or("未知番剧").to_string();
+
+    // 在 episodes 数组中找到匹配的 ep_id
+    let episodes = result["episodes"]
+        .as_array()
+        .context("番剧 season 响应无 episodes")?;
+
+    let mut target_episode: Option<&serde_json::Value> = None;
+    for ep in episodes {
+        if ep["id"].as_i64() == Some(ep_id as i64) {
+            target_episode = Some(ep);
+            break;
+        }
+    }
+
+    // 如果找不到精确匹配，用第一集
+    let episode = target_episode
+        .or(episodes.first())
+        .context("番剧 episodes 为空")?;
+
+    let ep_bvid = episode["bvid"].as_str().unwrap_or("").to_string();
+    let ep_aid = episode["aid"].as_i64().unwrap_or(0) as u64;
+    let ep_cid = episode["cid"].as_i64().unwrap_or(0);
+    let ep_title = episode["title"].as_str().unwrap_or("").to_string();
+    let ep_long_title = episode["long_title"].as_str().unwrap_or("").to_string();
+    let ep_duration = episode["duration"]
+        .as_i64()
+        .unwrap_or(0) as u64
+        / 1000; // API 返回毫秒
+
+    // 构造显示标题
+    let display_title = if ep_long_title.is_empty() {
+        format!("{} 第{}话", title, ep_title)
+    } else {
+        format!("{} {} {}", title, ep_title, ep_long_title)
+    };
+
+    // 把所有剧集作为分P构造 pages
+    let pages: Vec<PageInfo> = episodes
+        .iter()
+        .enumerate()
+        .map(|(i, ep)| PageInfo {
+            cid: ep["cid"].as_i64().unwrap_or(0),
+            page: (i + 1) as u32,
+            part: {
+                let t = ep["long_title"].as_str().unwrap_or("");
+                if t.is_empty() {
+                    format!("第{}话", ep["title"].as_str().unwrap_or("?"))
+                } else {
+                    format!("第{}话 {}", ep["title"].as_str().unwrap_or("?"), t)
+                }
+            },
+            duration: ep["duration"].as_i64().unwrap_or(0) as u64 / 1000,
+        })
+        .collect();
+
+    log::info!(
+        "[bangumi-season] 解析成功: {} ({}集), 当前 ep={}: bvid={}, cid={}",
+        title, pages.len(), ep_id, ep_bvid, ep_cid
+    );
+
+    Ok(VideoInfo {
+        bvid: ep_bvid,
+        aid: ep_aid,
+        title: display_title,
+        desc: result["evaluate"].as_str().unwrap_or("").to_string(),
+        pic: http_to_https(result["cover"].as_str().unwrap_or("")),
+        owner_mid: 0,
+        owner_name: result["up_info"]["name"]
+            .as_str()
+            .unwrap_or("B站番剧")
+            .to_string(),
+        owner_face: http_to_https(
+            result["up_info"]["avatar"]
+                .as_str()
+                .unwrap_or(""),
+        ),
+        duration: ep_duration,
+        pages,
+        ep_id: Some(ep_id),
     })
 }
