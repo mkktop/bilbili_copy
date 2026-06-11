@@ -1,5 +1,5 @@
 import { getVersion } from "@tauri-apps/api/app";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { DownloadInput } from "./components/DownloadInput";
@@ -161,6 +161,25 @@ export default function App() {
     }
   };
 
+  // 下载队列：限制并发数，防止同时冲击 CDN/代理
+  const MAX_CONCURRENT_DOWNLOADS = 2;
+  const downloadQueue = useRef<{
+    queue: Array<() => Promise<void>>;
+    running: number;
+  }>({ queue: [], running: 0 });
+
+  const processQueue = useCallback(() => {
+    const q = downloadQueue.current;
+    while (q.running < MAX_CONCURRENT_DOWNLOADS && q.queue.length > 0) {
+      const next = q.queue.shift()!;
+      q.running++;
+      next().finally(() => {
+        q.running--;
+        processQueue();
+      });
+    }
+  }, []);
+
   const handleDownload = async (
     id: string,
     bvid: string,
@@ -172,23 +191,28 @@ export default function App() {
     if (downloadingIds.current.has(id)) return;
     downloadingIds.current.add(id);
 
+    // 先加入 UI 列表（显示为 downloading）
     setDownloads((prev) => [
       { id, title, status: "downloading" as const, progress: 0 },
       ...prev,
     ]);
 
-    try {
-      await invoke("download_video", { id, bvid, cid, title, qn });
-      // 注意：downloadingIds 在 download://complete 事件中清理，不在此时清理
-      // 因为 invoke 返回时后端可能仍在发送进度事件
-    } catch (err) {
-      downloadingIds.current.delete(id);
-      setDownloads((prev) =>
-        prev.map((d) =>
-          d.id === id ? { ...d, status: "error" as const, errorMsg: String(err) } : d
-        )
-      );
-    }
+    // 加入下载队列
+    downloadQueue.current.queue.push(async () => {
+      try {
+        await invoke("download_video", { id, bvid, cid, title, qn });
+        // downloadingIds 在 download://complete 事件中清理
+      } catch (err) {
+        downloadingIds.current.delete(id);
+        setDownloads((prev) =>
+          prev.map((d) =>
+            d.id === id ? { ...d, status: "error" as const, errorMsg: String(err) } : d
+          )
+        );
+      }
+    });
+
+    processQueue();
   };
 
   const handleSelectItem = (item: ParsedItem) => {
