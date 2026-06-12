@@ -672,12 +672,14 @@ pub async fn merge_streams(
             .context("创建输出目录失败")?;
     }
 
+    let metadata_title = format!("BilbliCopy {}", chrono::Local::now().format("%Y-%m-%d %H:%M:%S"));
     let output = create_ffmpeg_command(&ffmpeg)
         .args([
             "-i", video_path.to_str().unwrap_or(""),
             "-i", audio_path.to_str().unwrap_or(""),
             "-c", "copy",
             "-strict", "unofficial",
+            "-metadata", &format!("title={}", metadata_title),
             "-y",
             output_path.to_str().unwrap_or(""),
         ])
@@ -708,11 +710,13 @@ pub async fn remux_to_mp4(
             .context("创建输出目录失败")?;
     }
 
+    let metadata_title = format!("BilbliCopy {}", chrono::Local::now().format("%Y-%m-%d %H:%M:%S"));
     let output = create_ffmpeg_command(&ffmpeg)
         .args([
             "-i", input_path.to_str().unwrap_or(""),
             "-c", "copy",
             "-movflags", "+faststart",
+            "-metadata", &format!("title={}", metadata_title),
             "-y",
             output_path.to_str().unwrap_or(""),
         ])
