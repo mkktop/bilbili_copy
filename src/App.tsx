@@ -9,7 +9,7 @@ import { VideoDetail } from "./components/VideoDetail";
 import { SettingsPage } from "./components/SettingsPage";
 import { LoginDialog } from "./components/LoginDialog";
 import { CaptchaDialog } from "./components/CaptchaDialog";
-import { UserProfile } from "./components/UserProfile";
+import { UserProfilePage } from "./components/UserProfilePage";
 import { useUpdate } from "./contexts/UpdateContext";
 import { useSettings } from "./hooks/useSettings";
 import { useLogin } from "./hooks/useLogin";
@@ -18,7 +18,7 @@ import type { AppSettings } from "./hooks/useSettings";
 import type { ParsedItem, DownloadTask, ParsedVideoInfo, ParseHistoryEntry, DownloadHistoryEntry } from "./types";
 import { dbToParsedItem, dbToDownloadTask } from "./types";
 
-type View = "main" | "settings" | "detail" | "downloads";
+type View = "main" | "settings" | "detail" | "downloads" | "profile";
 
 interface DownloadProgress {
   id: string;
@@ -40,6 +40,7 @@ interface DownloadError {
 
 export default function App() {
   const [currentView, setCurrentView] = useState<View>("main");
+  const [previousView, setPreviousView] = useState<View>("main");
   const [parsedItems, setParsedItems] = useState<ParsedItem[]>([]);
   const [downloads, setDownloads] = useState<DownloadTask[]>([]);
   const [captchaVoucher, setCaptchaVoucher] = useState<string | null>(null);
@@ -58,10 +59,6 @@ export default function App() {
   const { userInfo, logout, generateQrcode, pollQrcode } = useLogin();
   const [version, setVersion] = useState("");
   const [loginDialogOpen, setLoginDialogOpen] = useState(false);
-  const [profileOpen, setProfileOpen] = useState(false);
-
-  // 用于 UserProfile 外部点击关闭
-  const profileRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     getVersion().then((v) => setVersion(v));
@@ -101,18 +98,6 @@ export default function App() {
     loadParsePage(1);
     loadDownloadPage(1);
   }, []);
-
-  // UserProfile 外部点击关闭
-  useEffect(() => {
-    if (!profileOpen) return;
-    const handleClickOutside = (e: MouseEvent) => {
-      if (profileRef.current && !profileRef.current.contains(e.target as Node)) {
-        setProfileOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [profileOpen]);
 
   // 下载事件监听（使用 mounted ref 防止卸载后更新状态）
   useEffect(() => {
@@ -258,6 +243,7 @@ export default function App() {
   const handleSelectItem = (item: ParsedItem) => {
     if (!item.videoInfo) return;
     setSelectedItem(item);
+    setPreviousView("main");
     setCurrentView("detail");
   };
 
@@ -325,12 +311,33 @@ export default function App() {
         <VideoDetail
           entry={selectedItem}
           onBack={() => {
-            setCurrentView("main");
+            setCurrentView(previousView);
             setSelectedItem(null);
           }}
           onDownload={handleDownload}
         />
       </div>
+    );
+  }
+
+  // Profile view
+  if (currentView === "profile" && userInfo) {
+    return (
+      <UserProfilePage
+        userInfo={userInfo}
+        onLogout={logout}
+        onBack={() => setCurrentView("main")}
+        onParseVideo={handleParse}
+        onSelectItem={(bvid: string) => {
+          // 从 parsedItems 中找到刚解析的视频，跳转详情
+          const item = parsedItems.find((p) => p.videoInfo?.bvid === bvid);
+          if (item && item.videoInfo) {
+            setSelectedItem(item);
+            setPreviousView("profile");
+            setCurrentView("detail");
+          }
+        }}
+      />
     );
   }
 
@@ -377,25 +384,16 @@ export default function App() {
 
           {/* 登录按钮 / 头像（最右边） */}
           {userInfo ? (
-            <div className="relative" ref={profileRef}>
-              <button
-                onClick={() => setProfileOpen(!profileOpen)}
-                className="p-0.5 rounded-full hover:ring-2 hover:ring-blue-300 transition-all"
-              >
-                <img
-                  src={userInfo.face}
-                  alt={userInfo.uname}
-                  className="w-7 h-7 rounded-full object-cover"
-                />
-              </button>
-              {profileOpen && (
-                <UserProfile
-                  userInfo={userInfo}
-                  onLogout={logout}
-                  onClose={() => setProfileOpen(false)}
-                />
-              )}
-            </div>
+            <button
+              onClick={() => setCurrentView("profile")}
+              className="p-0.5 rounded-full hover:ring-2 hover:ring-blue-300 transition-all"
+            >
+              <img
+                src={userInfo.face}
+                alt={userInfo.uname}
+                className="w-7 h-7 rounded-full object-cover"
+              />
+            </button>
           ) : (
             <button
               onClick={() => setLoginDialogOpen(true)}

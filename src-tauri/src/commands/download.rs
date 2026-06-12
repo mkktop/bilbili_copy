@@ -13,6 +13,17 @@ use crate::bilibili::playurl::get_playurl;
 use crate::commands::settings::{get_settings, AppSettings};
 use tauri::AppHandle;
 
+/// 校验 download_id，防止路径穿越
+fn sanitize_download_id(id: &str) -> Result<String, String> {
+    if id.is_empty() {
+        return Err("下载ID不能为空".to_string());
+    }
+    if !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') {
+        return Err("下载ID包含非法字符".to_string());
+    }
+    Ok(id.to_string())
+}
+
 /// 检查错误信息是否为登录过期
 fn is_login_expired(error_msg: &str) -> bool {
     error_msg.contains("-101") || error_msg.contains("账号未登录") || error_msg.contains("登录过期")
@@ -72,7 +83,7 @@ pub async fn download_video(
     qn: Option<i64>,
     ep_id: Option<u64>,
 ) -> Result<(), String> {
-    let download_id = id;
+    let download_id = sanitize_download_id(&id)?;
 
     // 从设置中读取并发参数
     let settings = get_settings().map_err(|e| e.to_string())?;

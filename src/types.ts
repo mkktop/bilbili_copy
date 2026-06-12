@@ -1,5 +1,33 @@
 export type DownloadStatus = "pending" | "parsing" | "downloading" | "done" | "error";
 
+// ==================== 收藏夹类型 ====================
+
+export interface FavoriteFolder {
+  id: number;
+  title: string;
+  media_count: number;
+}
+
+export interface FavoriteMedia {
+  id: number;
+  title: string;
+  bvid: string;
+  cover: string;
+  upper_name: string;
+  upper_mid: number;
+  duration: number | null;
+  fav_time: number;
+}
+
+export interface FavoriteListResult {
+  medias: FavoriteMedia[];
+  total: number;
+  has_more: boolean;
+  page: number;
+}
+
+// ==================== 视频类型 ====================
+
 export interface VideoPage {
   cid: number;
   page: number;
