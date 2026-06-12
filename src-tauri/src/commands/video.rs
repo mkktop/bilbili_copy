@@ -25,6 +25,7 @@ pub async fn parse_video(url_str: String) -> Result<VideoInfo, String> {
         parsed.aid,
         parsed.ep_id,
         parsed.season_id,
+        parsed.media_id,
         credential.as_ref(),
     )
     .await

@@ -13,20 +13,33 @@ pub struct ParsedUrl {
     pub ep_id: Option<u64>,
     /// 番剧 season_id（/bangumi/play/ss12345）
     pub season_id: Option<u64>,
+    /// 番剧 media_id（/bangumi/media/md28233723）
+    pub media_id: Option<u64>,
 }
 
 /// 从 URL 字符串中提取 BV 号、AV 号和分P页码
 pub fn parse_bilibili_url(input: &str) -> Result<ParsedUrl> {
     let input = input.trim();
 
+    // 如果输入包含中文描述 + URL（如分享链接），提取 URL 部分
+    let url_input = if !input.starts_with("http") && input.contains("http") {
+        if let Some(pos) = input.find("http") {
+            input[pos..].trim_end_matches(&[')', '）', ']', '】', ' ', '\t', '\n', '\r'][..])
+        } else {
+            input
+        }
+    } else {
+        input
+    };
+
     // 尝试从 URL 中提取
-    if input.starts_with("http") {
-        return parse_from_url(input);
+    if url_input.starts_with("http") {
+        return parse_from_url(url_input);
     }
 
     // 纯 BV 号
-    if input.starts_with("BV") && input.len() >= 12 {
-        let bvid = input.split('?').next().unwrap_or(input).to_string();
+    if url_input.starts_with("BV") && url_input.len() >= 12 {
+        let bvid = url_input.split('?').next().unwrap_or(url_input).to_string();
         let aid = bvid_to_aid(&bvid);
         return Ok(ParsedUrl {
             bvid: Some(bvid),
@@ -35,11 +48,12 @@ pub fn parse_bilibili_url(input: &str) -> Result<ParsedUrl> {
             short_url: None,
             ep_id: None,
             season_id: None,
+            media_id: None,
         });
     }
 
     // 纯 AV 号 (av12345 或 12345)
-    let av_str = input.strip_prefix("av").unwrap_or(input);
+    let av_str = url_input.strip_prefix("av").unwrap_or(url_input);
     if let Ok(aid) = av_str.parse::<u64>() {
         return Ok(ParsedUrl {
             bvid: None,
@@ -48,10 +62,22 @@ pub fn parse_bilibili_url(input: &str) -> Result<ParsedUrl> {
             short_url: None,
             ep_id: None,
             season_id: None,
+            media_id: None,
         });
     }
 
     anyhow::bail!("无法识别的视频链接或 ID: {}", input)
+}
+
+/// 从番剧 URL 提取 media_id（如 /bangumi/media/md28233723）
+fn extract_media_id(url: &str) -> Option<u64> {
+    for segment in url.split('/') {
+        if let Some(md_str) = segment.strip_prefix("md") {
+            let media_id = md_str.split('?').next().unwrap_or(md_str);
+            return media_id.parse().ok();
+        }
+    }
+    None
 }
 
 fn parse_from_url(url: &str) -> Result<ParsedUrl> {
@@ -68,6 +94,7 @@ fn parse_from_url(url: &str) -> Result<ParsedUrl> {
             short_url: None,
             ep_id: None,
             season_id: None,
+            media_id: None,
         });
     }
 
@@ -80,6 +107,7 @@ fn parse_from_url(url: &str) -> Result<ParsedUrl> {
             short_url: None,
             ep_id: None,
             season_id: None,
+            media_id: None,
         });
     }
 
@@ -92,6 +120,7 @@ fn parse_from_url(url: &str) -> Result<ParsedUrl> {
             short_url: None,
             ep_id: Some(ep_id),
             season_id: None,
+            media_id: None,
         });
     }
 
@@ -104,6 +133,20 @@ fn parse_from_url(url: &str) -> Result<ParsedUrl> {
             short_url: None,
             ep_id: None,
             season_id: Some(season_id),
+            media_id: None,
+        });
+    }
+
+    // 提取番剧 media_id（/bangumi/media/md28233723）
+    if let Some(media_id) = extract_media_id(url) {
+        return Ok(ParsedUrl {
+            bvid: None,
+            aid: None,
+            page,
+            short_url: None,
+            ep_id: None,
+            season_id: None,
+            media_id: Some(media_id),
         });
     }
 
@@ -116,6 +159,7 @@ fn parse_from_url(url: &str) -> Result<ParsedUrl> {
             short_url: Some(url.to_string()),
             ep_id: None,
             season_id: None,
+            media_id: None,
         });
     }
 

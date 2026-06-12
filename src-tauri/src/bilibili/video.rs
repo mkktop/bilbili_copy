@@ -71,6 +71,64 @@ struct ViewPage {
     duration: u64,
 }
 
+/// 将 media_id 解析为 season_id
+/// API: https://api.bilibili.com/pgc/review/user?media_id={media_id}
+async fn resolve_media_id(client: &Client, media_id: u64) -> Result<u64> {
+    let resp = client
+        .get("https://api.bilibili.com/pgc/review/user")
+        .header("Referer", REFERER)
+        .query(&[("media_id", media_id.to_string())])
+        .send()
+        .await?;
+
+    let json: serde_json::Value = resp.json().await?;
+    let code = json["code"].as_i64().unwrap_or(-1);
+    if code != 0 {
+        anyhow::bail!("media_id 解析失败: {}", json["message"].as_str().unwrap_or("未知错误"));
+    }
+
+    json["result"]["media"]["season_id"]
+        .as_i64()
+        .map(|v| v as u64)
+        .context("media_id 响应中找不到 season_id")
+}
+
+/// 从 view API 的 -404 响应中提取番剧 ep_id
+/// 按优先级尝试: redirect_url → season.episodes[0].id → epid 字段
+fn extract_ep_from_redirect(resp_json: &serde_json::Value) -> Option<u64> {
+    let data = resp_json.get("data")?;
+
+    // 策略 1: redirect_url 包含 /bangumi/play/epXXX
+    if let Some(url) = data["redirect_url"].as_str() {
+        if url.contains("/bangumi/play/ep") {
+            if let Some(start) = url.find("/ep") {
+                let ep_part = &url[start + 3..];
+                let digits: String = ep_part.chars().take_while(|c| c.is_ascii_digit()).collect();
+                if let Ok(ep_id) = digits.parse::<u64>() {
+                    log::debug!("[video] 从 redirect_url 提取到 ep_id={}", ep_id);
+                    return Some(ep_id);
+                }
+            }
+        }
+    }
+
+    // 策略 2: season.episodes[0].id
+    if let Some(first_ep) = data["season"]["episodes"].as_array().and_then(|a| a.first()) {
+        if let Some(id) = first_ep["id"].as_i64() {
+            log::debug!("[video] 从 season.episodes 提取到 ep_id={}", id);
+            return Some(id as u64);
+        }
+    }
+
+    // 策略 3: 直接 epid / episode_id 字段
+    if let Some(id) = data["epid"].as_i64().or_else(|| data["episode_id"].as_i64()) {
+        log::debug!("[video] 从 epid 字段提取到 ep_id={}", id);
+        return Some(id as u64);
+    }
+
+    None
+}
+
 /// 创建 HTTP 客户端
 fn bilibili_client() -> Result<Client> {
     Client::builder()
@@ -80,26 +138,47 @@ fn bilibili_client() -> Result<Client> {
         .context("创建 HTTP 客户端失败")
 }
 
-/// 根据BV号/AV号/ep_id/season_id获取视频详细信息
+/// 根据BV号/AV号/ep_id/season_id/media_id获取视频详细信息
 pub async fn get_video_info(
     bvid: Option<&str>,
     aid: Option<u64>,
     ep_id: Option<u64>,
     season_id: Option<u64>,
+    media_id: Option<u64>,
     credential: Option<&Credential>,
 ) -> Result<VideoInfo> {
     let client = bilibili_client()?;
 
+    // media_id 需要先解析为 season_id
+    let resolved_season_id = if season_id.is_none() {
+        if let Some(mid) = media_id {
+            match resolve_media_id(&client, mid).await {
+                Ok(sid) => {
+                    log::info!("[video] media_id={} 解析为 season_id={}", mid, sid);
+                    Some(sid)
+                }
+                Err(e) => {
+                    log::warn!("[video] media_id={} 解析失败: {}", mid, e);
+                    None
+                }
+            }
+        } else {
+            None
+        }
+    } else {
+        season_id
+    };
+
     // 如果是番剧链接（ep_id 或 season_id），优先尝试番剧专用 season API
     if bvid.is_none() && aid.is_none() {
-        if ep_id.is_some() || season_id.is_some() {
+        if ep_id.is_some() || resolved_season_id.is_some() {
             let label = if let Some(ep) = ep_id {
                 format!("ep_id={}", ep)
             } else {
-                format!("season_id={}", season_id.unwrap())
+                format!("season_id={}", resolved_season_id.unwrap())
             };
             log::info!("[video] 检测到番剧 {}, 先尝试番剧 season API", label);
-            match try_bangumi_season_info(&client, ep_id, season_id, credential).await {
+            match try_bangumi_season_info(&client, ep_id, resolved_season_id, credential).await {
                 Ok(info) => return Ok(info),
                 Err(e) => {
                     log::warn!("[video] 番剧 season API 失败: {}, 回退到 view API", e);
@@ -129,14 +208,30 @@ pub async fn get_video_info(
         request = request.header("Cookie", cred.cookie_header());
     }
 
-    let resp: BilibiliResponse<ViewData> = request.send().await?.json().await?;
+    // 先用原始 JSON 解析，以便处理 -404 + redirect_url 回退
+    let resp_text = request.send().await?.text().await?;
+    let resp_json: serde_json::Value = serde_json::from_str(&resp_text)
+        .context("视频信息响应解析失败")?;
 
-    if resp.code != 0 {
+    let resp_code = resp_json["code"].as_i64().unwrap_or(-1);
+
+    // -404: 视频可能是番剧，尝试从 redirect_url 提取 ep_id
+    if resp_code == -404 {
+        if let Some(ep_id) = extract_ep_from_redirect(&resp_json) {
+            log::info!("[video] view API 返回 -404，从 redirect_url 提取到 ep_id={}，走番剧流程", ep_id);
+            return try_bangumi_season_info(&client, Some(ep_id), None, credential).await;
+        }
+    }
+
+    if resp_code != 0 {
         anyhow::bail!(
             "获取视频信息失败: {}",
-            resp.message.unwrap_or_else(|| "未知错误".to_string())
+            resp_json["message"].as_str().unwrap_or("未知错误")
         );
     }
+
+    let resp: BilibiliResponse<ViewData> = serde_json::from_value(resp_json)
+        .context("视频信息反序列化失败")?;
 
     let data = resp.data.context("视频信息响应无 data")?;
 
@@ -225,21 +320,38 @@ async fn try_bangumi_season_info(
         .as_array()
         .context("番剧 season 响应无 episodes")?;
 
+    // 合并 result.section 中的额外剧集（番外、特别篇等）
+    let mut all_episodes: Vec<serde_json::Value> = episodes.clone();
+    if let Some(sections) = result.get("section").and_then(|s| s.as_array()) {
+        for section in sections {
+            if let Some(section_eps) = section.get("episodes").and_then(|e| e.as_array()) {
+                all_episodes.extend(section_eps.iter().cloned());
+            }
+        }
+        if !sections.is_empty() {
+            log::debug!(
+                "[bangumi-season] result.section 额外 {} 个分区，合并后共 {} 集",
+                sections.len(),
+                all_episodes.len()
+            );
+        }
+    }
+
     // 过滤非正片内容（section_type=1 为预告/花絮）
-    let main_episodes: Vec<&serde_json::Value> = episodes
+    let main_episodes: Vec<&serde_json::Value> = all_episodes
         .iter()
         .filter(|ep| ep["section_type"].as_i64().unwrap_or(0) != 1)
         .collect();
 
     log::info!(
         "[bangumi-season] 共 {} 集, 过滤后正片 {} 集",
-        episodes.len(),
+        all_episodes.len(),
         main_episodes.len()
     );
 
     let episodes_for_search = if main_episodes.is_empty() {
         // 兜底：如果没有正片则用全部
-        episodes.iter().collect()
+        all_episodes.iter().collect()
     } else {
         main_episodes.clone()
     };
@@ -294,7 +406,7 @@ async fn try_bangumi_season_info(
         .collect();
 
     // 预告/花絮
-    let extra_episodes: Vec<&serde_json::Value> = episodes
+    let extra_episodes: Vec<&serde_json::Value> = all_episodes
         .iter()
         .filter(|ep| ep["section_type"].as_i64().unwrap_or(0) == 1)
         .collect();

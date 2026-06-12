@@ -1,23 +1,10 @@
 ## 更新内容
 
-### 🎬 番剧解析与下载
-- 新增番剧 URL 解析（支持 `/bangumi/play/epXXX` 和 `/bangumi/play/ssXXXX` 链接）
-- 使用 PGC season API 获取番剧信息，替代不稳定的 view API
-- 番剧 playurl 使用 `ep_id` 请求，解决番剧无法获取流地址的问题
-- 番剧详情页支持「正片 / 预告/花絮」分栏切换显示
-
-### ⚡ 下载增强（借鉴 bili-sync-up）
-- HTTP Range 分片并行下载（≥4MB 文件自动 4 线程分片）
-- 坏 CDN 节点自动缓存 10 分钟并跳过
-- Rust 端 Semaphore 并发控制（全局 + 分P 独立并发）
-- 断点续传（中断后自动从已下载位置继续）
-- 新增下载设置页面，可配置并发数和分片线程数
-
-### 🐛 修复
-- 修复 TLS 重协商导致多 P 下载卡 0%（切换 native-tls）
-- 修复中文标题截断导致 UTF-8 panic
-- 修复日志输出缓冲不刷新
-- 修复更新日志无法显示实际内容
+### 🎬 番剧解析增强
+- 支持分享链接直接粘贴（自动去除中文描述，提取 URL）
+- 支持 `media_id` 链接（`/bangumi/media/mdXXXX`），自动解析为 season_id
+- 合并 `result.section` 额外分区（番外、特别篇等）
+- `redirect_url` 回退：普通视频链接实际是番剧时自动识别
 
 ---
 
