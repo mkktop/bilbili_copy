@@ -11,6 +11,8 @@ pub struct ParsedUrl {
     pub short_url: Option<String>,
     /// 番剧 ep_id（/bangumi/play/ep12345）
     pub ep_id: Option<u64>,
+    /// 番剧 season_id（/bangumi/play/ss12345）
+    pub season_id: Option<u64>,
 }
 
 /// 从 URL 字符串中提取 BV 号、AV 号和分P页码
@@ -32,6 +34,7 @@ pub fn parse_bilibili_url(input: &str) -> Result<ParsedUrl> {
             page: None,
             short_url: None,
             ep_id: None,
+            season_id: None,
         });
     }
 
@@ -44,6 +47,7 @@ pub fn parse_bilibili_url(input: &str) -> Result<ParsedUrl> {
             page: None,
             short_url: None,
             ep_id: None,
+            season_id: None,
         });
     }
 
@@ -63,6 +67,7 @@ fn parse_from_url(url: &str) -> Result<ParsedUrl> {
             page,
             short_url: None,
             ep_id: None,
+            season_id: None,
         });
     }
 
@@ -74,6 +79,7 @@ fn parse_from_url(url: &str) -> Result<ParsedUrl> {
             page,
             short_url: None,
             ep_id: None,
+            season_id: None,
         });
     }
 
@@ -85,6 +91,19 @@ fn parse_from_url(url: &str) -> Result<ParsedUrl> {
             page,
             short_url: None,
             ep_id: Some(ep_id),
+            season_id: None,
+        });
+    }
+
+    // 提取番剧 season_id（/bangumi/play/ss12345）
+    if let Some(season_id) = extract_season_id(url) {
+        return Ok(ParsedUrl {
+            bvid: None,
+            aid: None,
+            page,
+            short_url: None,
+            ep_id: None,
+            season_id: Some(season_id),
         });
     }
 
@@ -96,6 +115,7 @@ fn parse_from_url(url: &str) -> Result<ParsedUrl> {
             page: None,
             short_url: Some(url.to_string()),
             ep_id: None,
+            season_id: None,
         });
     }
 
@@ -157,6 +177,17 @@ fn extract_ep_id(url: &str) -> Option<u64> {
         if let Some(ep_str) = segment.strip_prefix("ep") {
             let ep_id = ep_str.split('?').next().unwrap_or(ep_str);
             return ep_id.parse().ok();
+        }
+    }
+    None
+}
+
+/// 从番剧 URL 提取 season_id（如 /bangumi/play/ss48011）
+fn extract_season_id(url: &str) -> Option<u64> {
+    for segment in url.split('/') {
+        if let Some(ss_str) = segment.strip_prefix("ss") {
+            let season_id = ss_str.split('?').next().unwrap_or(ss_str);
+            return season_id.parse().ok();
         }
     }
     None

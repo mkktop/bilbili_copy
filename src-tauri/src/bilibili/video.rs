@@ -80,20 +80,26 @@ fn bilibili_client() -> Result<Client> {
         .context("创建 HTTP 客户端失败")
 }
 
-/// 根据BV号/AV号/ep_id获取视频详细信息
+/// 根据BV号/AV号/ep_id/season_id获取视频详细信息
 pub async fn get_video_info(
     bvid: Option<&str>,
     aid: Option<u64>,
     ep_id: Option<u64>,
+    season_id: Option<u64>,
     credential: Option<&Credential>,
 ) -> Result<VideoInfo> {
     let client = bilibili_client()?;
 
-    // 如果只有 ep_id，优先尝试番剧专用 season API
+    // 如果是番剧链接（ep_id 或 season_id），优先尝试番剧专用 season API
     if bvid.is_none() && aid.is_none() {
-        if let Some(ep) = ep_id {
-            log::info!("[video] 检测到 ep_id={}, 先尝试番剧 season API", ep);
-            match try_bangumi_season_info(&client, ep, credential).await {
+        if ep_id.is_some() || season_id.is_some() {
+            let label = if let Some(ep) = ep_id {
+                format!("ep_id={}", ep)
+            } else {
+                format!("season_id={}", season_id.unwrap())
+            };
+            log::info!("[video] 检测到番剧 {}, 先尝试番剧 season API", label);
+            match try_bangumi_season_info(&client, ep_id, season_id, credential).await {
                 Ok(info) => return Ok(info),
                 Err(e) => {
                     log::warn!("[video] 番剧 season API 失败: {}, 回退到 view API", e);
@@ -169,17 +175,23 @@ pub async fn get_video_info(
     })
 }
 
-/// 通过番剧 season API 获取单集视频信息
-/// API: https://api.bilibili.com/pgc/view/web/season?ep_id={ep_id}
+/// 通过番剧 season API 获取视频信息
+/// API: https://api.bilibili.com/pgc/view/web/season?ep_id={ep_id} 或 ?season_id={season_id}
 async fn try_bangumi_season_info(
     client: &Client,
-    ep_id: u64,
+    ep_id: Option<u64>,
+    season_id: Option<u64>,
     credential: Option<&Credential>,
 ) -> Result<VideoInfo> {
     let mut request = client
         .get("https://api.bilibili.com/pgc/view/web/season")
-        .header("Referer", REFERER)
-        .query(&[("ep_id", ep_id.to_string())]);
+        .header("Referer", REFERER);
+
+    if let Some(ep) = ep_id {
+        request = request.query(&[("ep_id", ep.to_string())]);
+    } else if let Some(ss) = season_id {
+        request = request.query(&[("season_id", ss.to_string())]);
+    }
 
     if let Some(cred) = credential {
         request = request.header("Cookie", cred.cookie_header());
@@ -188,8 +200,9 @@ async fn try_bangumi_season_info(
     let resp = request.send().await?;
     let body_text = resp.text().await?;
     log::debug!(
-        "[bangumi-season] ep_id={}, 响应: {}",
+        "[bangumi-season] ep_id={:?}, season_id={:?}, 响应: {}",
         ep_id,
+        season_id,
         body_text.chars().take(500).collect::<String>()
     );
 
@@ -231,15 +244,10 @@ async fn try_bangumi_season_info(
         main_episodes.clone()
     };
 
-    let mut target_episode: Option<&serde_json::Value> = None;
-    for ep in &episodes_for_search {
-        if ep["id"].as_i64() == Some(ep_id as i64) {
-            target_episode = Some(*ep);
-            break;
-        }
-    }
-
-    // 如果找不到精确匹配，用第一集
+    // 在 episodes 中找匹配的 ep_id，找不到则用第一集
+    let target_episode = ep_id.and_then(|eid| {
+        episodes_for_search.iter().find(|ep| ep["id"].as_i64() == Some(eid as i64)).copied()
+    });
     let episode = target_episode
         .or(episodes_for_search.first().copied())
         .context("番剧 episodes 为空")?;
@@ -297,8 +305,8 @@ async fn try_bangumi_season_info(
         .collect();
 
     log::info!(
-        "[bangumi-season] 解析成功: {} (正片{}集, 预告{}集), 当前 ep={}: bvid={}, cid={}",
-        title, pages.len(), extra_pages.len(), ep_id, ep_bvid, ep_cid
+        "[bangumi-season] 解析成功: {} (正片{}集, 预告{}集), bvid={}, cid={}",
+        title, pages.len(), extra_pages.len(), ep_bvid, ep_cid
     );
 
     Ok(VideoInfo {
@@ -319,7 +327,7 @@ async fn try_bangumi_season_info(
         ),
         duration: ep_duration,
         pages,
-        ep_id: Some(ep_id),
+        ep_id,
         extra_pages,
     })
 }

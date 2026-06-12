@@ -1,7 +1,7 @@
 ## 更新内容
 
 ### 🎬 番剧解析与下载
-- 新增番剧 URL 解析（支持 `/bangumi/play/epXXX` 链接）
+- 新增番剧 URL 解析（支持 `/bangumi/play/epXXX` 和 `/bangumi/play/ssXXXX` 链接）
 - 使用 PGC season API 获取番剧信息，替代不稳定的 view API
 - 番剧 playurl 使用 `ep_id` 请求，解决番剧无法获取流地址的问题
 - 番剧详情页支持「正片 / 预告/花絮」分栏切换显示
