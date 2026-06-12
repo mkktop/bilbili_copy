@@ -22,6 +22,8 @@ export interface ParsedVideoInfo {
   pages: VideoPage[];
   ep_id?: number;
   extra_pages?: VideoPage[];
+  view_count?: number;
+  danmaku_count?: number;
 }
 
 export interface DownloadEntry {

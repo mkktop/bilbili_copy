@@ -38,6 +38,12 @@ pub struct VideoInfo {
     /// 预告/花絮等非正片内容
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub extra_pages: Vec<PageInfo>,
+    /// 播放量
+    #[serde(default)]
+    pub view_count: u64,
+    /// 弹幕数
+    #[serde(default)]
+    pub danmaku_count: u64,
 }
 
 /// view API 返回的 JSON 结构
@@ -53,6 +59,16 @@ struct ViewData {
     owner: Option<ViewOwner>,
     #[serde(default)]
     pages: Vec<ViewPage>,
+    #[serde(default)]
+    stat: Option<ViewStat>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ViewStat {
+    #[serde(default)]
+    view: u64,
+    #[serde(default)]
+    danmaku: u64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -267,6 +283,8 @@ pub async fn get_video_info(
         pages,
         ep_id: None,
         extra_pages: vec![],
+        view_count: data.stat.as_ref().map(|s| s.view).unwrap_or(0),
+        danmaku_count: data.stat.as_ref().map(|s| s.danmaku).unwrap_or(0),
     })
 }
 
@@ -315,43 +333,47 @@ async fn try_bangumi_season_info(
     let result = json.get("result").context("番剧 season 响应无 result")?;
     let title = result["title"].as_str().unwrap_or("未知番剧").to_string();
 
-    // 在 episodes 数组中找到匹配的 ep_id
+    // result.episodes 是主列表，但可能混入预告（badge=预告, badge_type=1）
     let episodes = result["episodes"]
         .as_array()
         .context("番剧 season 响应无 episodes")?;
 
-    // 合并 result.section 中的额外剧集（番外、特别篇等）
-    let mut all_episodes: Vec<serde_json::Value> = episodes.clone();
+    // 正片 = badge_type != 1（排除预告）
+    let main_episodes: Vec<&serde_json::Value> = episodes
+        .iter()
+        .filter(|ep| ep["badge_type"].as_i64().unwrap_or(0) != 1)
+        .collect();
+
+    // 预告/花絮 = result.episodes 中的预告 + result.section 所有内容
+    let mut extra_episodes: Vec<serde_json::Value> = episodes
+        .iter()
+        .filter(|ep| ep["badge_type"].as_i64().unwrap_or(0) == 1)
+        .cloned()
+        .collect();
     if let Some(sections) = result.get("section").and_then(|s| s.as_array()) {
         for section in sections {
             if let Some(section_eps) = section.get("episodes").and_then(|e| e.as_array()) {
-                all_episodes.extend(section_eps.iter().cloned());
+                extra_episodes.extend(section_eps.iter().cloned());
             }
-        }
-        if !sections.is_empty() {
-            log::debug!(
-                "[bangumi-season] result.section 额外 {} 个分区，合并后共 {} 集",
-                sections.len(),
-                all_episodes.len()
-            );
         }
     }
 
-    // 过滤非正片内容（section_type=1 为预告/花絮）
-    let main_episodes: Vec<&serde_json::Value> = all_episodes
-        .iter()
-        .filter(|ep| ep["section_type"].as_i64().unwrap_or(0) != 1)
-        .collect();
+    log::info!(
+        "[bangumi-season] episodes={}, 正片={}, 额外={}",
+        episodes.len(),
+        main_episodes.len(),
+        extra_episodes.len()
+    );
 
     log::info!(
-        "[bangumi-season] 共 {} 集, 过滤后正片 {} 集",
-        all_episodes.len(),
-        main_episodes.len()
+        "[bangumi-season] 正片 {} 集, 额外 {} 集",
+        main_episodes.len(),
+        extra_episodes.len()
     );
 
     let episodes_for_search = if main_episodes.is_empty() {
-        // 兜底：如果没有正片则用全部
-        all_episodes.iter().collect()
+        // 兜底：如果没有正片则用额外内容
+        extra_episodes.iter().collect()
     } else {
         main_episodes.clone()
     };
@@ -405,11 +427,7 @@ async fn try_bangumi_season_info(
         .map(|(i, ep)| make_page(i, ep))
         .collect();
 
-    // 预告/花絮
-    let extra_episodes: Vec<&serde_json::Value> = all_episodes
-        .iter()
-        .filter(|ep| ep["section_type"].as_i64().unwrap_or(0) == 1)
-        .collect();
+    // 预告/花絮 — 直接用 result.section 的内容
     let extra_pages: Vec<PageInfo> = extra_episodes
         .iter()
         .enumerate()
@@ -441,5 +459,7 @@ async fn try_bangumi_season_info(
         pages,
         ep_id,
         extra_pages,
+        view_count: result["stat"]["views"].as_u64().unwrap_or(0),
+        danmaku_count: result["stat"]["danmakus"].as_u64().unwrap_or(0),
     })
 }

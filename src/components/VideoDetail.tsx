@@ -1,21 +1,17 @@
-import { useState } from "react";
-import { ArrowLeft, Download, Clock, CheckCircle2 } from "lucide-react";
+import { useState, useMemo } from "react";
+import { ArrowLeft, Download, Clock, CheckCircle2, Eye, MessageSquare, ArrowUpDown } from "lucide-react";
 import type { ParsedItem, VideoPage } from "../types";
 import { formatDuration } from "../types";
 import { cn } from "../lib/utils";
 
-const QUALITY_OPTIONS = [
-  { value: 127, label: "8K 超高清" },
-  { value: 120, label: "4K 超清" },
-  { value: 116, label: "1080P 60fps" },
-  { value: 112, label: "1080P 高码率" },
-  { value: 80, label: "1080P" },
-  { value: 64, label: "720P" },
-  { value: 32, label: "480P" },
-  { value: 16, label: "360P" },
-];
-
 type EpisodeTab = "main" | "extra";
+
+/** 格式化播放量：万 / 亿 */
+function formatCount(n: number): string {
+  if (n >= 100_000_000) return (n / 100_000_000).toFixed(1) + "亿";
+  if (n >= 10_000) return (n / 10_000).toFixed(1) + "万";
+  return n.toString();
+}
 
 interface VideoDetailProps {
   entry: ParsedItem;
@@ -25,18 +21,16 @@ interface VideoDetailProps {
     bvid: string,
     cid: number,
     title: string,
-    qn: number,
     epId?: number
   ) => void;
-  defaultQn: number;
 }
 
-export function VideoDetail({ entry, onBack, onDownload, defaultQn }: VideoDetailProps) {
+export function VideoDetail({ entry, onBack, onDownload }: VideoDetailProps) {
   const info = entry.videoInfo;
-  const [selectedQn, setSelectedQn] = useState(defaultQn || 80);
   const [selectedPages, setSelectedPages] = useState<Set<number>>(new Set());
   const [downloadedIds, setDownloadedIds] = useState<Set<string>>(new Set());
   const [episodeTab, setEpisodeTab] = useState<EpisodeTab>("main");
+  const [sortAsc, setSortAsc] = useState(true);
 
   if (!info) {
     return (
@@ -50,11 +44,14 @@ export function VideoDetail({ entry, onBack, onDownload, defaultQn }: VideoDetai
   }
 
   const hasExtra = (info.extra_pages?.length ?? 0) > 0;
-  const currentPages = episodeTab === "main" ? info.pages : (info.extra_pages ?? []);
+  const rawPages = episodeTab === "main" ? info.pages : (info.extra_pages ?? []);
+  const currentPages = useMemo(
+    () => sortAsc ? rawPages : [...rawPages].reverse(),
+    [rawPages, sortAsc]
+  );
   const isMultiPage = info.pages.length > 1 || hasExtra;
   const hasSelection = !isMultiPage || selectedPages.size > 0;
 
-  // 切换 tab 时清空选中
   const switchTab = (tab: EpisodeTab) => {
     if (tab !== episodeTab) {
       setEpisodeTab(tab);
@@ -76,15 +73,13 @@ export function VideoDetail({ entry, onBack, onDownload, defaultQn }: VideoDetai
 
   const handleDownload = () => {
     const ids: string[] = [];
-    // 单页视频（无 extra，只有 1 个 page）
     if (!isMultiPage) {
       const p = info.pages[0];
       const pageBvid = p.bvid || info.bvid;
       const pageEpId = p.ep_id || info.ep_id;
-      onDownload(entry.id, pageBvid, p.cid, info.title, selectedQn, pageEpId);
+      onDownload(entry.id, pageBvid, p.cid, info.title, pageEpId);
       ids.push(entry.id);
     } else {
-      // 多页：从当前 tab 列表下载
       selectedPages.forEach((page) => {
         const p = currentPages.find((pg) => pg.page === page);
         if (p) {
@@ -95,7 +90,7 @@ export function VideoDetail({ entry, onBack, onDownload, defaultQn }: VideoDetai
               ? `${info.title} - P${p.page} ${p.part}`
               : info.title;
           const id = `${entry.id}_P${p.page}`;
-          onDownload(id, pageBvid, p.cid, title, selectedQn, pageEpId);
+          onDownload(id, pageBvid, p.cid, title, pageEpId);
           ids.push(id);
         }
       });
@@ -107,9 +102,7 @@ export function VideoDetail({ entry, onBack, onDownload, defaultQn }: VideoDetai
     });
   };
 
-  // 单页视频已下载
   const isSingleDownloaded = !isMultiPage && downloadedIds.has(entry.id);
-  // 多页视频全部选中已下载
   const isAllDownloaded = isMultiPage && selectedPages.size > 0 && [...selectedPages].every((p) => downloadedIds.has(`${entry.id}_P${p}`));
 
   return (
@@ -133,13 +126,19 @@ export function VideoDetail({ entry, onBack, onDownload, defaultQn }: VideoDetai
 
       {/* 内容区 */}
       <div className="flex-1 overflow-y-auto">
-        {/* 封面大图 */}
+        {/* 封面区 — 模糊背景 + 完整封面 */}
         {info.pic && (
-          <div className="w-full aspect-video bg-gray-100 overflow-hidden">
+          <div className="w-full aspect-video max-h-56 relative overflow-hidden">
+            <img
+              src={info.pic}
+              alt=""
+              className="absolute inset-0 w-full h-full object-cover blur-xl scale-110 opacity-60"
+            />
+            <div className="absolute inset-0 bg-gradient-to-b from-black/20 to-black/50" />
             <img
               src={info.pic}
               alt={info.title}
-              className="w-full h-full object-cover"
+              className="relative w-full h-full object-contain drop-shadow-lg"
             />
           </div>
         )}
@@ -150,21 +149,35 @@ export function VideoDetail({ entry, onBack, onDownload, defaultQn }: VideoDetai
             {info.title}
           </h2>
 
-          {/* UP主 + 时长 */}
-          <div className="flex items-center gap-4 text-sm text-gray-500">
-            {info.owner_face && (
-              <span className="flex items-center gap-1.5">
-                <img
-                  src={info.owner_face}
-                  alt={info.owner_name}
-                  className="w-5 h-5 rounded-full object-cover"
-                />
-                {info.owner_name}
+          {/* UP主卡片 */}
+          {info.owner_face && (
+            <div className="flex items-center gap-3 p-2.5 bg-gray-50 rounded-xl">
+              <img
+                src={info.owner_face}
+                alt={info.owner_name}
+                className="w-9 h-9 rounded-full object-cover ring-2 ring-white shadow-sm"
+              />
+              <span className="text-sm font-medium text-gray-700">{info.owner_name}</span>
+            </div>
+          )}
+
+          {/* 统计数据 + 时长 */}
+          <div className="flex items-center gap-4 text-xs text-gray-400">
+            {(info.view_count ?? 0) > 0 && (
+              <span className="flex items-center gap-1">
+                <Eye size={13} />
+                {formatCount(info.view_count!)}
+              </span>
+            )}
+            {(info.danmaku_count ?? 0) > 0 && (
+              <span className="flex items-center gap-1">
+                <MessageSquare size={13} />
+                {formatCount(info.danmaku_count!)}
               </span>
             )}
             {info.duration > 0 && (
               <span className="flex items-center gap-1">
-                <Clock size={14} />
+                <Clock size={13} />
                 {formatDuration(info.duration)}
               </span>
             )}
@@ -172,26 +185,10 @@ export function VideoDetail({ entry, onBack, onDownload, defaultQn }: VideoDetai
 
           {/* 简介 */}
           {info.desc && (
-            <p className="text-sm text-gray-500 line-clamp-3">{info.desc}</p>
+            <p className="text-xs text-gray-400 leading-relaxed line-clamp-3 border-l-2 border-gray-200 pl-3">
+              {info.desc}
+            </p>
           )}
-
-          {/* 画质选择 */}
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-2">
-              画质选择
-            </label>
-            <select
-              value={selectedQn}
-              onChange={(e) => setSelectedQn(Number(e.target.value))}
-              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-300"
-            >
-              {QUALITY_OPTIONS.map((q) => (
-                <option key={q.value} value={q.value}>
-                  {q.label}
-                </option>
-              ))}
-            </select>
-          </div>
 
           {/* 正片/预告 切换（仅番剧显示） */}
           {hasExtra && (
@@ -228,7 +225,15 @@ export function VideoDetail({ entry, onBack, onDownload, defaultQn }: VideoDetai
                 <label className="text-xs font-medium text-gray-600">
                   分P列表（已选 {selectedPages.size}/{currentPages.length}）
                 </label>
-                <div className="flex gap-2">
+                <div className="flex gap-2 items-center">
+                  <button
+                    onClick={() => setSortAsc(v => !v)}
+                    className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-0.5"
+                    title={sortAsc ? "当前正序，点击倒序" : "当前倒序，点击正序"}
+                  >
+                    <ArrowUpDown size={12} />
+                    {sortAsc ? "正序" : "倒序"}
+                  </button>
                   <button
                     onClick={selectAll}
                     className="text-xs text-blue-500 hover:underline"
@@ -243,10 +248,11 @@ export function VideoDetail({ entry, onBack, onDownload, defaultQn }: VideoDetai
                   </button>
                 </div>
               </div>
-              <div className="space-y-1 max-h-48 overflow-y-auto">
+              <div className="space-y-1 flex-1 overflow-y-auto">
                 {currentPages.map((p) => {
                   const pageId = `${entry.id}_P${p.page}`;
                   const isDownloaded = downloadedIds.has(pageId);
+                  const isSelected = selectedPages.has(p.page);
                   return (
                     <label
                       key={`${episodeTab}-${p.page}`}
@@ -254,26 +260,27 @@ export function VideoDetail({ entry, onBack, onDownload, defaultQn }: VideoDetai
                         "flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer transition-colors",
                         isDownloaded
                           ? "bg-green-50 border border-green-200"
-                          : selectedPages.has(p.page)
+                          : isSelected
                             ? "bg-blue-50 border border-blue-200"
                             : "hover:bg-gray-50 border border-transparent"
                       )}
                     >
-                      <input
-                        type="checkbox"
-                        checked={selectedPages.has(p.page)}
-                        onChange={() => togglePage(p.page)}
-                        disabled={isDownloaded}
-                        className="w-4 h-4 rounded border-gray-300 text-blue-500 focus:ring-blue-300 disabled:opacity-50"
-                      />
-                      <span className="text-sm text-gray-700 flex-1">
-                        P{p.page} {p.part}
+                      {/* 序号标记 */}
+                      <span className={cn(
+                        "w-5 h-5 rounded text-[10px] font-bold flex items-center justify-center shrink-0",
+                        isDownloaded
+                          ? "bg-green-500 text-white"
+                          : isSelected
+                            ? "bg-blue-500 text-white"
+                            : "bg-gray-100 text-gray-400"
+                      )}>
+                        {isDownloaded ? <CheckCircle2 size={12} /> : p.page}
                       </span>
-                      {isDownloaded && (
-                        <CheckCircle2 size={14} className="text-green-500" />
-                      )}
+                      <span className="text-sm text-gray-700 flex-1 truncate">
+                        {p.part}
+                      </span>
                       {p.duration > 0 && (
-                        <span className="text-xs text-gray-400">
+                        <span className="text-xs text-gray-400 shrink-0">
                           {formatDuration(p.duration)}
                         </span>
                       )}
@@ -283,26 +290,28 @@ export function VideoDetail({ entry, onBack, onDownload, defaultQn }: VideoDetai
               </div>
             </div>
           )}
-
-          {/* 下载按钮 */}
-          <button
-            onClick={handleDownload}
-            disabled={!hasSelection || isSingleDownloaded || isAllDownloaded}
-            className={cn(
-              "w-full flex items-center justify-center gap-2 py-3 rounded-lg text-sm font-medium transition-colors",
-              hasSelection && !isSingleDownloaded && !isAllDownloaded
-                ? "bg-blue-500 text-white hover:bg-blue-600"
-                : "bg-gray-100 text-gray-400 cursor-not-allowed"
-            )}
-          >
-            <Download size={16} />
-            {isSingleDownloaded || isAllDownloaded
-              ? "已提交下载"
-              : isMultiPage
-                ? `下载选中 (${selectedPages.size}P)`
-                : "开始下载"}
-          </button>
         </div>
+      </div>
+
+      {/* 底部固定下载按钮 */}
+      <div className="px-6 py-3 bg-white border-t border-gray-200">
+        <button
+          onClick={handleDownload}
+          disabled={!hasSelection || isSingleDownloaded || isAllDownloaded}
+          className={cn(
+            "w-full flex items-center justify-center gap-2 py-3 rounded-lg text-sm font-medium transition-colors",
+            hasSelection && !isSingleDownloaded && !isAllDownloaded
+              ? "bg-blue-500 text-white hover:bg-blue-600"
+              : "bg-gray-100 text-gray-400 cursor-not-allowed"
+          )}
+        >
+          <Download size={16} />
+          {isSingleDownloaded || isAllDownloaded
+            ? "已提交下载"
+            : isMultiPage
+              ? `下载选中 (${selectedPages.size}P)`
+              : "开始下载"}
+        </button>
       </div>
     </div>
   );
