@@ -52,6 +52,8 @@ export interface DownloadTask {
   title: string;
   status: "downloading" | "done" | "error";
   progress?: number;
+  /** 当前下载阶段 */
+  phase?: "video" | "audio" | "merging";
   errorMsg?: string;
 }
 

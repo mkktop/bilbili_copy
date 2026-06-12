@@ -34,6 +34,12 @@ const STATUS_CONFIG: Record<
   },
 };
 
+const PHASE_TEXT: Record<string, string> = {
+  video: "下载视频中",
+  audio: "下载音频中",
+  merging: "合并中",
+};
+
 export function DownloadList({ downloads, onRemove }: DownloadListProps) {
   if (downloads.length === 0) {
     return (
@@ -72,7 +78,9 @@ export function DownloadList({ downloads, onRemove }: DownloadListProps) {
                     {status.icon}
                   </span>
                   <span className={cn("text-xs", status.color)}>
-                    {status.text}
+                    {item.status === "downloading" && item.phase
+                      ? PHASE_TEXT[item.phase] || status.text
+                      : status.text}
                   </span>
                   {item.status === "downloading" && item.progress !== undefined && (
                     <span className="text-xs text-gray-400 ml-1">

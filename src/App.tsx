@@ -81,10 +81,11 @@ export default function App() {
       const fns = await Promise.all([
         listen<DownloadProgress>("download://progress", (event) => {
           if (cancelled) return;
-          const { id, percent } = event.payload;
+          const { id, percent, label } = event.payload;
+          const phase = label === "audio" ? "audio" as const : "video" as const;
           setDownloads((prev) =>
             prev.map((d) =>
-              d.id === id ? { ...d, status: "downloading" as const, progress: percent } : d
+              d.id === id ? { ...d, status: "downloading" as const, progress: percent, phase } : d
             )
           );
         }),
@@ -277,12 +278,42 @@ export default function App() {
       {/* 顶部标题栏 */}
       <header className="flex items-center justify-between px-6 py-4 bg-white border-b border-gray-200">
         <div className="flex items-center gap-2">
-          <h1 className="text-lg font-bold text-gray-800">B站视频下载</h1>
+          <h1 className="text-lg font-bold text-gray-800">BilbliCopy</h1>
           <span className="text-xs text-gray-400">v{version}</span>
+          {/* 设置按钮（紧跟版本号） */}
+          <div className="relative">
+            <button
+              onClick={() => setCurrentView("settings")}
+              title="设置"
+              className="p-1 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+            >
+              <Settings size={16} />
+            </button>
+            {/* 更新红点提示 */}
+            {hasUpdate && (
+              <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-green-500" />
+            )}
+          </div>
         </div>
 
         <div className="flex items-center gap-2">
-          {/* 登录按钮 / 头像 */}
+          {/* 下载列表入口 */}
+          <div className="relative">
+            <button
+              onClick={() => setCurrentView("downloads")}
+              title="下载列表"
+              className="p-1 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+            >
+              <Download size={16} />
+            </button>
+            {activeDownloads > 0 && (
+              <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 flex items-center justify-center rounded-full bg-blue-500 text-white text-[10px] font-medium px-1">
+                {activeDownloads}
+              </span>
+            )}
+          </div>
+
+          {/* 登录按钮 / 头像（最右边） */}
           {userInfo ? (
             <div className="relative" ref={profileRef}>
               <button
@@ -311,37 +342,6 @@ export default function App() {
               登录
             </button>
           )}
-
-          {/* 下载列表入口 */}
-          <div className="relative">
-            <button
-              onClick={() => setCurrentView("downloads")}
-              title="下载列表"
-              className="p-1 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
-            >
-              <Download size={16} />
-            </button>
-            {activeDownloads > 0 && (
-              <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 flex items-center justify-center rounded-full bg-blue-500 text-white text-[10px] font-medium px-1">
-                {activeDownloads}
-              </span>
-            )}
-          </div>
-
-          {/* 设置按钮 */}
-          <div className="relative">
-            <button
-              onClick={() => setCurrentView("settings")}
-              title="设置"
-              className="p-1 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
-            >
-              <Settings size={16} />
-            </button>
-            {/* 更新红点提示 */}
-            {hasUpdate && (
-              <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-green-500" />
-            )}
-          </div>
         </div>
       </header>
 
