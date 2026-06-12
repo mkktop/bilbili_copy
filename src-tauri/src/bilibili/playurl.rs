@@ -1,4 +1,5 @@
 use crate::bilibili::credential::Credential;
+use crate::bilibili::risk_control;
 use crate::bilibili::wbi;
 use crate::bilibili::{USER_AGENT, REFERER, ORIGIN};
 use anyhow::{Context, Result};
@@ -28,6 +29,12 @@ fn create_api_headers() -> HeaderMap {
     headers.insert("sec-fetch-dest", HeaderValue::from_static("empty"));
     headers.insert("sec-fetch-mode", HeaderValue::from_static("cors"));
     headers.insert("sec-fetch-site", HeaderValue::from_static("cross-site"));
+    // 如果有缓存的 gaia_vtoken，带上
+    if let Some(token) = risk_control::get_gaia_vtoken() {
+        if let Ok(val) = HeaderValue::from_str(&token) {
+            headers.insert("x-gaia-vtoken", val);
+        }
+    }
     headers
 }
 
@@ -48,6 +55,9 @@ struct PlayUrlData {
     dash: Option<DashData>,
     #[serde(default)]
     durl: Option<Vec<DurlItem>>,
+    /// 风控验证码凭证（存在则需完成验证码）
+    #[serde(default)]
+    v_voucher: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -203,6 +213,13 @@ async fn try_playurl_with_fallback(
     for &qn in &levels {
         match try_playurl_once(client, bvid, cid, qn, credential).await {
             Ok(data) => {
+                // 检测风控 v_voucher
+                if let Some(vv) = data.v_voucher.as_deref() {
+                    if !vv.is_empty() {
+                        log::warn!("[playurl] 检测到风控 v_voucher: {}", &vv.chars().take(20).collect::<String>());
+                        anyhow::bail!("RISK_CONTROL:{}", vv);
+                    }
+                }
                 if let Some(streams) =
                     parse_streams(&data, max_qn, min_qn, audio_max_qn, audio_min_qn, codec_priority)
                 {
@@ -356,6 +373,13 @@ async fn try_bangumi_playurl(
         }
 
         let data = resp.result.or(resp.data).context("番剧 API 响应无数据")?;
+        // 检测风控 v_voucher
+        if let Some(vv) = data.v_voucher.as_deref() {
+            if !vv.is_empty() {
+                log::warn!("[bangumi] 检测到风控 v_voucher");
+                anyhow::bail!("RISK_CONTROL:{}", vv);
+            }
+        }
         if let Some(streams) =
             parse_streams(&data, max_qn, min_qn, audio_max_qn, audio_min_qn, codec_priority)
         {

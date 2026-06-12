@@ -6,6 +6,7 @@ pub mod url;
 pub mod wbi;
 pub mod playurl;
 pub mod download;
+pub mod risk_control;
 
 // ==================== 共享常量 ====================
 

@@ -13,6 +13,18 @@ use crate::bilibili::playurl::get_playurl;
 use crate::commands::settings::{get_settings, AppSettings};
 use tauri::AppHandle;
 
+/// 检查错误信息是否为登录过期
+fn is_login_expired(error_msg: &str) -> bool {
+    error_msg.contains("-101") || error_msg.contains("账号未登录") || error_msg.contains("登录过期")
+}
+
+/// 检查错误信息是否为风控，返回 v_voucher
+fn extract_risk_control(error_msg: &str) -> Option<String> {
+    error_msg
+        .strip_prefix("RISK_CONTROL:")
+        .map(|s| s.to_string())
+}
+
 // ==================== 动态并发控制（从 settings 读取） ====================
 
 /// 根据当前设置创建/获取全局 Semaphore
@@ -89,7 +101,7 @@ pub async fn download_video(
     );
 
     // 1. 加载凭证（必须已登录）
-    let credential = Credential::load()
+    let mut credential = Credential::load()
         .map_err(|_| "请先登录".to_string())?
         .ok_or_else(|| "请先登录".to_string())?;
 
@@ -144,6 +156,37 @@ pub async fn download_video(
 
     // 清理 per-video semaphore（_video_permit 和 _global_permit 在函数返回时自动释放）
     cleanup_video_semaphore(&bvid, max_pages);
+
+    // 如果下载因 -101 失败，尝试刷新 Cookie 后重试一次
+    let result = match result {
+        Err(ref e) if is_login_expired(&e.to_string()) => {
+            log::info!("[download] 下载遇到登录过期，尝试刷新 Cookie");
+            if let Ok(Some(new_cred)) = credential.check_and_refresh().await {
+                credential = new_cred;
+                log::info!("[download] Cookie 刷新成功，重试下载");
+                run_download(
+                    &app, &download_id, &bvid, cid,
+                    video_max_qn, video_min_qn, audio_max_qn, audio_min_qn,
+                    &codec_priority, &credential, &download_dir, &output_path,
+                    settings.parallel_threads, ep_id,
+                ).await
+            } else {
+                result
+            }
+        }
+        _ => result,
+    };
+
+    // 检测风控错误，通知前端弹出验证码
+    if let Err(ref e) = result {
+        if let Some(v_voucher) = extract_risk_control(&e.to_string()) {
+            log::warn!("[download] 触发风控，通知前端验证: id={}", download_id);
+            let _ = app.emit(
+                "download://risk_control",
+                serde_json::json!({ "v_voucher": v_voucher }),
+            );
+        }
+    }
 
     match result {
         Ok(()) => {

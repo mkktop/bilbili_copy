@@ -12,7 +12,7 @@ fn default_video_min_quality() -> i64 {
 }
 
 fn default_audio_max_quality() -> i64 {
-    30280 // 192K
+    30251 // Hi-Res 无损
 }
 
 fn default_audio_min_quality() -> i64 {
@@ -114,7 +114,7 @@ impl From<LegacySettings> for AppSettings {
             auto_update: legacy.auto_update,
             video_max_quality,
             video_min_quality: legacy.video_min_quality.unwrap_or(0),
-            audio_max_quality: legacy.audio_max_quality.unwrap_or(30280),
+            audio_max_quality: legacy.audio_max_quality.unwrap_or(30251),
             audio_min_quality: legacy.audio_min_quality.unwrap_or(0),
             video_codec_priority: legacy
                 .video_codec_priority

@@ -8,6 +8,7 @@ import { ParseList } from "./components/ParseList";
 import { VideoDetail } from "./components/VideoDetail";
 import { SettingsPage } from "./components/SettingsPage";
 import { LoginDialog } from "./components/LoginDialog";
+import { CaptchaDialog } from "./components/CaptchaDialog";
 import { UserProfile } from "./components/UserProfile";
 import { useUpdate } from "./contexts/UpdateContext";
 import { useSettings } from "./hooks/useSettings";
@@ -40,6 +41,7 @@ export default function App() {
   const [currentView, setCurrentView] = useState<View>("main");
   const [parsedItems, setParsedItems] = useState<ParsedItem[]>([]);
   const [downloads, setDownloads] = useState<DownloadTask[]>([]);
+  const [captchaVoucher, setCaptchaVoucher] = useState<string | null>(null);
   const [isParsing, setIsParsing] = useState(false);
   const [selectedItem, setSelectedItem] = useState<ParsedItem | null>(null);
   const downloadingIds = useRef<Set<string>>(new Set());
@@ -105,6 +107,11 @@ export default function App() {
               d.id === id ? { ...d, status: "error" as const, errorMsg: event.payload.error } : d
             )
           );
+        }),
+        listen<{ v_voucher: string }>("download://risk_control", (event) => {
+          if (cancelled) return;
+          console.warn("[risk] 收到风控事件");
+          setCaptchaVoucher(event.payload.v_voucher);
         }),
       ]);
       if (cancelled) {
@@ -361,6 +368,13 @@ export default function App() {
         onSuccess={() => setLoginDialogOpen(false)}
         generateQrcode={generateQrcode}
         pollQrcode={pollQrcode}
+      />
+
+      {/* 风控验证码弹窗 */}
+      <CaptchaDialog
+        vVoucher={captchaVoucher}
+        onSuccess={() => setCaptchaVoucher(null)}
+        onCancel={() => setCaptchaVoucher(null)}
       />
     </div>
   );

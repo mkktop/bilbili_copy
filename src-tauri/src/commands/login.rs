@@ -76,8 +76,30 @@ pub async fn login_check() -> Result<Option<UserInfo>, String> {
     let cred = Credential::load().map_err(|e| e.to_string())?;
     match cred {
         Some(c) => match passport::validate_credentials(&c).await {
-            Ok(info) => Ok(Some(info)),
-            Err(_) => {
+            Ok(info) => {
+                // 验证成功，检查 Cookie 是否需要刷新
+                if let Ok(Some(new_cred)) = c.check_and_refresh().await {
+                    log::info!("[login] Cookie 已自动刷新");
+                    // 用新凭证重新验证
+                    if let Ok(new_info) = passport::validate_credentials(&new_cred).await {
+                        return Ok(Some(new_info));
+                    }
+                }
+                Ok(Some(info))
+            }
+            Err(e) => {
+                let err_str = e.to_string();
+                // -101 尝试刷新 Cookie
+                if err_str.contains("-101") || err_str.contains("账号未登录") {
+                    log::info!("[login] 凭证验证失败(-101)，尝试刷新 Cookie");
+                    if let Ok(Some(new_cred)) = c.check_and_refresh().await {
+                        if let Ok(new_info) = passport::validate_credentials(&new_cred).await {
+                            log::info!("[login] Cookie 刷新后验证成功");
+                            return Ok(Some(new_info));
+                        }
+                    }
+                }
+                log::warn!("[login] 凭证验证失败，删除凭证: {}", err_str);
                 let _ = Credential::delete();
                 Ok(None)
             }

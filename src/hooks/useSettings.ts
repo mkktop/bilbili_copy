@@ -6,7 +6,7 @@ export interface AppSettings {
   auto_update: boolean;
   video_max_quality: number;    // 默认 127 (8K)
   video_min_quality: number;    // 默认 0 (不限制)
-  audio_max_quality: number;    // 默认 30280 (192K)
+  audio_max_quality: number;    // 默认 30251 (Hi-Res 无损)
   audio_min_quality: number;    // 默认 0 (不限制)
   video_codec_priority: string[];  // 默认 ["AVC", "HEV", "AV1"]
   // 下载并发设置
@@ -21,7 +21,7 @@ export function useSettings() {
     auto_update: false,
     video_max_quality: 127,
     video_min_quality: 0,
-    audio_max_quality: 30280,
+    audio_max_quality: 30251,
     audio_min_quality: 0,
     video_codec_priority: ["AVC", "HEV", "AV1"],
     max_concurrent_downloads: 2,
