@@ -254,15 +254,16 @@ export function VideoDetail({ entry, onBack, onDownload }: VideoDetailProps) {
                   const isDownloaded = downloadedIds.has(pageId);
                   const isSelected = selectedPages.has(p.page);
                   return (
-                    <label
+                    <div
                       key={`${episodeTab}-${p.page}`}
+                      onClick={isDownloaded ? undefined : () => togglePage(p.page)}
                       className={cn(
-                        "flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer transition-colors",
+                        "flex items-center gap-3 px-3 py-2 rounded-lg transition-colors",
                         isDownloaded
                           ? "bg-green-50 border border-green-200"
                           : isSelected
-                            ? "bg-blue-50 border border-blue-200"
-                            : "hover:bg-gray-50 border border-transparent"
+                            ? "bg-blue-50 border border-blue-200 cursor-pointer"
+                            : "hover:bg-gray-50 border border-transparent cursor-pointer"
                       )}
                     >
                       {/* 序号标记 */}
@@ -284,7 +285,7 @@ export function VideoDetail({ entry, onBack, onDownload }: VideoDetailProps) {
                           {formatDuration(p.duration)}
                         </span>
                       )}
-                    </label>
+                    </div>
                   );
                 })}
               </div>
