@@ -1,5 +1,7 @@
 import { open } from "@tauri-apps/plugin-dialog";
-import { FolderOpen, Check } from "lucide-react";
+import { invoke } from "@tauri-apps/api/core";
+import { FolderOpen, Check, Trash2 } from "lucide-react";
+import { useState } from "react";
 
 interface GeneralTabProps {
   dir: string;
@@ -16,6 +18,25 @@ export function GeneralTab({
   saved,
   onSave,
 }: GeneralTabProps) {
+  const [clearing, setClearing] = useState<"parse" | "download" | null>(null);
+
+  const handleClearParse = async () => {
+    setClearing("parse");
+    try {
+      await invoke("clear_parse_history");
+    } finally {
+      setClearing(null);
+    }
+  };
+
+  const handleClearDownload = async () => {
+    setClearing("download");
+    try {
+      await invoke("clear_download_history");
+    } finally {
+      setClearing(null);
+    }
+  };
   const handleSelectDir = async () => {
     const selected = await open({ directory: true, multiple: false });
     if (selected && typeof selected === "string") {
@@ -63,6 +84,33 @@ export function GeneralTab({
               </button>
             )}
           </div>
+        </div>
+      </section>
+
+      {/* 历史记录管理 */}
+      <section className="space-y-2">
+        <header className="space-y-1">
+          <h3 className="text-sm font-medium text-gray-700">历史记录</h3>
+          <p className="text-xs text-gray-400">清除后不可恢复</p>
+        </header>
+
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleClearParse}
+            disabled={clearing === "parse"}
+            className="flex items-center gap-1.5 px-3 py-2 text-sm text-red-500 border border-red-200 rounded-lg hover:bg-red-50 disabled:opacity-50 transition-colors"
+          >
+            <Trash2 size={14} />
+            {clearing === "parse" ? "清除中..." : "清除解析记录"}
+          </button>
+          <button
+            onClick={handleClearDownload}
+            disabled={clearing === "download"}
+            className="flex items-center gap-1.5 px-3 py-2 text-sm text-red-500 border border-red-200 rounded-lg hover:bg-red-50 disabled:opacity-50 transition-colors"
+          >
+            <Trash2 size={14} />
+            {clearing === "download" ? "清除中..." : "清除下载记录"}
+          </button>
         </div>
       </section>
 

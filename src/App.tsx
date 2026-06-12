@@ -15,7 +15,8 @@ import { useSettings } from "./hooks/useSettings";
 import { useLogin } from "./hooks/useLogin";
 import { Settings, Download } from "lucide-react";
 import type { AppSettings } from "./hooks/useSettings";
-import type { ParsedItem, DownloadTask, ParsedVideoInfo } from "./types";
+import type { ParsedItem, DownloadTask, ParsedVideoInfo, ParseHistoryEntry, DownloadHistoryEntry } from "./types";
+import { dbToParsedItem, dbToDownloadTask } from "./types";
 
 type View = "main" | "settings" | "detail" | "downloads";
 
@@ -46,6 +47,12 @@ export default function App() {
   const [selectedItem, setSelectedItem] = useState<ParsedItem | null>(null);
   const downloadingIds = useRef<Set<string>>(new Set());
 
+  // 分页 state
+  const [parsePage, setParsePage] = useState(1);
+  const [parseTotal, setParseTotal] = useState(0);
+  const [downloadPage, setDownloadPage] = useState(1);
+  const [downloadTotal, setDownloadTotal] = useState(0);
+
   const { phase, updateInfo } = useUpdate();
   const { settings, save } = useSettings();
   const { userInfo, logout, generateQrcode, pollQrcode } = useLogin();
@@ -58,6 +65,41 @@ export default function App() {
 
   useEffect(() => {
     getVersion().then((v) => setVersion(v));
+  }, []);
+
+  // 分页加载函数
+  const loadParsePage = useCallback(async (page: number) => {
+    try {
+      const [parses, total] = await Promise.all([
+        invoke<ParseHistoryEntry[]>("get_parse_history", { page }),
+        invoke<number>("get_parse_count"),
+      ]);
+      setParsedItems(parses.map(dbToParsedItem));
+      setParseTotal(total);
+      setParsePage(page);
+    } catch (e) {
+      console.warn("加载解析历史失败:", e);
+    }
+  }, []);
+
+  const loadDownloadPage = useCallback(async (page: number) => {
+    try {
+      const [history, total] = await Promise.all([
+        invoke<DownloadHistoryEntry[]>("get_download_history", { page }),
+        invoke<number>("get_download_count"),
+      ]);
+      setDownloads(history.map(dbToDownloadTask));
+      setDownloadTotal(total);
+      setDownloadPage(page);
+    } catch (e) {
+      console.warn("加载下载历史失败:", e);
+    }
+  }, []);
+
+  // 启动时从 DB 加载第一页
+  useEffect(() => {
+    loadParsePage(1);
+    loadDownloadPage(1);
   }, []);
 
   // UserProfile 外部点击关闭
@@ -88,26 +130,29 @@ export default function App() {
               d.id === id ? { ...d, status: "downloading" as const, progress: percent, phase } : d
             )
           );
+          invoke("update_download_status", { id, status: "downloading", progress: percent, phase, errorMsg: null, outputPath: null }).catch(() => {});
         }),
         listen<DownloadComplete>("download://complete", (event) => {
           if (cancelled) return;
-          const { id } = event.payload;
+          const { id, output_path } = event.payload;
           downloadingIds.current.delete(id);
           setDownloads((prev) =>
             prev.map((d) =>
               d.id === id ? { ...d, status: "done" as const, progress: 100 } : d
             )
           );
+          invoke("update_download_status", { id, status: "done", progress: 100, phase: null, errorMsg: null, outputPath: output_path }).catch(() => {});
         }),
         listen<DownloadError>("download://error", (event) => {
           if (cancelled) return;
-          const { id } = event.payload;
+          const { id, error } = event.payload;
           downloadingIds.current.delete(id);
           setDownloads((prev) =>
             prev.map((d) =>
-              d.id === id ? { ...d, status: "error" as const, errorMsg: event.payload.error } : d
+              d.id === id ? { ...d, status: "error" as const, errorMsg: error } : d
             )
           );
+          invoke("update_download_status", { id, status: "error", progress: null, phase: null, errorMsg: error, outputPath: null }).catch(() => {});
         }),
         listen<{ v_voucher: string }>("download://risk_control", (event) => {
           if (cancelled) return;
@@ -156,6 +201,10 @@ export default function App() {
             : p
         )
       );
+      // 持久化解析成功的记录
+      invoke("save_parse_history", {
+        entry: { id, url, bvid: videoInfo.bvid, title: videoInfo.title, video_info: videoInfo, parsed_at: new Date().toISOString() }
+      }).then(() => loadParsePage(1)).catch(() => {});
     } catch (err) {
       setParsedItems((prev) =>
         prev.map((p) =>
@@ -187,6 +236,11 @@ export default function App() {
       ...prev,
     ]);
 
+    // 持久化下载记录
+    invoke("save_download_entry", {
+      entry: { id, title, bvid, cid, ep_id: epId ?? null, status: "downloading", progress: 0, phase: null, error_msg: null, output_path: null, created_at: new Date().toISOString() }
+    }).catch(() => {});
+
     // 直接 invoke，并发由 Rust 端 Semaphore 控制
     try {
       await invoke("download_video", { id, bvid, cid, title, epId });
@@ -209,10 +263,12 @@ export default function App() {
 
   const handleRemoveParsed = (id: string) => {
     setParsedItems((prev) => prev.filter((p) => p.id !== id));
+    invoke("delete_parse_history", { id }).then(() => loadParsePage(parsePage)).catch(() => {});
   };
 
   const handleRemoveDownload = (id: string) => {
     setDownloads((prev) => prev.filter((d) => d.id !== id));
+    invoke("delete_download_history", { id }).then(() => loadDownloadPage(downloadPage)).catch(() => {});
   };
 
   // Settings view
@@ -250,7 +306,13 @@ export default function App() {
 
         {/* Download list */}
         <div className="flex-1 overflow-auto px-6 py-4">
-          <DownloadList downloads={downloads} onRemove={handleRemoveDownload} />
+          <DownloadList
+            downloads={downloads}
+            onRemove={handleRemoveDownload}
+            currentPage={downloadPage}
+            totalCount={downloadTotal}
+            onPageChange={loadDownloadPage}
+          />
         </div>
       </div>
     );
@@ -356,6 +418,9 @@ export default function App() {
           items={parsedItems}
           onRemove={handleRemoveParsed}
           onSelect={handleSelectItem}
+          currentPage={parsePage}
+          totalCount={parseTotal}
+          onPageChange={loadParsePage}
         />
       </div>
 

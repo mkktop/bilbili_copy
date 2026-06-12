@@ -4,13 +4,20 @@ import {
   CheckCircle2,
   XCircle,
   X,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import type { DownloadTask } from "../types";
 import { cn } from "../lib/utils";
 
+const PAGE_SIZE = 20;
+
 interface DownloadListProps {
   downloads: DownloadTask[];
   onRemove: (id: string) => void;
+  currentPage: number;
+  totalCount: number;
+  onPageChange: (page: number) => void;
 }
 
 const STATUS_CONFIG: Record<
@@ -40,7 +47,7 @@ const PHASE_TEXT: Record<string, string> = {
   merging: "合并中",
 };
 
-export function DownloadList({ downloads, onRemove }: DownloadListProps) {
+export function DownloadList({ downloads, onRemove, currentPage, totalCount, onPageChange }: DownloadListProps) {
   if (downloads.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-full text-gray-400 gap-2">
@@ -116,6 +123,31 @@ export function DownloadList({ downloads, onRemove }: DownloadListProps) {
           </div>
         );
       })}
+
+      {/* 分页控件 */}
+      {totalCount > PAGE_SIZE && (
+        <div className="flex items-center justify-center gap-3 pt-3 pb-1">
+          <button
+            onClick={() => onPageChange(currentPage - 1)}
+            disabled={currentPage <= 1}
+            className="flex items-center gap-1 px-2 py-1 text-xs text-gray-500 rounded hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+          >
+            <ChevronLeft size={12} />
+            上一页
+          </button>
+          <span className="text-xs text-gray-400">
+            第 {currentPage} / {Math.ceil(totalCount / PAGE_SIZE)} 页
+          </span>
+          <button
+            onClick={() => onPageChange(currentPage + 1)}
+            disabled={currentPage >= Math.ceil(totalCount / PAGE_SIZE)}
+            className="flex items-center gap-1 px-2 py-1 text-xs text-gray-500 rounded hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+          >
+            下一页
+            <ChevronRight size={12} />
+          </button>
+        </div>
+      )}
     </div>
   );
 }

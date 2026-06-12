@@ -24,7 +24,7 @@ fn default_codec_priority() -> Vec<String> {
 }
 
 fn default_max_concurrent_downloads() -> usize {
-    2
+    1
 }
 
 fn default_max_pages_per_video() -> usize {

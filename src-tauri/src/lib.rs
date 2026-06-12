@@ -1,11 +1,16 @@
 mod commands;
 mod bilibili;
+mod db;
 
 use commands::settings::{get_settings, save_settings};
 use commands::video::parse_video;
 use commands::download::download_video;
 use commands::login::{login_generate_qrcode, login_poll_qrcode, login_check, login_logout};
 use commands::risk_control::{captcha_register, captcha_validate};
+use commands::history::{
+    get_parse_history, save_parse_history, delete_parse_history, get_parse_count, clear_parse_history,
+    get_download_history, save_download_entry, update_download_status, delete_download_history, get_download_count, clear_download_history,
+};
 
 /// Read Windows system proxy settings and set HTTPS_PROXY env var
 /// so the Tauri updater (reqwest) can use the system proxy.
@@ -91,11 +96,14 @@ pub fn run() {
     init_logger();
     init_system_proxy();
 
+    let db_state = db::init_db().expect("数据库初始化失败");
+
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .manage(db_state)
         .invoke_handler(tauri::generate_handler![
             get_settings,
             save_settings,
@@ -107,6 +115,17 @@ pub fn run() {
             login_logout,
             captcha_register,
             captcha_validate,
+            get_parse_history,
+            get_parse_count,
+            save_parse_history,
+            delete_parse_history,
+            clear_parse_history,
+            get_download_history,
+            get_download_count,
+            save_download_entry,
+            update_download_status,
+            delete_download_history,
+            clear_download_history,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

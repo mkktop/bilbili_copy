@@ -67,3 +67,53 @@ export function formatDuration(seconds: number): string {
   }
   return `${m}:${String(s).padStart(2, "0")}`;
 }
+
+// ==================== DB 类型 & 映射 ====================
+
+/** DB 解析历史条目 */
+export interface ParseHistoryEntry {
+  id: string;
+  url: string;
+  bvid: string;
+  title: string;
+  video_info: ParsedVideoInfo;
+  parsed_at: string;
+}
+
+/** DB 下载历史条目 */
+export interface DownloadHistoryEntry {
+  id: string;
+  title: string;
+  bvid: string;
+  cid: number;
+  ep_id: number | null;
+  status: string;
+  progress: number;
+  phase: string | null;
+  error_msg: string | null;
+  output_path: string | null;
+  created_at: string;
+}
+
+/** DB 解析历史 → 前端 ParsedItem */
+export function dbToParsedItem(entry: ParseHistoryEntry): ParsedItem {
+  return {
+    id: entry.id,
+    url: entry.url,
+    title: entry.title,
+    status: "pending",
+    videoInfo: entry.video_info,
+  };
+}
+
+/** DB 下载历史 → 前端 DownloadTask */
+export function dbToDownloadTask(entry: DownloadHistoryEntry): DownloadTask {
+  return {
+    id: entry.id,
+    title: entry.title,
+    status: entry.status as DownloadTask["status"],
+    progress: entry.progress,
+    phase: (entry.phase as DownloadTask["phase"]) ?? undefined,
+    errorMsg: entry.error_msg ?? undefined,
+  };
+}
