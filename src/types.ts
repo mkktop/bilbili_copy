@@ -17,6 +17,8 @@ export interface FavoriteMedia {
   upper_mid: number;
   duration: number | null;
   fav_time: number;
+  play: number;
+  like: number;
 }
 
 export interface FavoriteListResult {

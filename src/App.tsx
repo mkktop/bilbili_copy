@@ -190,6 +190,7 @@ export default function App() {
       invoke("save_parse_history", {
         entry: { id, url, bvid: videoInfo.bvid, title: videoInfo.title, video_info: videoInfo, parsed_at: new Date().toISOString() }
       }).then(() => loadParsePage(1)).catch(() => {});
+      return videoInfo;
     } catch (err) {
       setParsedItems((prev) =>
         prev.map((p) =>
@@ -198,6 +199,7 @@ export default function App() {
             : p
         )
       );
+      throw err;
     } finally {
       setIsParsing(false);
     }
@@ -328,14 +330,18 @@ export default function App() {
         onLogout={logout}
         onBack={() => setCurrentView("main")}
         onParseVideo={handleParse}
-        onSelectItem={(bvid: string) => {
-          // 从 parsedItems 中找到刚解析的视频，跳转详情
-          const item = parsedItems.find((p) => p.videoInfo?.bvid === bvid);
-          if (item && item.videoInfo) {
-            setSelectedItem(item);
-            setPreviousView("profile");
-            setCurrentView("detail");
-          }
+        onSelectItem={(videoInfo: ParsedVideoInfo) => {
+          // 直接用解析好的 videoInfo 跳转详情
+          const item: ParsedItem = {
+            id: `fav-${videoInfo.bvid}`,
+            url: `https://www.bilibili.com/video/${videoInfo.bvid}`,
+            title: videoInfo.title,
+            status: "pending",
+            videoInfo,
+          };
+          setSelectedItem(item);
+          setPreviousView("profile");
+          setCurrentView("detail");
         }}
       />
     );

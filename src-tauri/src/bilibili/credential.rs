@@ -22,6 +22,20 @@ pub struct UserInfo {
     pub mid: u64,
     pub uname: String,
     pub face: String,
+    #[serde(default)]
+    pub level: u8,
+    #[serde(default)]
+    pub coins: f64,
+    #[serde(default)]
+    pub sign: String,
+    #[serde(default)]
+    pub vip: bool,
+    #[serde(default)]
+    pub following: u64,
+    #[serde(default)]
+    pub follower: u64,
+    #[serde(default)]
+    pub sex: String,
 }
 
 /// Cookie 刷新检查结果

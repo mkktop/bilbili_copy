@@ -5,6 +5,13 @@ export interface UserInfo {
   mid: number;
   uname: string;
   face: string;
+  level: number;
+  coins: number;
+  sign: string;
+  vip: boolean;
+  following: number;
+  follower: number;
+  sex: string;
 }
 
 export type QrPollStatus = "pending" | "scanned" | "confirmed" | "expired";

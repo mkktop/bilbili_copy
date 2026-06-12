@@ -135,14 +135,60 @@ pub async fn fetch_buvid() -> Result<(String, String)> {
     Ok((data.b_3, data.b_4))
 }
 
+/// 获取用户的关注数和粉丝数
+async fn get_relation_info(client: &Client, cred: &Credential, mid: u64) -> Result<(u64, u64)> {
+    #[derive(Deserialize)]
+    struct RelationData {
+        #[serde(default)]
+        following: u64,
+        #[serde(default)]
+        follower: u64,
+    }
+    let resp: BilibiliResponse<RelationData> = client
+        .get("https://api.bilibili.com/x/relation/stat")
+        .header("Cookie", cred.cookie_header())
+        .header("Referer", REFERER)
+        .query(&[("vmid", mid.to_string())])
+        .send()
+        .await?
+        .json()
+        .await?;
+
+    if let Some(data) = resp.data {
+        Ok((data.following, data.follower))
+    } else {
+        Ok((0, 0))
+    }
+}
+
 /// 验证凭证是否有效，返回用户信息
 pub async fn validate_credentials(cred: &Credential) -> Result<UserInfo> {
     let client = bilibili_client()?;
+    #[derive(Deserialize)]
+    struct LevelInfo {
+        #[serde(default)]
+        level: u8,
+    }
+    #[derive(Deserialize)]
+    struct VipInfo {
+        #[serde(default)]
+        status: u8,
+    }
     #[derive(Deserialize)]
     struct NavData {
         mid: u64,
         uname: String,
         face: String,
+        #[serde(default)]
+        level_info: Option<LevelInfo>,
+        #[serde(default)]
+        coins: f64,
+        #[serde(default)]
+        sign: String,
+        #[serde(default)]
+        vip: Option<VipInfo>,
+        #[serde(default)]
+        sex: String,
     }
     let resp: BilibiliResponse<NavData> = client
         .get("https://api.bilibili.com/x/web-interface/nav")
@@ -157,10 +203,27 @@ pub async fn validate_credentials(cred: &Credential) -> Result<UserInfo> {
         anyhow::bail!("凭证验证失败: {:?}", resp.message);
     }
     let data = resp.data.context("nav 响应无 data")?;
+
+    // 获取关注数和粉丝数（失败不影响登录，但记录日志）
+    let (following, follower) = match get_relation_info(&client, cred, data.mid).await {
+        Ok(info) => info,
+        Err(e) => {
+            log::warn!("[passport] 获取关注/粉丝数失败: {}", e);
+            (0, 0)
+        }
+    };
+
     Ok(UserInfo {
         mid: data.mid,
         uname: data.uname,
         face: http_to_https(&data.face),
+        level: data.level_info.map(|l| l.level).unwrap_or(0),
+        coins: data.coins,
+        sign: data.sign,
+        vip: data.vip.map(|v| v.status == 1).unwrap_or(false),
+        following,
+        follower,
+        sex: data.sex,
     })
 }
 

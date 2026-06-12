@@ -9,21 +9,35 @@ import {
   User,
   Clock,
   AlertCircle,
+  Star,
+  Coins,
+  Users,
+  Eye,
+  ThumbsUp,
+  Crown,
 } from "lucide-react";
 import type { UserInfo } from "../hooks/useLogin";
 import type {
   FavoriteFolder,
   FavoriteMedia,
   FavoriteListResult,
+  ParsedVideoInfo,
 } from "../types";
 import { formatDuration } from "../types";
+
+function formatCount(count: number): string {
+  if (count >= 10000) {
+    return (count / 10000).toFixed(1) + "万";
+  }
+  return count.toString();
+}
 
 interface UserProfilePageProps {
   userInfo: UserInfo;
   onLogout: () => Promise<void>;
   onBack: () => void;
-  onParseVideo: (url: string) => void;
-  onSelectItem: (bvid: string) => void;
+  onParseVideo: (url: string) => Promise<ParsedVideoInfo>;
+  onSelectItem: (videoInfo: ParsedVideoInfo) => void;
 }
 
 export function UserProfilePage({
@@ -116,8 +130,10 @@ export function UserProfilePage({
     setParsingBvid(media.bvid);
     try {
       const url = `https://www.bilibili.com/video/${media.bvid}`;
-      onParseVideo(url);
-      onSelectItem(media.bvid);
+      const videoInfo = await onParseVideo(url);
+      onSelectItem(videoInfo);
+    } catch {
+      // 解析失败已在 handleParse 中处理
     } finally {
       setParsingBvid(null);
     }
@@ -159,28 +175,79 @@ export function UserProfilePage({
         {!selectedFolder && (
           <>
             {/* 用户信息卡片 */}
-            <div className="flex items-center gap-4 px-4 py-5 bg-white border border-gray-200 rounded-lg mb-4">
-              <img
-                src={userInfo.face}
-                alt={userInfo.uname}
-                className="w-16 h-16 rounded-full object-cover border border-gray-200"
-              />
-              <div className="flex-1 min-w-0">
-                <p className="text-xl font-bold text-gray-800 truncate">
-                  {userInfo.uname}
-                </p>
-                <p className="text-sm text-gray-400 mt-0.5">
-                  UID: {userInfo.mid}
-                </p>
+            <div className="px-4 py-5 bg-white border border-gray-200 rounded-lg mb-4">
+              <div className="flex items-center gap-4">
+                <div className="relative">
+                  <img
+                    src={userInfo.face}
+                    alt={userInfo.uname}
+                    className="w-16 h-16 rounded-full object-cover border border-gray-200"
+                  />
+                  {userInfo.vip && (
+                    <div className="absolute -bottom-1 -right-1 bg-yellow-400 rounded-full p-0.5">
+                      <Crown size={10} className="text-white" />
+                    </div>
+                  )}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <p className="text-xl font-bold text-gray-800 truncate">
+                      {userInfo.uname}
+                    </p>
+                    <span className="text-xs text-gray-400">
+                      {userInfo.sex === "男" ? "♂" : userInfo.sex === "女" ? "♀" : ""}
+                    </span>
+                  </div>
+                  <p className="text-sm text-gray-400 mt-0.5">
+                    UID: {userInfo.mid}
+                  </p>
+                  {userInfo.sign && (
+                    <p className="text-xs text-gray-400 mt-1 truncate">
+                      {userInfo.sign}
+                    </p>
+                  )}
+                </div>
+                <button
+                  onClick={handleLogout}
+                  disabled={loggingOut}
+                  className="flex items-center gap-1.5 px-3 py-2 text-sm text-red-500 border border-red-200 rounded-lg hover:bg-red-50 disabled:opacity-50 transition-colors shrink-0"
+                >
+                  <LogOut size={14} />
+                  {loggingOut ? "退出中..." : "退出登录"}
+                </button>
               </div>
-              <button
-                onClick={handleLogout}
-                disabled={loggingOut}
-                className="flex items-center gap-1.5 px-3 py-2 text-sm text-red-500 border border-red-200 rounded-lg hover:bg-red-50 disabled:opacity-50 transition-colors shrink-0"
-              >
-                <LogOut size={14} />
-                {loggingOut ? "退出中..." : "退出登录"}
-              </button>
+
+              {/* 用户统计信息 */}
+              <div className="grid grid-cols-4 gap-3 mt-4 pt-4 border-t border-gray-100">
+                <div className="text-center">
+                  <div className="flex items-center justify-center gap-1">
+                    <Star size={12} className="text-yellow-500" />
+                    <span className="text-sm font-semibold text-gray-700">Lv.{userInfo.level}</span>
+                  </div>
+                  <p className="text-xs text-gray-400 mt-0.5">等级</p>
+                </div>
+                <div className="text-center">
+                  <div className="flex items-center justify-center gap-1">
+                    <Coins size={12} className="text-orange-500" />
+                    <span className="text-sm font-semibold text-gray-700">{Math.floor(userInfo.coins)}</span>
+                  </div>
+                  <p className="text-xs text-gray-400 mt-0.5">硬币</p>
+                </div>
+                <div className="text-center">
+                  <div className="flex items-center justify-center gap-1">
+                    <Users size={12} className="text-blue-500" />
+                    <span className="text-sm font-semibold text-gray-700">{formatCount(userInfo.following)}</span>
+                  </div>
+                  <p className="text-xs text-gray-400 mt-0.5">关注</p>
+                </div>
+                <div className="text-center">
+                  <div className="flex items-center justify-center gap-1">
+                    <Users size={12} className="text-pink-500" />
+                    <span className="text-sm font-semibold text-gray-700">{formatCount(userInfo.follower)}</span>
+                  </div>
+                  <p className="text-xs text-gray-400 mt-0.5">粉丝</p>
+                </div>
+              </div>
             </div>
 
             {/* 收藏夹列表 */}
@@ -279,6 +346,18 @@ export function UserProfilePage({
                           <span className="flex items-center gap-0.5">
                             <Clock size={10} />
                             {formatDuration(media.duration)}
+                          </span>
+                        )}
+                        {media.play > 0 && (
+                          <span className="flex items-center gap-0.5">
+                            <Eye size={10} />
+                            {formatCount(media.play)}
+                          </span>
+                        )}
+                        {media.like > 0 && (
+                          <span className="flex items-center gap-0.5">
+                            <ThumbsUp size={10} />
+                            {formatCount(media.like)}
                           </span>
                         )}
                       </div>

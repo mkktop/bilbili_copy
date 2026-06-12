@@ -25,6 +25,10 @@ pub struct FavoriteMedia {
     pub upper_mid: i64,
     pub duration: Option<i64>,
     pub fav_time: i64,
+    #[serde(default)]
+    pub play: u64,
+    #[serde(default)]
+    pub like: u64,
 }
 
 /// 收藏夹视频分页结果
@@ -79,6 +83,16 @@ struct FavMediaRaw {
     pubtime: i64,
     #[allow(dead_code)]
     attr: i32,
+    #[serde(default)]
+    cnt_info: Option<CntInfoRaw>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CntInfoRaw {
+    #[serde(default)]
+    play: u64,
+    #[serde(default)]
+    like: u64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -123,19 +137,15 @@ pub async fn get_user_favorite_folders(credential: &Credential) -> Result<Vec<Fa
 
     log::debug!("[favorite] created/list-all 响应: {}", &resp_text[..resp_text.len().min(500)]);
 
-    let resp_json: serde_json::Value = serde_json::from_str(&resp_text)
-        .context("收藏夹列表响应解析失败")?;
+    let resp: BilibiliResponse<FavFolderListData> = serde_json::from_str(&resp_text)
+        .context("收藏夹列表反序列化失败")?;
 
-    let code = resp_json["code"].as_i64().unwrap_or(-1);
-    if code != 0 {
+    if resp.code != 0 {
         anyhow::bail!(
             "获取收藏夹列表失败: {}",
-            resp_json["message"].as_str().unwrap_or("未知错误")
+            resp.message.unwrap_or_else(|| "未知错误".to_string())
         );
     }
-
-    let resp: BilibiliResponse<FavFolderListData> = serde_json::from_value(resp_json)
-        .context("收藏夹列表反序列化失败")?;
 
     let folders: Vec<FavoriteFolder> = resp
         .data
@@ -186,18 +196,7 @@ pub async fn get_favorite_videos(
 
     log::debug!("[favorite] resource/list 响应: {}", &resp_text[..resp_text.len().min(500)]);
 
-    let resp_json: serde_json::Value = serde_json::from_str(&resp_text)
-        .context("收藏夹视频列表响应解析失败")?;
-
-    let code = resp_json["code"].as_i64().unwrap_or(-1);
-    if code != 0 {
-        anyhow::bail!(
-            "获取收藏夹视频失败: {}",
-            resp_json["message"].as_str().unwrap_or("未知错误")
-        );
-    }
-
-    let resp: BilibiliResponse<FavResourceData> = serde_json::from_value(resp_json)
+    let resp: BilibiliResponse<FavResourceData> = serde_json::from_str(&resp_text)
         .context("收藏夹视频列表反序列化失败")?;
 
     if resp.code != 0 {
@@ -223,6 +222,8 @@ pub async fn get_favorite_videos(
             upper_mid: m.upper.mid,
             duration: m.duration,
             fav_time: m.fav_time,
+            play: m.cnt_info.as_ref().map(|c| c.play).unwrap_or(0),
+            like: m.cnt_info.as_ref().map(|c| c.like).unwrap_or(0),
         })
         .collect();
 
