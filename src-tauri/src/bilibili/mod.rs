@@ -9,6 +9,8 @@ pub mod download;
 pub mod risk_control;
 pub mod favorite;
 pub mod fingerprint;
+pub mod danmaku;
+pub mod subtitle;
 
 // ==================== 共享常量 ====================
 

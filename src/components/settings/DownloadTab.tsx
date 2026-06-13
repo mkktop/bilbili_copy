@@ -1,4 +1,4 @@
-import { Download, Zap, Layers, Server } from "lucide-react";
+import { Download, Zap, Layers, Server, MessageSquare, FileText } from "lucide-react";
 import { cn } from "../../lib/utils";
 
 interface DownloadTabProps {
@@ -8,6 +8,10 @@ interface DownloadTabProps {
   onMaxPagesPerVideoChange: (v: number) => void;
   parallelThreads: number;
   onParallelThreadsChange: (v: number) => void;
+  downloadDanmaku: boolean;
+  onDownloadDanmakuChange: (v: boolean) => void;
+  downloadSubtitle: boolean;
+  onDownloadSubtitleChange: (v: boolean) => void;
   saving: boolean;
   saved: boolean;
   onSave: () => void;
@@ -77,6 +81,10 @@ export function DownloadTab({
   onMaxPagesPerVideoChange,
   parallelThreads,
   onParallelThreadsChange,
+  downloadDanmaku,
+  onDownloadDanmakuChange,
+  downloadSubtitle,
+  onDownloadSubtitleChange,
   saving,
   saved,
   onSave,
@@ -136,6 +144,48 @@ export function DownloadTab({
         <span className="text-xs text-green-600 font-medium">
           ✓ 已默认开启，无需手动配置
         </span>
+      </SettingCard>
+
+      <SettingCard
+        icon={MessageSquare}
+        title="下载弹幕"
+        description="视频下载完成后自动保存弹幕为 ASS 字幕文件，可直接在播放器中加载显示。"
+      >
+        <button
+          onClick={() => onDownloadDanmakuChange(!downloadDanmaku)}
+          className={cn(
+            "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
+            downloadDanmaku ? "bg-blue-500" : "bg-gray-300"
+          )}
+        >
+          <span
+            className={cn(
+              "inline-block h-4 w-4 transform rounded-full bg-white transition-transform shadow-sm",
+              downloadDanmaku ? "translate-x-6" : "translate-x-1"
+            )}
+          />
+        </button>
+      </SettingCard>
+
+      <SettingCard
+        icon={FileText}
+        title="下载字幕"
+        description="自动保存 CC 字幕为 SRT 文件（按语言分别保存，如 zh-Hans.srt、en.srt）。"
+      >
+        <button
+          onClick={() => onDownloadSubtitleChange(!downloadSubtitle)}
+          className={cn(
+            "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
+            downloadSubtitle ? "bg-blue-500" : "bg-gray-300"
+          )}
+        >
+          <span
+            className={cn(
+              "inline-block h-4 w-4 transform rounded-full bg-white transition-transform shadow-sm",
+              downloadSubtitle ? "translate-x-6" : "translate-x-1"
+            )}
+          />
+        </button>
       </SettingCard>
 
       {/* Save button */}

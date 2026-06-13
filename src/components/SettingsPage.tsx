@@ -37,6 +37,8 @@ export function SettingsPage({ settings, onSave, onBack, onClearParse, onClearDo
   const [dmImgList, setDmImgList] = useState(settings.dm_img_list);
   const [dmImgInter, setDmImgInter] = useState(settings.dm_img_inter);
   const [requestDelayMs, setRequestDelayMs] = useState(settings.request_delay_ms);
+  const [downloadDanmaku, setDownloadDanmaku] = useState(settings.download_danmaku);
+  const [downloadSubtitle, setDownloadSubtitle] = useState(settings.download_subtitle);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
@@ -58,6 +60,8 @@ export function SettingsPage({ settings, onSave, onBack, onClearParse, onClearDo
     setDmImgList(settings.dm_img_list);
     setDmImgInter(settings.dm_img_inter);
     setRequestDelayMs(settings.request_delay_ms);
+    setDownloadDanmaku(settings.download_danmaku);
+    setDownloadSubtitle(settings.download_subtitle);
   }, [settings]);
 
   const handleSave = async () => {
@@ -81,6 +85,8 @@ export function SettingsPage({ settings, onSave, onBack, onClearParse, onClearDo
         dm_img_list: dmImgList,
         dm_img_inter: dmImgInter,
         request_delay_ms: requestDelayMs,
+        download_danmaku: downloadDanmaku,
+        download_subtitle: downloadSubtitle,
       });
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
@@ -166,6 +172,10 @@ export function SettingsPage({ settings, onSave, onBack, onClearParse, onClearDo
             onMaxPagesPerVideoChange={(v) => { setMaxPagesPerVideo(v); setSaved(false); }}
             parallelThreads={parallelThreads}
             onParallelThreadsChange={(v) => { setParallelThreads(v); setSaved(false); }}
+            downloadDanmaku={downloadDanmaku}
+            onDownloadDanmakuChange={(v) => { setDownloadDanmaku(v); setSaved(false); }}
+            downloadSubtitle={downloadSubtitle}
+            onDownloadSubtitleChange={(v) => { setDownloadSubtitle(v); setSaved(false); }}
             saving={saving}
             saved={saved}
             onSave={handleSave}

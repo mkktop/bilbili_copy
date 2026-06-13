@@ -22,7 +22,8 @@ interface VideoDetailProps {
     cid: number,
     title: string,
     videoTitle: string,
-    epId?: number
+    epId?: number,
+    duration?: number
   ) => void;
 }
 
@@ -79,7 +80,7 @@ export function VideoDetail({ entry, onBack, onDownload }: VideoDetailProps) {
       const p = info.pages[0];
       const pageBvid = p.bvid || info.bvid;
       const pageEpId = p.ep_id || info.ep_id;
-      onDownload(entry.id, pageBvid, p.cid, info.title, folderName, pageEpId);
+      onDownload(entry.id, pageBvid, p.cid, info.title, folderName, pageEpId, p.duration);
       ids.push(entry.id);
     } else {
       selectedPages.forEach((page) => {
@@ -89,7 +90,7 @@ export function VideoDetail({ entry, onBack, onDownload }: VideoDetailProps) {
           const pageEpId = p.ep_id || info.ep_id;
           const title = `P${p.page} ${p.part}`;
           const id = `${entry.id}_P${p.page}`;
-          onDownload(id, pageBvid, p.cid, title, folderName, pageEpId);
+          onDownload(id, pageBvid, p.cid, title, folderName, pageEpId, p.duration);
           ids.push(id);
         }
       });

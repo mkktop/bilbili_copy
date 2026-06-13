@@ -9,7 +9,7 @@ use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// 构建模拟浏览器的 API 请求头
-fn create_api_headers() -> HeaderMap {
+pub fn create_api_headers() -> HeaderMap {
     let mut headers = HeaderMap::new();
     headers.insert("User-Agent", HeaderValue::from_static(USER_AGENT));
     headers.insert("Accept", HeaderValue::from_static("*/*"));

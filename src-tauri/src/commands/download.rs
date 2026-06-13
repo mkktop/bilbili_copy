@@ -10,6 +10,7 @@ use crate::bilibili::download::{
     DownloadComplete, DownloadError,
 };
 use crate::bilibili::playurl::get_playurl;
+use crate::bilibili::url;
 use crate::commands::settings::{get_settings, AppSettings};
 use tauri::AppHandle;
 
@@ -83,6 +84,7 @@ pub async fn download_video(
     video_title: String,
     qn: Option<i64>,
     ep_id: Option<u64>,
+    duration: Option<u64>,
 ) -> Result<(), String> {
     let download_id = sanitize_download_id(&id)?;
 
@@ -225,6 +227,27 @@ pub async fn download_video(
                 download_id,
                 output_path.display()
             );
+
+            // 附加下载：弹幕和字幕（非致命）
+            if settings.download_danmaku || settings.download_subtitle {
+                let aid = url::bvid_to_aid(&bvid);
+                let dur = duration.unwrap_or(0);
+                download_extras(
+                    &app,
+                    &download_id,
+                    &bvid,
+                    cid,
+                    aid,
+                    dur,
+                    &credential,
+                    &output_path,
+                    settings.download_danmaku,
+                    settings.download_subtitle,
+                    &title,
+                )
+                .await;
+            }
+
             let _ = app.emit(
                 "download://complete",
                 DownloadComplete {
@@ -326,4 +349,108 @@ async fn run_download(
     cleanup_temp_files(&temp_files).await;
 
     result
+}
+
+/// 附加下载：弹幕（XML）和字幕（SRT），非致命
+async fn download_extras(
+    app: &AppHandle,
+    download_id: &str,
+    bvid: &str,
+    cid: i64,
+    aid: u64,
+    duration_secs: u64,
+    credential: &Credential,
+    output_path: &std::path::Path,
+    want_danmaku: bool,
+    want_subtitle: bool,
+    title: &str,
+) {
+    let client = match reqwest::Client::builder()
+        .user_agent(crate::bilibili::USER_AGENT)
+        .cookie_store(false)
+        .build()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            log::warn!("[download] 创建附加下载客户端失败: {}", e);
+            return;
+        }
+    };
+
+    let base_path = output_path.with_extension("");
+
+    // 弹幕下载（ASS 格式）
+    if want_danmaku {
+        match crate::bilibili::danmaku::fetch_danmaku_ass(
+            &client, credential, cid, aid, duration_secs, title,
+        )
+        .await
+        {
+            Ok(ass_content) => {
+                let dm_path = output_path.with_extension("ass");
+                match tokio::fs::write(&dm_path, &ass_content).await {
+                    Ok(()) => log::info!("[download] 弹幕保存成功: {}", dm_path.display()),
+                    Err(e) => log::warn!("[download] 弹幕写入失败: {}", e),
+                }
+            }
+            Err(e) => {
+                log::warn!(
+                    "[download] 弹幕下载失败(id={}): {}",
+                    download_id,
+                    e
+                );
+            }
+        }
+    }
+
+    // 字幕下载
+    if want_subtitle {
+        match crate::bilibili::subtitle::get_subtitle_urls(
+            &client, credential, cid, bvid, aid,
+        )
+        .await
+        {
+            Ok(subtitles) => {
+                if subtitles.is_empty() {
+                    log::info!("[download] 该视频无可用字幕(id={})", download_id);
+                }
+                for sub in &subtitles {
+                    match crate::bilibili::subtitle::fetch_subtitle_srt(
+                        &client,
+                        &sub.subtitle_url,
+                    )
+                    .await
+                    {
+                        Ok(srt_content) => {
+                            let srt_path = format!("{}.{}.srt", base_path.display(), sub.lan);
+                            match tokio::fs::write(&srt_path, &srt_content).await {
+                                Ok(()) => {
+                                    log::info!(
+                                        "[download] 字幕保存成功({}): {}",
+                                        sub.lan,
+                                        srt_path
+                                    )
+                                }
+                                Err(e) => {
+                                    log::warn!("[download] 字幕写入失败({}): {}", sub.lan, e)
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            log::warn!("[download] 字幕下载失败({}): {}", sub.lan, e)
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                log::warn!(
+                    "[download] 获取字幕列表失败(id={}): {}",
+                    download_id,
+                    e
+                );
+            }
+        }
+    }
+
+    let _ = app; // 保留 app 参数供将来扩展（如进度事件）
 }

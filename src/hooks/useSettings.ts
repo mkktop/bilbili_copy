@@ -22,6 +22,10 @@ export interface AppSettings {
   dm_img_inter: string;
   // 防风控 - 请求间隔
   request_delay_ms: number;
+  // 附加下载 - 弹幕
+  download_danmaku: boolean;
+  // 附加下载 - 字幕
+  download_subtitle: boolean;
 }
 
 export function useSettings() {
@@ -43,6 +47,8 @@ export function useSettings() {
     dm_img_list: "",
     dm_img_inter: "",
     request_delay_ms: 0,
+    download_danmaku: false,
+    download_subtitle: false,
   });
   const [loading, setLoading] = useState(true);
 

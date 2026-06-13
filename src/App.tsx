@@ -212,7 +212,8 @@ export default function App() {
     cid: number,
     title: string,
     videoTitle: string,
-    epId?: number
+    epId?: number,
+    duration?: number
   ) => {
     // 用 ref 防止重复提交
     if (downloadingIds.current.has(id)) return;
@@ -231,7 +232,7 @@ export default function App() {
 
     // 直接 invoke，并发由 Rust 端 Semaphore 控制
     try {
-      await invoke("download_video", { id, bvid, cid, title, videoTitle, epId });
+      await invoke("download_video", { id, bvid, cid, title, videoTitle, epId, duration });
       // downloadingIds 在 download://complete 事件中清理
     } catch (err) {
       downloadingIds.current.delete(id);

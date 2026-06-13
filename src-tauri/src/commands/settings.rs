@@ -104,6 +104,12 @@ pub struct AppSettings {
     // 防风控 - 请求间隔
     #[serde(default = "default_request_delay_ms")]
     pub request_delay_ms: u64,
+    // 附加下载 - 弹幕
+    #[serde(default)]
+    pub download_danmaku: bool,
+    // 附加下载 - 字幕
+    #[serde(default)]
+    pub download_subtitle: bool,
 }
 
 impl Default for AppSettings {
@@ -126,6 +132,8 @@ impl Default for AppSettings {
             dm_img_list: String::new(),
             dm_img_inter: String::new(),
             request_delay_ms: default_request_delay_ms(),
+            download_danmaku: false,
+            download_subtitle: false,
         }
     }
 }
@@ -158,6 +166,8 @@ impl From<LegacySettings> for AppSettings {
             dm_img_list: String::new(),
             dm_img_inter: String::new(),
             request_delay_ms: default_request_delay_ms(),
+            download_danmaku: false,
+            download_subtitle: false,
         }
     }
 }
