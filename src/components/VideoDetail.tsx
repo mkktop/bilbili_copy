@@ -21,6 +21,7 @@ interface VideoDetailProps {
     bvid: string,
     cid: number,
     title: string,
+    videoTitle: string,
     epId?: number
   ) => void;
 }
@@ -72,12 +73,13 @@ export function VideoDetail({ entry, onBack, onDownload }: VideoDetailProps) {
   const deselectAll = () => setSelectedPages(new Set());
 
   const handleDownload = () => {
+    const folderName = info.series_title || info.title;
     const ids: string[] = [];
     if (!isMultiPage) {
       const p = info.pages[0];
       const pageBvid = p.bvid || info.bvid;
       const pageEpId = p.ep_id || info.ep_id;
-      onDownload(entry.id, pageBvid, p.cid, info.title, pageEpId);
+      onDownload(entry.id, pageBvid, p.cid, info.title, folderName, pageEpId);
       ids.push(entry.id);
     } else {
       selectedPages.forEach((page) => {
@@ -85,12 +87,9 @@ export function VideoDetail({ entry, onBack, onDownload }: VideoDetailProps) {
         if (p) {
           const pageBvid = p.bvid || info.bvid;
           const pageEpId = p.ep_id || info.ep_id;
-          const title =
-            selectedPages.size > 1
-              ? `${info.title} - P${p.page} ${p.part}`
-              : info.title;
+          const title = `P${p.page} ${p.part}`;
           const id = `${entry.id}_P${p.page}`;
-          onDownload(id, pageBvid, p.cid, title, pageEpId);
+          onDownload(id, pageBvid, p.cid, title, folderName, pageEpId);
           ids.push(id);
         }
       });

@@ -80,6 +80,7 @@ pub async fn download_video(
     bvid: String,
     cid: i64,
     title: String,
+    video_title: String,
     qn: Option<i64>,
     ep_id: Option<u64>,
 ) -> Result<(), String> {
@@ -142,9 +143,13 @@ pub async fn download_video(
         dir
     };
 
-    // 4. 构建输出文件路径
+    // 4. 构建输出文件路径（每个视频独立文件夹）
+    let folder_name = if video_title.is_empty() { &title } else { &video_title };
+    let video_folder = download_dir.join(sanitize_filename(folder_name));
+    std::fs::create_dir_all(&video_folder)
+        .map_err(|e| format!("创建视频目录失败: {}", e))?;
     let filename = format!("{}.mp4", sanitize_filename(&title));
-    let output_path = download_dir.join(&filename);
+    let output_path = video_folder.join(&filename);
 
     // 防风控指纹参数
     let dm_img_str = settings.dm_img_str.clone();

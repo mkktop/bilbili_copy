@@ -211,17 +211,18 @@ export default function App() {
     bvid: string,
     cid: number,
     title: string,
+    videoTitle: string,
     epId?: number
   ) => {
     // 用 ref 防止重复提交
     if (downloadingIds.current.has(id)) return;
     downloadingIds.current.add(id);
 
-    // 先加入 UI 列表（显示为 downloading）
-    setDownloads((prev) => [
-      { id, title, status: "downloading" as const, progress: 0 },
-      ...prev,
-    ]);
+    // 先加入 UI 列表（显示为 downloading），如果同 ID 已存在则替换
+    setDownloads((prev) => {
+      const filtered = prev.filter((d) => d.id !== id);
+      return [{ id, title, status: "downloading" as const, progress: 0 }, ...filtered];
+    });
 
     // 持久化下载记录
     invoke("save_download_entry", {
@@ -230,7 +231,7 @@ export default function App() {
 
     // 直接 invoke，并发由 Rust 端 Semaphore 控制
     try {
-      await invoke("download_video", { id, bvid, cid, title, epId });
+      await invoke("download_video", { id, bvid, cid, title, videoTitle, epId });
       // downloadingIds 在 download://complete 事件中清理
     } catch (err) {
       downloadingIds.current.delete(id);

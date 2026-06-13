@@ -54,6 +54,7 @@ export interface ParsedVideoInfo {
   extra_pages?: VideoPage[];
   view_count?: number;
   danmaku_count?: number;
+  series_title?: string;
 }
 
 export interface DownloadEntry {

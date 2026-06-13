@@ -44,6 +44,9 @@ pub struct VideoInfo {
     /// 弹幕数
     #[serde(default)]
     pub danmaku_count: u64,
+    /// 番剧系列名（不含集号），非番剧为 None
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub series_title: Option<String>,
 }
 
 /// view API 返回的 JSON 结构
@@ -285,6 +288,7 @@ pub async fn get_video_info(
         extra_pages: vec![],
         view_count: data.stat.as_ref().map(|s| s.view).unwrap_or(0),
         danmaku_count: data.stat.as_ref().map(|s| s.danmaku).unwrap_or(0),
+        series_title: None,
     })
 }
 
@@ -461,5 +465,6 @@ async fn try_bangumi_season_info(
         extra_pages,
         view_count: result["stat"]["views"].as_u64().unwrap_or(0),
         danmaku_count: result["stat"]["danmakus"].as_u64().unwrap_or(0),
+        series_title: Some(title),
     })
 }
