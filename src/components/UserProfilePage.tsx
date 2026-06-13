@@ -20,6 +20,8 @@ import {
 import type { UserInfo } from "../hooks/useLogin";
 import { WatchLaterTab } from "./tabs/WatchLaterTab";
 import { SubscriptionsTab } from "./tabs/SubscriptionsTab";
+import { FollowingsTab } from "./tabs/FollowingsTab";
+import { UpperView } from "./tabs/UpperView";
 import type {
   FavoriteFolder,
   FavoriteMedia,
@@ -69,15 +71,19 @@ export function UserProfilePage({
 
   const [loggingOut, setLoggingOut] = useState(false);
 
-  // Tab 切换：收藏夹 / 稍后再看 / 我的订阅
-  const [tab, setTab] = useState<"favorites" | "watch_later" | "subscriptions">(
-    "favorites"
-  );
+  // 我的关注 tab 中选中的 UP 主 mid（null = 关注列表，非 null = 该 UP 主主页）
+  const [selectedUpperMid, setSelectedUpperMid] = useState<number | null>(null);
+
+  // Tab 切换：收藏夹 / 稍后再看 / 我的关注 / 我的订阅
+  const [tab, setTab] = useState<
+    "favorites" | "watch_later" | "followings" | "subscriptions"
+  >("favorites");
 
   const handleSetTab = (t: typeof tab) => {
     setTab(t);
     setSelectedFolder(null);
     setMedias([]);
+    setSelectedUpperMid(null);
   };
 
   // 加载收藏夹列表
@@ -169,13 +175,25 @@ export function UserProfilePage({
       {/* 顶部标题栏 */}
       <header className="flex items-center gap-3 px-6 py-4 bg-white border-b border-gray-200">
         <button
-          onClick={selectedFolder ? handleBackToFolders : onBack}
+          onClick={() => {
+            if (selectedFolder) {
+              handleBackToFolders();
+            } else if (selectedUpperMid !== null) {
+              setSelectedUpperMid(null);
+            } else {
+              onBack();
+            }
+          }}
           className="p-1.5 rounded-lg border border-gray-300 hover:bg-gray-50 transition-colors"
         >
           <ArrowLeft size={16} />
         </button>
         <h1 className="text-lg font-semibold text-gray-800">
-          {selectedFolder ? selectedFolder.title : "个人主页"}
+          {selectedFolder
+            ? selectedFolder.title
+            : selectedUpperMid !== null
+            ? "UP 主主页"
+            : "个人主页"}
         </h1>
         {selectedFolder && (
           <span className="text-xs text-gray-400">
@@ -185,13 +203,14 @@ export function UserProfilePage({
       </header>
 
       <div className="flex-1 overflow-auto px-6 py-4">
-        {/* Tab 切换栏（收藏夹详情视图不显示） */}
-        {!selectedFolder && (
+        {/* Tab 切换栏（收藏夹详情 / UP 主主页视图不显示） */}
+        {!selectedFolder && selectedUpperMid === null && (
           <div className="flex gap-1 mb-4">
             {(
               [
                 { key: "favorites", label: "收藏夹", Icon: FolderOpen },
                 { key: "watch_later", label: "稍后再看", Icon: Clock },
+                { key: "followings", label: "我的关注", Icon: Users },
                 { key: "subscriptions", label: "我的订阅", Icon: Bookmark },
               ] as const
             ).map(({ key, label, Icon }) => (
@@ -349,15 +368,33 @@ export function UserProfilePage({
         )}
 
         {/* 稍后再看视图 */}
-        {!selectedFolder && tab === "watch_later" && (
+        {!selectedFolder && selectedUpperMid === null && tab === "watch_later" && (
           <WatchLaterTab
             onParseVideo={onParseVideo}
             onSelectItem={onSelectItem}
           />
         )}
 
+        {/* 我的关注视图（未选中 UP 主时显示关注列表） */}
+        {!selectedFolder &&
+          selectedUpperMid === null &&
+          tab === "followings" && (
+            <FollowingsTab
+              onSelectUpper={(mid) => setSelectedUpperMid(mid)}
+            />
+          )}
+
+        {/* 我的关注 → 选中 UP 主后的主页视图 */}
+        {!selectedFolder && selectedUpperMid !== null && (
+          <UpperView
+            mid={selectedUpperMid}
+            onParseVideo={onParseVideo}
+            onSelectItem={onSelectItem}
+          />
+        )}
+
         {/* 我的订阅视图 */}
-        {!selectedFolder && tab === "subscriptions" && (
+        {!selectedFolder && selectedUpperMid === null && tab === "subscriptions" && (
           <SubscriptionsTab
             onParseVideo={onParseVideo}
             onSelectItem={onSelectItem}

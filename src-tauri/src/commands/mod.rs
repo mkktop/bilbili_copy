@@ -9,3 +9,4 @@ pub mod watch_later;
 pub mod search;
 pub mod submission;
 pub mod collection;
+pub mod following;

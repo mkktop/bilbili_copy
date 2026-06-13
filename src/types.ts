@@ -247,3 +247,11 @@ export interface SubscribedCollection {
   upper_mid: number;
 }
 
+/** 关注的 UP 主 */
+export interface FollowingItem {
+  mid: number;
+  name: string;
+  face: string;
+  sign: string;
+}
+
