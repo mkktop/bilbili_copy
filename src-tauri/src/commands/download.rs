@@ -39,36 +39,71 @@ fn extract_risk_control(error_msg: &str) -> Option<String> {
 
 // ==================== 动态并发控制（从 settings 读取） ====================
 
-/// 根据当前设置创建/获取全局 Semaphore
-/// 使用 Arc<Semaphore> + Lazy 组合，每次设置变更时重建
-static DOWNLOAD_SEMAPHORE: Lazy<Mutex<Arc<Semaphore>>> = Lazy::new(|| {
-    Mutex::new(Arc::new(Semaphore::new(2)))
-});
+/// 获取锁，中毒（持锁期间 panic）时也恢复数据继续使用，
+/// 避免一次 panic 永久拖垮后续所有依赖该锁的调用。
+fn lock_or_recover<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// 全局下载并发限流器：持有当前已配置的容量与对应信号量。
+/// 仅在配置容量变化时才重建信号量——重建时机错误（如过去用 available_permits 判断）
+/// 会导致只要有下载在跑就误重建出满额信号量，使并发限制完全失效。参见 tests。
+struct GlobalLimiter {
+    capacity: usize,
+    sem: Arc<Semaphore>,
+}
+
+impl GlobalLimiter {
+    fn new(capacity: usize) -> Self {
+        let cap = clamp_permits(capacity);
+        Self {
+            capacity: cap,
+            sem: Arc::new(Semaphore::new(cap)),
+        }
+    }
+
+    /// 返回与 `want` 容量匹配的信号量：容量不变时复用（permits 计数共享），
+    /// 容量变化时重建。`want` 会被 clamp 到 >=1。
+    fn ensure(&mut self, want: usize) -> Arc<Semaphore> {
+        let want = clamp_permits(want);
+        if self.capacity != want {
+            self.capacity = want;
+            self.sem = Arc::new(Semaphore::new(want));
+        }
+        self.sem.clone()
+    }
+}
+
+static DOWNLOAD_SEMAPHORE: Lazy<Mutex<GlobalLimiter>> =
+    Lazy::new(|| Mutex::new(GlobalLimiter::new(1)));
 
 static VIDEO_SEMAPHORES: Lazy<Mutex<HashMap<String, Arc<Semaphore>>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
-/// 确保全局 Semaphore 的 permits 数与设置一致
+/// 将并发上限 clamp 到 >=1，避免 Semaphore::new(0) 创建零许可信号量导致 acquire() 永久阻塞
+fn clamp_permits(n: usize) -> usize {
+    if n == 0 { 1 } else { n }
+}
+
+/// 确保全局 Semaphore 的 permits 数与设置一致（仅在配置变化时重建）
 fn ensure_global_semaphore(settings: &AppSettings) -> Arc<Semaphore> {
-    let mut guard = DOWNLOAD_SEMAPHORE.lock().unwrap();
-    let current = guard.clone();
-    if current.available_permits() != settings.max_concurrent_downloads {
-        *guard = Arc::new(Semaphore::new(settings.max_concurrent_downloads));
-    }
-    guard.clone()
+    let mut guard = lock_or_recover(&DOWNLOAD_SEMAPHORE);
+    guard.ensure(settings.max_concurrent_downloads)
 }
 
 fn get_video_semaphore(bvid: &str, max_pages: usize) -> Arc<Semaphore> {
-    let mut map = VIDEO_SEMAPHORES.lock().unwrap();
+    let want = clamp_permits(max_pages);
+    let mut map = lock_or_recover(&VIDEO_SEMAPHORES);
     map.entry(bvid.to_string())
-        .or_insert_with(|| Arc::new(Semaphore::new(max_pages)))
+        .or_insert_with(|| Arc::new(Semaphore::new(want)))
         .clone()
 }
 
 fn cleanup_video_semaphore(bvid: &str, max_pages: usize) {
-    let mut map = VIDEO_SEMAPHORES.lock().unwrap();
+    let want = clamp_permits(max_pages);
+    let mut map = lock_or_recover(&VIDEO_SEMAPHORES);
     if let Some(sem) = map.get(bvid) {
-        if sem.available_permits() == max_pages {
+        if sem.available_permits() == want {
             map.remove(bvid);
         }
     }
@@ -368,6 +403,8 @@ async fn download_extras(
     let client = match reqwest::Client::builder()
         .user_agent(crate::bilibili::USER_AGENT)
         .cookie_store(false)
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .read_timeout(std::time::Duration::from_secs(30))
         .build()
     {
         Ok(c) => c,
@@ -422,7 +459,9 @@ async fn download_extras(
                     .await
                     {
                         Ok(srt_content) => {
-                            let srt_path = format!("{}.{}.srt", base_path.display(), sub.lan);
+                            // 清洗语言代码，防止路径穿越（sub.lan 来自 API，可能含非法字符）
+                            let safe_lan = sanitize_filename(&sub.lan);
+                            let srt_path = format!("{}.{}.srt", base_path.display(), safe_lan);
                             match tokio::fs::write(&srt_path, &srt_content).await {
                                 Ok(()) => {
                                     log::info!(
@@ -453,4 +492,70 @@ async fn download_extras(
     }
 
     let _ = app; // 保留 app 参数供将来扩展（如进度事件）
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn clamp_permits_never_returns_zero() {
+        assert_eq!(clamp_permits(0), 1, "0 必须 clamp 到 1，否则 acquire 永久阻塞");
+        assert_eq!(clamp_permits(1), 1);
+        assert_eq!(clamp_permits(5), 5);
+    }
+
+    #[test]
+    fn lock_or_recover_survives_poison() {
+        let m = Mutex::new(42i32);
+        // 模拟持锁期间 panic 导致 Mutex 中毒
+        let blew_up = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _g = m.lock().unwrap();
+            panic!("故意中毒");
+        }));
+        assert!(blew_up.is_err(), "应当捕获到 panic");
+        // lock_or_recover 必须能恢复，否则中毒后所有依赖该锁的调用都会连锁 panic
+        let g = lock_or_recover(&m);
+        assert_eq!(*g, 42, "中毒后应仍能取出内部数据");
+    }
+
+    /// 关键回归：相同容量下必须复用同一信号量、permits 计数共享。
+    /// 旧实现用 available_permits() 判断是否重建，只要有下载在跑就误建满额信号量 → 限制失效。
+    #[test]
+    fn limiter_shares_permits_within_same_capacity() {
+        let mut limiter = GlobalLimiter::new(2);
+        let s1 = limiter.ensure(2);
+        // 占用 1 个许可（模拟一个下载在跑）
+        let _held = s1
+            .try_acquire()
+            .expect("空限流器应能获取到许可");
+
+        let s2 = limiter.ensure(2); // 容量未变 → 必须复用同一信号量
+        assert!(
+            Arc::ptr_eq(&s1, &s2),
+            "容量未变时应复用同一信号量（而非重建）"
+        );
+        assert_eq!(
+            s2.available_permits(),
+            1,
+            "占用 1 个许可后应剩 1 个；旧实现会返回 2 → 并发限制失效"
+        );
+    }
+
+    #[test]
+    fn limiter_rebuilds_when_capacity_changes() {
+        let mut limiter = GlobalLimiter::new(2);
+        let s1 = limiter.ensure(2);
+        let s2 = limiter.ensure(4); // 容量变化 → 重建
+        assert!(!Arc::ptr_eq(&s1, &s2), "容量变化应重建信号量");
+        assert_eq!(s2.available_permits(), 4);
+    }
+
+    #[test]
+    fn limiter_clamps_zero_capacity_so_it_never_deadlocks() {
+        let mut limiter = GlobalLimiter::new(1);
+        let s = limiter.ensure(0); // 0 必须 clamp 到 1
+        assert_eq!(s.available_permits(), 1);
+        assert!(s.try_acquire().is_ok(), "clamp 后至少应有 1 个可获取许可");
+    }
 }

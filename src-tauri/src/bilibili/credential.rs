@@ -103,7 +103,7 @@ impl Credential {
 
     /// 检查 Cookie 是否需要刷新
     pub async fn refresh_info(&self) -> Result<CookieRefreshInfo> {
-        let client = reqwest::Client::new();
+        let client = crate::bilibili::api_client();
         let resp = client
             .get("https://passport.bilibili.com/x/passport-login/web/cookie/info")
             .header("Cookie", self.cookie_header())
@@ -200,7 +200,7 @@ JNrRuoEUXpabUzGB8QIDAQAB
 
     /// 从 correspond 页面提取 refresh_csrf
     async fn get_refresh_csrf(&self, correspond_path: &str) -> Result<String> {
-        let client = reqwest::Client::new();
+        let client = crate::bilibili::api_client();
         let resp = client
             .get(format!(
                 "https://www.bilibili.com/correspond/1/{}",
@@ -227,7 +227,7 @@ JNrRuoEUXpabUzGB8QIDAQAB
 
     /// 用新的 CSRF 和 refresh_token 换取新 Cookie
     async fn get_new_credential(&self, csrf: &str, old_refresh_token: &str) -> Result<Self> {
-        let client = reqwest::Client::new();
+        let client = crate::bilibili::api_client();
         let mut resp = client
             .post("https://passport.bilibili.com/x/passport-login/web/cookie/refresh")
             .header("Cookie", self.cookie_header())
@@ -298,7 +298,7 @@ JNrRuoEUXpabUzGB8QIDAQAB
 
     /// 确认刷新（使用新凭证 + 旧 refresh_token）
     async fn confirm_refresh(new_cred: &Credential, old_refresh_token: &str) -> Result<()> {
-        let client = reqwest::Client::new();
+        let client = crate::bilibili::api_client();
         let body: serde_json::Value = client
             .post("https://passport.bilibili.com/x/passport-login/web/confirm/refresh")
             .header("Cookie", new_cred.cookie_header())

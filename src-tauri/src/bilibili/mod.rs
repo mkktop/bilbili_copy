@@ -14,10 +14,15 @@ pub mod subtitle;
 
 // ==================== 共享常量 ====================
 
+use std::time::Duration;
+
 pub const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) \
     AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36";
 pub const REFERER: &str = "https://www.bilibili.com/";
 pub const ORIGIN: &str = "https://www.bilibili.com";
+
+/// B站 API 请求总超时（覆盖所有非流式 API 调用，避免单次挂起的连接永久阻塞任务）
+pub const API_TIMEOUT: Duration = Duration::from_secs(15);
 
 // ==================== 共享类型 ====================
 
@@ -40,4 +45,15 @@ pub fn http_to_https(url: &str) -> String {
     } else {
         url.to_string()
     }
+}
+
+/// 创建带超时的通用 B站 API 客户端（不启用 cookie jar）。
+/// 所有短小的 API 调用都应使用此客户端，避免某个挂起的连接永久阻塞异步任务。
+pub fn api_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .user_agent(USER_AGENT)
+        .cookie_store(false)
+        .timeout(API_TIMEOUT)
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new())
 }

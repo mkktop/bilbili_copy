@@ -21,6 +21,8 @@ fn bilibili_client() -> Result<Client> {
     Client::builder()
         .user_agent(USER_AGENT)
         .cookie_store(true)
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .timeout(std::time::Duration::from_secs(20))
         .build()
         .context("创建 HTTP 客户端失败")
 }
@@ -30,6 +32,8 @@ fn raw_client() -> Result<Client> {
     Client::builder()
         .user_agent(USER_AGENT)
         .cookie_store(false)
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .timeout(std::time::Duration::from_secs(20))
         .build()
         .context("创建 HTTP 客户端失败")
 }

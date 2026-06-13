@@ -12,7 +12,7 @@ const GAIA_VTOKEN_TTL_SECS: u64 = 3600; // 1 小时
 
 /// 获取缓存的 gaia_vtoken（未过期返回 Some）
 pub fn get_gaia_vtoken() -> Option<String> {
-    let guard = GAIA_VTOKEN.lock().unwrap();
+    let guard = GAIA_VTOKEN.lock().unwrap_or_else(|p| p.into_inner());
     guard
         .as_ref()
         .filter(|(_, created)| created.elapsed().as_secs() < GAIA_VTOKEN_TTL_SECS)
@@ -21,7 +21,7 @@ pub fn get_gaia_vtoken() -> Option<String> {
 
 /// 保存 gaia_vtoken 到缓存
 pub fn set_gaia_vtoken(token: String) {
-    let mut guard = GAIA_VTOKEN.lock().unwrap();
+    let mut guard = GAIA_VTOKEN.lock().unwrap_or_else(|p| p.into_inner());
     *guard = Some((token, Instant::now()));
 }
 
@@ -36,7 +36,7 @@ pub struct CaptchaInfo {
 /// 注册风控验证码
 /// POST https://api.bilibili.com/x/gaia-vgate/v1/register
 pub async fn register_captcha(v_voucher: &str, csrf: &str) -> Result<CaptchaInfo> {
-    let client = reqwest::Client::new();
+    let client = crate::bilibili::api_client();
     let resp: serde_json::Value = client
         .post("https://api.bilibili.com/x/gaia-vgate/v1/register")
         .header("User-Agent", USER_AGENT)
@@ -78,7 +78,7 @@ pub async fn validate_captcha(
     seccode: &str,
     csrf: &str,
 ) -> Result<String> {
-    let client = reqwest::Client::new();
+    let client = crate::bilibili::api_client();
     let resp: serde_json::Value = client
         .post("https://api.bilibili.com/x/gaia-vgate/v1/validate")
         .header("User-Agent", USER_AGENT)

@@ -184,7 +184,7 @@ async fn fetch_segment(
     segment_idx: u64,
 ) -> anyhow::Result<Vec<DanmakuElem>> {
     let url = format!(
-        "http://api.bilibili.com/x/v2/dm/web/seg.so?type=1&oid={}&pid={}&segment_index={}",
+        "https://api.bilibili.com/x/v2/dm/web/seg.so?type=1&oid={}&pid={}&segment_index={}",
         cid, aid, segment_idx
     );
 

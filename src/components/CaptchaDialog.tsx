@@ -21,6 +21,7 @@ interface GeeTestObj {
   onError: (cb: () => void) => void;
   getValidate: () => { geetest_challenge: string; geetest_validate: string; geetest_seccode: string } | undefined;
   appendTo: (el: HTMLElement | string) => void;
+  destroy: () => void;
 }
 
 declare global {
@@ -41,6 +42,8 @@ export function CaptchaDialog({ vVoucher, onSuccess, onCancel }: CaptchaDialogPr
   const [errorMsg, setErrorMsg] = useState("");
   const captchaRef = useRef<HTMLDivElement>(null);
   const captchaInfoRef = useRef<CaptchaInfo | null>(null);
+  const captchaObjRef = useRef<GeeTestObj | null>(null);
+  const successTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (!vVoucher) return;
@@ -70,6 +73,7 @@ export function CaptchaDialog({ vVoucher, onSuccess, onCancel }: CaptchaDialogPr
             width: "300px",
           },
           (captchaObj) => {
+            captchaObjRef.current = captchaObj;
             captchaObj.onReady(() => {
               if (!cancelled) setStatus("ready");
             });
@@ -92,7 +96,7 @@ export function CaptchaDialog({ vVoucher, onSuccess, onCancel }: CaptchaDialogPr
                     seccode: result.geetest_seccode,
                   });
                   setStatus("success");
-                  setTimeout(() => onSuccess(), 500);
+                  successTimerRef.current = setTimeout(() => onSuccess(), 500);
                 } catch (err) {
                   setErrorMsg(String(err));
                   setStatus("error");
@@ -123,7 +127,26 @@ export function CaptchaDialog({ vVoucher, onSuccess, onCancel }: CaptchaDialogPr
     }
 
     initCaptcha();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      // 清理 GeeTest 实例（DOM、事件监听、弹层），避免重开/卸载时泄漏
+      if (successTimerRef.current) {
+        clearTimeout(successTimerRef.current);
+        successTimerRef.current = null;
+      }
+      const obj = captchaObjRef.current;
+      if (obj) {
+        try {
+          obj.destroy();
+        } catch {
+          // destroy 可能在 SDK 未就绪时抛错，忽略
+        }
+        captchaObjRef.current = null;
+      }
+      if (captchaRef.current) {
+        captchaRef.current.innerHTML = "";
+      }
+    };
   }, [vVoucher]);
 
   if (!vVoucher) return null;

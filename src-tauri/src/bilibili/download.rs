@@ -24,6 +24,13 @@ const BAD_CDN_TTL: Duration = Duration::from_secs(600); // 10 分钟
 static BAD_CDN_HOSTS: Lazy<Mutex<HashMap<String, Instant>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
+/// 获取锁，中毒时恢复数据继续使用，避免一次 panic 永久拖垮后续调用
+fn lock_bad_cdn() -> std::sync::MutexGuard<'static, HashMap<String, Instant>> {
+    BAD_CDN_HOSTS
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 /// 提取 URL 中的 host
 fn extract_host(url: &str) -> Option<String> {
     url.split('/')
@@ -40,7 +47,7 @@ fn prune_expired(cache: &mut HashMap<String, Instant>) {
 /// 检查 URL 是否在坏节点黑名单中
 fn is_bad_host(url: &str) -> bool {
     if let Some(host) = extract_host(url) {
-        let mut cache = BAD_CDN_HOSTS.lock().unwrap();
+        let mut cache = lock_bad_cdn();
         prune_expired(&mut cache);
         cache.contains_key(&host)
     } else {
@@ -51,7 +58,7 @@ fn is_bad_host(url: &str) -> bool {
 /// 将 URL 标记为坏节点
 fn mark_bad_host(url: &str) {
     if let Some(host) = extract_host(url) {
-        let mut cache = BAD_CDN_HOSTS.lock().unwrap();
+        let mut cache = lock_bad_cdn();
         prune_expired(&mut cache);
         let is_new = !cache.contains_key(&host);
         cache.insert(host.clone(), Instant::now());
@@ -149,6 +156,45 @@ async fn get_existing_size(temp_path: &Path) -> u64 {
     }
 }
 
+/// 计算流指纹：基于 URL 列表，用于区分不同流（不同画质/编码/URL 集合）。
+/// 不需要密码学强度，只需稳定且能区分即可。
+fn stream_fingerprint(urls: &[String]) -> String {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    let mut h = DefaultHasher::new();
+    urls.len().hash(&mut h);
+    for u in urls {
+        u.hash(&mut h);
+    }
+    format!("{:016x}", h.finish())
+}
+
+/// 断点续传完整性校验：返回可用于续传的已存在字节数。
+/// 若临时文件属于不同流（如换了画质/编码/URL），则丢弃旧文件从头下载，
+/// 避免把新流的字节拼接在旧流字节之后造成文件损坏。
+async fn verify_resume_size(temp_path: &Path, urls: &[String]) -> u64 {
+    let existing = get_existing_size(temp_path).await;
+    if existing == 0 {
+        return 0;
+    }
+    let meta_path = temp_path.with_extension("meta");
+    let fingerprint = stream_fingerprint(urls);
+    let matches = std::fs::read_to_string(&meta_path)
+        .map(|s| s.trim() == fingerprint)
+        .unwrap_or(false);
+    if matches {
+        existing
+    } else {
+        log::warn!(
+            "[download] 临时文件属于不同流，丢弃重下: {:?}",
+            temp_path
+        );
+        let _ = tokio::fs::remove_file(temp_path).await;
+        let _ = tokio::fs::remove_file(&meta_path).await;
+        0
+    }
+}
+
 // ==================== 核心下载逻辑 ====================
 
 /// 清理文件名中的非法字符（Windows 兼容）
@@ -199,9 +245,12 @@ pub async fn download_stream(
 
     let mut last_error = String::new();
 
-    // Feature 5: 断点续传 — 检查已有文件大小
-    let existing_size = get_existing_size(&temp_path).await;
-    if existing_size > 0 {
+    // Feature 5: 断点续传 — 校验已有文件是否属于同一流，并取已存在字节数
+    let existing_size = verify_resume_size(&temp_path, urls).await;
+    if existing_size == 0 {
+        // 全新下载：写入流指纹，供后续可能的断点续传校验
+        let _ = std::fs::write(temp_path.with_extension("meta"), stream_fingerprint(urls));
+    } else {
         log::info!(
             "[download] {} 流检测到断点续传: id={}, 已有{}bytes",
             stream_label, download_id, existing_size
@@ -242,8 +291,11 @@ pub async fn download_stream(
                             log::debug!("[download] 错误响应内容: id={}, 内容={}", download_id, &content[..content.len().min(500)]);
                         }
                         let _ = tokio::fs::remove_file(&temp_path).await;
+                        let _ = tokio::fs::remove_file(temp_path.with_extension("meta")).await;
                         break;
                     }
+                    // 下载完成，清理断点续传指纹文件
+                    let _ = tokio::fs::remove_file(temp_path.with_extension("meta")).await;
                     return Ok(temp_path.clone());
                 }
                 Err(e) => {
@@ -780,5 +832,87 @@ pub async fn cleanup_temp_files(paths: &[PathBuf]) {
         if let Err(e) = tokio::fs::remove_file(path).await {
             log::warn!("清理临时文件失败 {:?}: {}", path, e);
         }
+        // 同步清理断点续传指纹文件
+        let _ = tokio::fs::remove_file(path.with_extension("meta")).await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fingerprint_is_stable_and_distinct() {
+        let a = vec!["https://cdn/a".to_string(), "https://cdn/b".to_string()];
+        let b = vec!["https://cdn/a".to_string(), "https://cdn/b".to_string()];
+        let fewer = vec!["https://cdn/a".to_string()];
+        let different = vec!["https://cdn/a".to_string(), "https://cdn/c".to_string()];
+
+        assert_eq!(stream_fingerprint(&a), stream_fingerprint(&b), "相同 URL 列表指纹必须稳定");
+        assert_ne!(stream_fingerprint(&a), stream_fingerprint(&fewer), "不同列表指纹必须不同");
+        assert_ne!(stream_fingerprint(&a), stream_fingerprint(&different), "不同内容指纹必须不同");
+    }
+
+    #[test]
+    fn sanitize_filename_blocks_path_traversal() {
+        assert_eq!(sanitize_filename("a/b"), "a_b", "正斜杠必须替换");
+        assert_eq!(sanitize_filename("..\\evil"), ".._evil", "反斜杠必须替换（前导点保留，无分隔符即安全）");
+        assert_eq!(sanitize_filename("CON"), "CON_video", "Windows 保留名需加后缀");
+        // 关键：绝不能残留路径分隔符，否则可写到目录之外
+        let cleaned = sanitize_filename("../../etc/passwd");
+        assert!(!cleaned.contains('/'), "清洗后不得残留 '/'");
+        assert!(!cleaned.contains('\\'), "清洗后不得残留 '\\'");
+    }
+
+    fn temp_path(tag: &str) -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "bcopy_test_{}_{}.tmp",
+            tag,
+            std::process::id()
+        ))
+    }
+
+    #[tokio::test]
+    async fn resume_returns_size_when_fingerprint_matches() {
+        let path = temp_path("match");
+        let _ = tokio::fs::remove_file(&path).await;
+        let _ = tokio::fs::remove_file(path.with_extension("meta")).await;
+
+        let urls = vec!["https://cdn/stream-a".to_string()];
+        tokio::fs::write(&path, b"hello12345").await.unwrap();
+        tokio::fs::write(path.with_extension("meta"), stream_fingerprint(&urls))
+            .await
+            .unwrap();
+
+        let size = verify_resume_size(&path, &urls).await;
+        assert_eq!(size, 10, "指纹匹配时应返回已有字节数供续传");
+
+        let _ = tokio::fs::remove_file(&path).await;
+        let _ = tokio::fs::remove_file(path.with_extension("meta")).await;
+    }
+
+    /// 关键回归：换了流（不同 URL/画质/编码）时，旧实现会把新流字节拼到旧流字节后面 → 文件损坏。
+    /// 修复后应判定为不同流、丢弃旧文件、从头下载。
+    #[tokio::test]
+    async fn resume_discards_when_fingerprint_differs() {
+        let path = temp_path("diff");
+        let _ = tokio::fs::remove_file(&path).await;
+        let _ = tokio::fs::remove_file(path.with_extension("meta")).await;
+
+        let old_urls = vec!["https://cdn/old-quality".to_string()];
+        let new_urls = vec!["https://cdn/new-quality".to_string()];
+
+        tokio::fs::write(&path, b"stale-bytes-of-old-stream").await.unwrap();
+        tokio::fs::write(path.with_extension("meta"), stream_fingerprint(&old_urls))
+            .await
+            .unwrap();
+
+        let size = verify_resume_size(&path, &new_urls).await;
+        assert_eq!(size, 0, "换流时应返回 0（从头下载）");
+        let still_exists = tokio::fs::metadata(&path).await.is_ok();
+        assert!(!still_exists, "换流时应删除旧临时文件，避免拼接损坏");
+
+        let _ = tokio::fs::remove_file(&path).await;
+        let _ = tokio::fs::remove_file(path.with_extension("meta")).await;
     }
 }

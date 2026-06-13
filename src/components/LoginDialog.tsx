@@ -32,6 +32,10 @@ export function LoginDialog({
   const qrcodeKeyRef = useRef("");
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mountedRef = useRef(true);
+  // 把可能每次渲染都变身份的回调存进 ref，让下方 effect 不依赖它们，
+  // 否则父组件（如后台下载期间频繁重渲染）会让二维码生成/轮询定时器反复重置。
+  const cbRef = useRef({ generateQrcode, pollQrcode, onSuccess });
+  cbRef.current = { generateQrcode, pollQrcode, onSuccess };
 
   // 弹窗打开时生成二维码
   useEffect(() => {
@@ -43,7 +47,7 @@ export function LoginDialog({
 
     (async () => {
       try {
-        const result = await generateQrcode();
+        const result = await cbRef.current.generateQrcode();
         qrcodeKeyRef.current = result.qrcode_key;
         const dataUrl = await QRCode.toDataURL(result.url, {
           width: 200,
@@ -64,7 +68,9 @@ export function LoginDialog({
       mountedRef.current = false;
       if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
     };
-  }, [open, generateQrcode]);
+    // 仅依赖 open；回调通过 cbRef 访问，避免身份变化导致二维码反复重生成
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   // 轮询循环
   useEffect(() => {
@@ -73,7 +79,7 @@ export function LoginDialog({
     const poll = async () => {
       if (!mountedRef.current || !qrcodeKeyRef.current) return;
       try {
-        const result = await pollQrcode(qrcodeKeyRef.current);
+        const result = await cbRef.current.pollQrcode(qrcodeKeyRef.current);
         if (!mountedRef.current) return;
 
         switch (result.status) {
@@ -85,7 +91,7 @@ export function LoginDialog({
             break;
           case "confirmed":
             setPhase("success");
-            setTimeout(() => onSuccess(), 800);
+            setTimeout(() => cbRef.current.onSuccess(), 800);
             return;
           case "expired":
             setPhase("expired");
@@ -106,7 +112,9 @@ export function LoginDialog({
     return () => {
       if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
     };
-  }, [phase, pollQrcode, onSuccess]);
+    // 仅依赖 phase；回调通过 cbRef 访问，避免父组件重渲染时轮询定时器被反复重置
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase]);
 
   if (!open) return null;
 

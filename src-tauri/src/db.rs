@@ -63,17 +63,20 @@ pub struct DownloadHistoryEntry {
 // ---- Parse History ----
 
 pub fn insert_parse(conn: &Connection, entry: &ParseHistoryEntry) -> anyhow::Result<()> {
-    // 按 bvid 去重：已存在则更新（刷新时间移到顶部），否则插入新记录
-    let updated = conn.execute(
+    // 按 bvid 去重：已存在则更新（刷新时间移到顶部），否则插入新记录。
+    // 用事务包裹 UPDATE-then-INSERT，避免并发解析同一 bvid 时两次调用都看到 updated==0 而插入重复行。
+    let tx = conn.unchecked_transaction()?;
+    let updated = tx.execute(
         "UPDATE parse_history SET title = ?1, video_info = ?2, parsed_at = ?3, url = ?4 WHERE bvid = ?5",
         params![entry.title, entry.video_info.to_string(), entry.parsed_at, entry.url, entry.bvid],
     )?;
     if updated == 0 {
-        conn.execute(
+        tx.execute(
             "INSERT INTO parse_history (id, url, bvid, title, video_info, parsed_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             params![entry.id, entry.url, entry.bvid, entry.title, entry.video_info.to_string(), entry.parsed_at],
         )?;
     }
+    tx.commit()?;
     Ok(())
 }
 

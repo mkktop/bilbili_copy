@@ -89,8 +89,10 @@ pub async fn login_check() -> Result<Option<UserInfo>, String> {
             }
             Err(e) => {
                 let err_str = e.to_string();
-                // -101 尝试刷新 Cookie
-                if err_str.contains("-101") || err_str.contains("账号未登录") {
+                // 仅“账号未登录”才尝试刷新 Cookie
+                let is_not_logged_in =
+                    err_str.contains("-101") || err_str.contains("账号未登录");
+                if is_not_logged_in {
                     log::info!("[login] 凭证验证失败(-101)，尝试刷新 Cookie");
                     if let Ok(Some(new_cred)) = c.check_and_refresh().await {
                         if let Ok(new_info) = passport::validate_credentials(&new_cred).await {
@@ -99,8 +101,14 @@ pub async fn login_check() -> Result<Option<UserInfo>, String> {
                         }
                     }
                 }
-                log::warn!("[login] 凭证验证失败，删除凭证: {}", err_str);
-                let _ = Credential::delete();
+                // 只有在凭证确实失效（-101 登录过期 / -104 非法请求）时才删除；
+                // 网络抖动、超时、解析失败、风控等临时错误一律保留凭证，避免被迫重新登录。
+                if is_not_logged_in || err_str.contains("-104") {
+                    log::warn!("[login] 凭证已失效，删除凭证: {}", err_str);
+                    let _ = Credential::delete();
+                } else {
+                    log::warn!("[login] 凭证验证失败（疑似网络问题，保留凭证）: {}", err_str);
+                }
                 Ok(None)
             }
         },

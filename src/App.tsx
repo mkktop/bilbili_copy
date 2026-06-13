@@ -47,6 +47,8 @@ export default function App() {
   const [isParsing, setIsParsing] = useState(false);
   const [selectedItem, setSelectedItem] = useState<ParsedItem | null>(null);
   const downloadingIds = useRef<Set<string>>(new Set());
+  // 每个下载任务最近一次进度落库的时间戳，用于节流，避免高频争抢 SQLite 锁
+  const lastProgressWrite = useRef<Map<string, number>>(new Map());
 
   // 分页 state
   const [parsePage, setParsePage] = useState(1);
@@ -115,12 +117,20 @@ export default function App() {
               d.id === id ? { ...d, status: "downloading" as const, progress: percent, phase } : d
             )
           );
-          invoke("update_download_status", { id, status: "downloading", progress: percent, phase, errorMsg: null, outputPath: null }).catch(() => {});
+          // 节流写库：每个 id 至少间隔 1.2s 落一次进度（完成时由 complete 事件负责最终落库），
+          // 避免并行分片高频触发 update_download_status 造成 SQLite 锁竞争与 UI 卡顿。
+          const now = Date.now();
+          const last = lastProgressWrite.current.get(id) ?? 0;
+          if (now - last >= 1200) {
+            lastProgressWrite.current.set(id, now);
+            invoke("update_download_status", { id, status: "downloading", progress: percent, phase, errorMsg: null, outputPath: null }).catch(() => {});
+          }
         }),
         listen<DownloadComplete>("download://complete", (event) => {
           if (cancelled) return;
           const { id, output_path } = event.payload;
           downloadingIds.current.delete(id);
+          lastProgressWrite.current.delete(id);
           setDownloads((prev) =>
             prev.map((d) =>
               d.id === id ? { ...d, status: "done" as const, progress: 100 } : d
@@ -132,6 +142,7 @@ export default function App() {
           if (cancelled) return;
           const { id, error } = event.payload;
           downloadingIds.current.delete(id);
+          lastProgressWrite.current.delete(id);
           setDownloads((prev) =>
             prev.map((d) =>
               d.id === id ? { ...d, status: "error" as const, errorMsg: error } : d

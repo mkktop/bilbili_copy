@@ -159,6 +159,7 @@ pub async fn get_playurl(
     let client = Client::builder()
         .user_agent(USER_AGENT)
         .cookie_store(false)
+        .timeout(crate::bilibili::API_TIMEOUT)
         .build()
         .context("创建HTTP客户端失败")?;
 

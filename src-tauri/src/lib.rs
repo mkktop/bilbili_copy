@@ -86,7 +86,9 @@ fn init_logger() {
 
     let _ = CombinedLogger::init(vec![
         TermLogger::new(LevelFilter::Warn, config.clone(), TerminalMode::Mixed, ColorChoice::Auto),
-        WriteLogger::new(LevelFilter::Debug, config, line_writer),
+        // 文件日志使用 INFO 级别：DEBUG（每个分片/每个进度 tick 都会记录）会让日志文件无限膨胀。
+        // 排查问题时可临时改回 LevelFilter::Debug。
+        WriteLogger::new(LevelFilter::Info, config, line_writer),
     ]);
 
     log::info!("========== 应用启动 ==========");

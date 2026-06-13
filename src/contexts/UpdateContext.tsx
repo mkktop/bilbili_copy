@@ -69,7 +69,7 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
         const dismissed = localStorage.getItem(DISMISSED_KEY);
         setIsDismissed(dismissed === result.info.version);
         // Store downloadAndInstall for later use
-        installerRef.current = result.downloadAndInstall;
+        installerRef.current = result.downloadAndInstall ?? null;
       } else {
         setPhase("upToDate");
       }

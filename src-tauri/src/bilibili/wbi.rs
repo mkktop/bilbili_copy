@@ -124,6 +124,7 @@ async fn fetch_wbi_keys(credential: &Credential) -> Result<WbiKeys> {
     let client = Client::builder()
         .user_agent(USER_AGENT)
         .cookie_store(false)
+        .timeout(crate::bilibili::API_TIMEOUT)
         .build()
         .context("创建HTTP客户端失败")?;
 
@@ -160,9 +161,9 @@ async fn fetch_wbi_keys(credential: &Credential) -> Result<WbiKeys> {
 /// 获取mixin_key用于签名（优先使用缓存）
 pub async fn get_mixin_key_cached(credential: &Credential) -> Result<String> {
     let store = wbi_keys_store();
-    // 先尝试读缓存
+    // 先尝试读缓存（中毒时也恢复，避免一次 panic 永久拖垮所有 WBI 签名）
     {
-        let guard = store.read().unwrap();
+        let guard = store.read().unwrap_or_else(|p| p.into_inner());
         if let Some(keys) = guard.as_ref() {
             return Ok(get_mixin_key(&keys.img_key, &keys.sub_key));
         }
@@ -172,7 +173,7 @@ pub async fn get_mixin_key_cached(credential: &Credential) -> Result<String> {
     let keys = fetch_wbi_keys(credential).await?;
     let mixin_key = get_mixin_key(&keys.img_key, &keys.sub_key);
     {
-        let mut guard = store.write().unwrap();
+        let mut guard = store.write().unwrap_or_else(|p| p.into_inner());
         // double-check: 如果其他任务已经写入了，使用已有的
         if guard.is_none() {
             *guard = Some(keys);
@@ -189,7 +190,7 @@ pub async fn refresh_mixin_key(credential: &Credential) -> Result<String> {
     let mixin_key = get_mixin_key(&keys.img_key, &keys.sub_key);
     {
         let store = wbi_keys_store();
-        let mut guard = store.write().unwrap();
+        let mut guard = store.write().unwrap_or_else(|p| p.into_inner());
         *guard = Some(keys);
     }
     Ok(mixin_key)
