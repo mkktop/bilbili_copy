@@ -277,125 +277,151 @@ export default function App() {
     invoke("delete_download_history", { id }).then(() => loadDownloadPage(downloadPage)).catch(() => {});
   };
 
+  // 详情页返回逻辑：回到来源页，保留其 state（来源页组件未被卸载）
+  const handleDetailBack = () => {
+    const prev = previousView;
+    setCurrentView(prev);
+    setSelectedItem(null);
+    if (prev === "main") loadParsePage(1);
+  };
+
+  // 视频详情覆盖层：无论当前在哪个视图都叠在最上层。
+  // 关键：来源页组件保持挂载不被卸载，返回时其 state（搜索结果、UP 主投稿列表、
+  // 收藏夹视频等）完整保留，避免返回后回到空白初始页。
+  const detailOverlay =
+    currentView === "detail" && selectedItem ? (
+      <div className="fixed inset-0 z-50 bg-gray-50">
+        <VideoDetail
+          entry={selectedItem}
+          onBack={handleDetailBack}
+          onDownload={handleDownload}
+        />
+      </div>
+    ) : null;
+
   // Settings view
   if (currentView === "settings") {
     return (
-      <div className="flex flex-col h-screen bg-gray-50 text-gray-900">
-        <SettingsPage
-          settings={settings}
-          onSave={handleSaveSettings}
-          onBack={() => setCurrentView("main")}
-          onClearParse={() => loadParsePage(1)}
-          onClearDownload={() => loadDownloadPage(1)}
-        />
-      </div>
+      <>
+        <div className="flex flex-col h-screen bg-gray-50 text-gray-900">
+          <SettingsPage
+            settings={settings}
+            onSave={handleSaveSettings}
+            onBack={() => setCurrentView("main")}
+            onClearParse={() => loadParsePage(1)}
+            onClearDownload={() => loadDownloadPage(1)}
+          />
+        </div>
+        {detailOverlay}
+      </>
     );
   }
 
   // Downloads view
   if (currentView === "downloads") {
     return (
-      <div className="flex flex-col h-screen bg-gray-50 text-gray-900">
-        {/* Header */}
-        <div className="flex items-center gap-3 px-6 py-4 border-b border-gray-200 bg-white">
-          <button
-            onClick={() => setCurrentView("main")}
-            className="p-1.5 rounded-lg border border-gray-300 hover:bg-gray-50 transition-colors"
-          >
-            <Download size={16} className="rotate-180" />
-          </button>
-          <h1 className="text-lg font-semibold text-gray-800">下载列表</h1>
-          {activeDownloads > 0 && (
-            <span className="text-xs text-blue-500 font-medium">
-              {activeDownloads} 个任务进行中
-            </span>
-          )}
-        </div>
+      <>
+        <div className="flex flex-col h-screen bg-gray-50 text-gray-900">
+          {/* Header */}
+          <div className="flex items-center gap-3 px-6 py-4 border-b border-gray-200 bg-white">
+            <button
+              onClick={() => setCurrentView("main")}
+              className="p-1.5 rounded-lg border border-gray-300 hover:bg-gray-50 transition-colors"
+            >
+              <Download size={16} className="rotate-180" />
+            </button>
+            <h1 className="text-lg font-semibold text-gray-800">下载列表</h1>
+            {activeDownloads > 0 && (
+              <span className="text-xs text-blue-500 font-medium">
+                {activeDownloads} 个任务进行中
+              </span>
+            )}
+          </div>
 
-        {/* Download list */}
-        <div className="flex-1 overflow-auto px-6 py-4">
-          <DownloadList
-            downloads={downloads}
-            onRemove={handleRemoveDownload}
-            currentPage={downloadPage}
-            totalCount={downloadTotal}
-            onPageChange={loadDownloadPage}
-          />
+          {/* Download list */}
+          <div className="flex-1 overflow-auto px-6 py-4">
+            <DownloadList
+              downloads={downloads}
+              onRemove={handleRemoveDownload}
+              currentPage={downloadPage}
+              totalCount={downloadTotal}
+              onPageChange={loadDownloadPage}
+            />
+          </div>
         </div>
-      </div>
+        {detailOverlay}
+      </>
     );
   }
 
-  // Detail view
-  if (currentView === "detail" && selectedItem) {
-    return (
-      <div className="flex flex-col h-screen bg-gray-50 text-gray-900">
-        <VideoDetail
-          entry={selectedItem}
-          onBack={() => {
-            const prev = previousView;
-            setCurrentView(prev);
-            setSelectedItem(null);
-            if (prev === "main") loadParsePage(1);
-          }}
-          onDownload={handleDownload}
-        />
-      </div>
-    );
-  }
-
+  // 注意：detail 视图不再独占渲染，而是作为覆盖层叠加在来源页之上，
+  // 这样来源页（main/explore/profile）组件不会被卸载，返回时其 state（搜索结果、
+  // UP 主投稿列表、收藏夹视频等）得以保留。详情覆盖层在最末尾渲染。
   // Profile view
-  if (currentView === "profile" && userInfo) {
+  // detail 状态下若来源是 profile，仍渲染 UserProfilePage（被覆盖层遮挡），
+  // 返回时收藏夹视频列表等 state 不丢失。
+  if (
+    (currentView === "profile" || (currentView === "detail" && previousView === "profile")) &&
+    userInfo
+  ) {
     return (
-      <UserProfilePage
-        userInfo={userInfo}
-        onLogout={logout}
-        onBack={() => setCurrentView("main")}
-        onParseVideo={handleParse}
-        onSelectItem={(videoInfo: ParsedVideoInfo) => {
-          // 直接用解析好的 videoInfo 跳转详情
-          const item: ParsedItem = {
-            id: `fav-${videoInfo.bvid}`,
-            url: `https://www.bilibili.com/video/${videoInfo.bvid}`,
-            title: videoInfo.title,
-            status: "pending",
-            videoInfo,
-          };
-          if (videoInfo.bvid) {
-            invoke("touch_parse_history", { bvid: videoInfo.bvid }).catch(() => {});
-          }
-          setSelectedItem(item);
-          setPreviousView("profile");
-          setCurrentView("detail");
-        }}
-      />
+      <>
+        <UserProfilePage
+          userInfo={userInfo}
+          onLogout={logout}
+          onBack={() => setCurrentView("main")}
+          onParseVideo={handleParse}
+          onSelectItem={(videoInfo: ParsedVideoInfo) => {
+            // 直接用解析好的 videoInfo 跳转详情
+            const item: ParsedItem = {
+              id: `fav-${videoInfo.bvid}`,
+              url: `https://www.bilibili.com/video/${videoInfo.bvid}`,
+              title: videoInfo.title,
+              status: "pending",
+              videoInfo,
+            };
+            if (videoInfo.bvid) {
+              invoke("touch_parse_history", { bvid: videoInfo.bvid }).catch(() => {});
+            }
+            setSelectedItem(item);
+            setPreviousView("profile");
+            setCurrentView("detail");
+          }}
+        />
+        {detailOverlay}
+      </>
     );
   }
 
   // Explore view
-  if (currentView === "explore") {
+  // detail 状态下若来源是 explore，仍渲染 ExplorePage（被详情覆盖层遮挡），
+  // 保证返回时 ExplorePage 的 state（搜索结果、UP 主投稿列表）不丢失。
+  if (currentView === "explore" || (currentView === "detail" && previousView === "explore")) {
     return (
-      <ExplorePage
-        onBack={() => setCurrentView("main")}
-        onParseVideo={handleParse}
-        onSelectItem={(videoInfo: ParsedVideoInfo) => {
-          const item: ParsedItem = {
-            id: `explore-${videoInfo.bvid}`,
-            url: videoInfo.bvid
-              ? `https://www.bilibili.com/video/${videoInfo.bvid}`
-              : "",
-            title: videoInfo.title,
-            status: "pending",
-            videoInfo,
-          };
-          if (videoInfo.bvid) {
-            invoke("touch_parse_history", { bvid: videoInfo.bvid }).catch(() => {});
-          }
-          setSelectedItem(item);
-          setPreviousView("explore");
-          setCurrentView("detail");
-        }}
-      />
+      <>
+        <ExplorePage
+          onBack={() => setCurrentView("main")}
+          onParseVideo={handleParse}
+          onSelectItem={(videoInfo: ParsedVideoInfo) => {
+            const item: ParsedItem = {
+              id: `explore-${videoInfo.bvid}`,
+              url: videoInfo.bvid
+                ? `https://www.bilibili.com/video/${videoInfo.bvid}`
+                : "",
+              title: videoInfo.title,
+              status: "pending",
+              videoInfo,
+            };
+            if (videoInfo.bvid) {
+              invoke("touch_parse_history", { bvid: videoInfo.bvid }).catch(() => {});
+            }
+            setSelectedItem(item);
+            setPreviousView("explore");
+            setCurrentView("detail");
+          }}
+        />
+        {detailOverlay}
+      </>
     );
   }
 
@@ -504,6 +530,8 @@ export default function App() {
         onSuccess={() => setCaptchaVoucher(null)}
         onCancel={() => setCaptchaVoucher(null)}
       />
+
+      {detailOverlay}
     </div>
   );
 }
