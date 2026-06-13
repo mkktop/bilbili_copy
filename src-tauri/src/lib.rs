@@ -8,7 +8,7 @@ use commands::download::download_video;
 use commands::login::{login_generate_qrcode, login_poll_qrcode, login_check, login_logout};
 use commands::risk_control::{captcha_register, captcha_validate};
 use commands::history::{
-    get_parse_history, save_parse_history, delete_parse_history, get_parse_count, clear_parse_history,
+    get_parse_history, save_parse_history, delete_parse_history, get_parse_count, clear_parse_history, touch_parse_history,
     get_download_history, save_download_entry, update_download_status, delete_download_history, get_download_count, clear_download_history,
 };
 use commands::favorite::{get_favorite_folders, get_favorite_videos};
@@ -121,6 +121,7 @@ pub fn run() {
             save_parse_history,
             delete_parse_history,
             clear_parse_history,
+            touch_parse_history,
             get_download_history,
             get_download_count,
             save_download_entry,

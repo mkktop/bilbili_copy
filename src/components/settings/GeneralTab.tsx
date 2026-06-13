@@ -9,6 +9,8 @@ interface GeneralTabProps {
   saving: boolean;
   saved: boolean;
   onSave: () => void;
+  onClearParse?: () => void;
+  onClearDownload?: () => void;
 }
 
 export function GeneralTab({
@@ -17,6 +19,8 @@ export function GeneralTab({
   saving,
   saved,
   onSave,
+  onClearParse,
+  onClearDownload,
 }: GeneralTabProps) {
   const [clearing, setClearing] = useState<"parse" | "download" | null>(null);
 
@@ -24,6 +28,7 @@ export function GeneralTab({
     setClearing("parse");
     try {
       await invoke("clear_parse_history");
+      onClearParse?.();
     } finally {
       setClearing(null);
     }
@@ -33,6 +38,7 @@ export function GeneralTab({
     setClearing("download");
     try {
       await invoke("clear_download_history");
+      onClearDownload?.();
     } finally {
       setClearing(null);
     }

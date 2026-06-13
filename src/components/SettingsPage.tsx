@@ -13,9 +13,11 @@ interface SettingsPageProps {
   settings: AppSettings;
   onSave: (settings: AppSettings) => Promise<void>;
   onBack: () => void;
+  onClearParse?: () => void;
+  onClearDownload?: () => void;
 }
 
-export function SettingsPage({ settings, onSave, onBack }: SettingsPageProps) {
+export function SettingsPage({ settings, onSave, onBack, onClearParse, onClearDownload }: SettingsPageProps) {
   const [activeTab, setActiveTab] = useState<Tab>("general");
   const [dir, setDir] = useState(settings.default_download_dir);
   const [videoMaxQuality, setVideoMaxQuality] = useState(settings.video_max_quality);
@@ -111,6 +113,8 @@ export function SettingsPage({ settings, onSave, onBack }: SettingsPageProps) {
             saving={saving}
             saved={saved}
             onSave={handleSave}
+            onClearParse={onClearParse}
+            onClearDownload={onClearDownload}
           />
         )}
         {activeTab === "quality" && (

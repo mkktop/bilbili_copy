@@ -106,6 +106,15 @@ pub fn delete_parse(conn: &Connection, id: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// 更新解析记录的 parsed_at 为当前时间（点击查看时置顶）
+pub fn touch_parse(conn: &Connection, bvid: &str) -> anyhow::Result<()> {
+    conn.execute(
+        "UPDATE parse_history SET parsed_at = datetime('now') WHERE bvid = ?1",
+        params![bvid],
+    )?;
+    Ok(())
+}
+
 pub fn clear_all_parses(conn: &Connection) -> anyhow::Result<()> {
     conn.execute("DELETE FROM parse_history", [])?;
     Ok(())

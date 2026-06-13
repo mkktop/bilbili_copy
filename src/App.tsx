@@ -244,6 +244,10 @@ export default function App() {
 
   const handleSelectItem = (item: ParsedItem) => {
     if (!item.videoInfo) return;
+    // 更新时间戳，使其置顶
+    if (item.videoInfo.bvid) {
+      invoke("touch_parse_history", { bvid: item.videoInfo.bvid }).catch(() => {});
+    }
     setSelectedItem(item);
     setPreviousView("main");
     setCurrentView("detail");
@@ -267,6 +271,8 @@ export default function App() {
           settings={settings}
           onSave={handleSaveSettings}
           onBack={() => setCurrentView("main")}
+          onClearParse={() => loadParsePage(1)}
+          onClearDownload={() => loadDownloadPage(1)}
         />
       </div>
     );
@@ -313,8 +319,10 @@ export default function App() {
         <VideoDetail
           entry={selectedItem}
           onBack={() => {
-            setCurrentView(previousView);
+            const prev = previousView;
+            setCurrentView(prev);
             setSelectedItem(null);
+            if (prev === "main") loadParsePage(1);
           }}
           onDownload={handleDownload}
         />
@@ -339,6 +347,9 @@ export default function App() {
             status: "pending",
             videoInfo,
           };
+          if (videoInfo.bvid) {
+            invoke("touch_parse_history", { bvid: videoInfo.bvid }).catch(() => {});
+          }
           setSelectedItem(item);
           setPreviousView("profile");
           setCurrentView("detail");

@@ -45,6 +45,16 @@ pub fn delete_parse_history(
     db::delete_parse(&conn, &id).map_err(|e| format!("删除解析记录失败: {}", e))
 }
 
+/// 更新解析记录时间戳（置顶）
+#[tauri::command]
+pub fn touch_parse_history(
+    db: State<'_, db::DbState>,
+    bvid: String,
+) -> Result<(), String> {
+    let conn = db.0.lock().map_err(|e| format!("获取数据库锁失败: {}", e))?;
+    db::touch_parse(&conn, &bvid).map_err(|e| format!("更新解析时间失败: {}", e))
+}
+
 /// 清空所有解析历史
 #[tauri::command]
 pub fn clear_parse_history(db: State<'_, db::DbState>) -> Result<(), String> {
