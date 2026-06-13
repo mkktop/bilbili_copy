@@ -146,6 +146,13 @@ pub async fn download_video(
     let filename = format!("{}.mp4", sanitize_filename(&title));
     let output_path = download_dir.join(&filename);
 
+    // 防风控指纹参数
+    let dm_img_str = settings.dm_img_str.clone();
+    let dm_cover_img_str = settings.dm_cover_img_str.clone();
+    let dm_img_list = settings.dm_img_list.clone();
+    let dm_img_inter = settings.dm_img_inter.clone();
+    let request_delay_ms = settings.request_delay_ms;
+
     // 执行下载流程
     let result = run_download(
         &app,
@@ -162,6 +169,11 @@ pub async fn download_video(
         &output_path,
         settings.parallel_threads,
         ep_id,
+        &dm_img_str,
+        &dm_cover_img_str,
+        &dm_img_list,
+        &dm_img_inter,
+        request_delay_ms,
     )
     .await;
 
@@ -180,6 +192,8 @@ pub async fn download_video(
                     video_max_qn, video_min_qn, audio_max_qn, audio_min_qn,
                     &codec_priority, &credential, &download_dir, &output_path,
                     settings.parallel_threads, ep_id,
+                    &dm_img_str, &dm_cover_img_str, &dm_img_list, &dm_img_inter,
+                    request_delay_ms,
                 ).await
             } else {
                 result
@@ -249,6 +263,11 @@ async fn run_download(
     output_path: &std::path::Path,
     parallel_threads: usize,
     ep_id: Option<u64>,
+    dm_img_str: &str,
+    dm_cover_img_str: &str,
+    dm_img_list: &str,
+    dm_img_inter: &str,
+    request_delay_ms: u64,
 ) -> anyhow::Result<()> {
     // 5. 获取视频流地址
     log::info!(
@@ -258,6 +277,7 @@ async fn run_download(
     let streams = get_playurl(
         bvid, cid, credential, video_max_qn, video_min_qn,
         audio_max_qn, audio_min_qn, codec_priority, ep_id,
+        dm_img_str, dm_cover_img_str, dm_img_list, dm_img_inter, request_delay_ms,
     ).await?;
     log::info!(
         "[download] 流地址获取成功: id={}, legacy={}, has_audio={}, video_urls={}, audio_urls={}",

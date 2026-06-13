@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
+use crate::bilibili::fingerprint::{self, Fingerprint};
+
 // ==================== 默认值函数 ====================
 
 fn default_video_max_quality() -> i64 {
@@ -33,6 +35,10 @@ fn default_max_pages_per_video() -> usize {
 
 fn default_parallel_threads() -> usize {
     4
+}
+
+fn default_request_delay_ms() -> u64 {
+    0
 }
 
 // ==================== 旧格式（用于向后兼容迁移） ====================
@@ -82,6 +88,22 @@ pub struct AppSettings {
     pub max_pages_per_video: usize,
     #[serde(default = "default_parallel_threads")]
     pub parallel_threads: usize,
+    // 防风控 - 设备指纹
+    #[serde(default)]
+    pub fingerprint_gpu_preset: String,
+    #[serde(default)]
+    pub fingerprint_resolution_preset: String,
+    #[serde(default)]
+    pub dm_img_str: String,
+    #[serde(default)]
+    pub dm_cover_img_str: String,
+    #[serde(default)]
+    pub dm_img_list: String,
+    #[serde(default)]
+    pub dm_img_inter: String,
+    // 防风控 - 请求间隔
+    #[serde(default = "default_request_delay_ms")]
+    pub request_delay_ms: u64,
 }
 
 impl Default for AppSettings {
@@ -97,6 +119,13 @@ impl Default for AppSettings {
             max_concurrent_downloads: default_max_concurrent_downloads(),
             max_pages_per_video: default_max_pages_per_video(),
             parallel_threads: default_parallel_threads(),
+            fingerprint_gpu_preset: String::new(),
+            fingerprint_resolution_preset: String::new(),
+            dm_img_str: String::new(),
+            dm_cover_img_str: String::new(),
+            dm_img_list: String::new(),
+            dm_img_inter: String::new(),
+            request_delay_ms: default_request_delay_ms(),
         }
     }
 }
@@ -122,6 +151,13 @@ impl From<LegacySettings> for AppSettings {
             max_concurrent_downloads: default_max_concurrent_downloads(),
             max_pages_per_video: default_max_pages_per_video(),
             parallel_threads: default_parallel_threads(),
+            fingerprint_gpu_preset: String::new(),
+            fingerprint_resolution_preset: String::new(),
+            dm_img_str: String::new(),
+            dm_cover_img_str: String::new(),
+            dm_img_list: String::new(),
+            dm_img_inter: String::new(),
+            request_delay_ms: default_request_delay_ms(),
         }
     }
 }
@@ -174,4 +210,28 @@ pub fn save_settings(settings: AppSettings) -> Result<(), String> {
         e.to_string()
     })?;
     Ok(())
+}
+
+/// 获取 GPU 预设选项列表
+#[tauri::command]
+pub fn get_gpu_presets() -> Vec<(String, String)> {
+    fingerprint::get_gpu_preset_options()
+}
+
+/// 获取分辨率预设选项列表
+#[tauri::command]
+pub fn get_resolution_presets() -> Vec<(String, String)> {
+    fingerprint::get_resolution_preset_options()
+}
+
+/// 生成设备指纹
+#[tauri::command]
+pub fn generate_fingerprint_cmd(gpu_preset: String, resolution_preset: String) -> Result<Fingerprint, String> {
+    fingerprint::generate_fingerprint(&gpu_preset, &resolution_preset)
+}
+
+/// 随机生成默认指纹
+#[tauri::command]
+pub fn generate_random_fingerprint() -> Fingerprint {
+    fingerprint::generate_default_fingerprint()
 }

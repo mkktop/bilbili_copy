@@ -150,6 +150,11 @@ pub async fn get_playurl(
     audio_min_qn: i64,
     codec_priority: &[String],
     ep_id: Option<u64>,
+    dm_img_str: &str,
+    dm_cover_img_str: &str,
+    dm_img_list: &str,
+    dm_img_inter: &str,
+    request_delay_ms: u64,
 ) -> Result<SelectedStreams> {
     let client = Client::builder()
         .user_agent(USER_AGENT)
@@ -166,6 +171,7 @@ pub async fn get_playurl(
     match try_playurl_with_fallback(
         &client, bvid, cid, credential, video_max_qn, video_min_qn,
         audio_max_qn, audio_min_qn, codec_priority,
+        dm_img_str, dm_cover_img_str, dm_img_list, dm_img_inter, request_delay_ms,
     )
     .await
     {
@@ -179,6 +185,7 @@ pub async fn get_playurl(
     match try_bangumi_playurl(
         &client, bvid, cid, credential, video_max_qn, video_min_qn,
         audio_max_qn, audio_min_qn, codec_priority, ep_id,
+        dm_img_str, dm_cover_img_str, dm_img_list, dm_img_inter, request_delay_ms,
     )
     .await
     {
@@ -201,6 +208,11 @@ async fn try_playurl_with_fallback(
     audio_max_qn: i64,
     audio_min_qn: i64,
     codec_priority: &[String],
+    dm_img_str: &str,
+    dm_cover_img_str: &str,
+    dm_img_list: &str,
+    dm_img_inter: &str,
+    request_delay_ms: u64,
 ) -> Result<SelectedStreams> {
     let levels: Vec<i64> = QUALITY_LEVELS
         .iter()
@@ -211,7 +223,11 @@ async fn try_playurl_with_fallback(
     let mut last_error = String::new();
 
     for &qn in &levels {
-        match try_playurl_once(client, bvid, cid, qn, credential).await {
+        // 请求间隔
+        if request_delay_ms > 0 {
+            tokio::time::sleep(std::time::Duration::from_millis(request_delay_ms)).await;
+        }
+        match try_playurl_once(client, bvid, cid, qn, credential, dm_img_str, dm_cover_img_str, dm_img_list, dm_img_inter).await {
             Ok(data) => {
                 // 检测风控 v_voucher
                 if let Some(vv) = data.v_voucher.as_deref() {
@@ -247,6 +263,10 @@ async fn try_playurl_once(
     cid: i64,
     qn: i64,
     credential: &Credential,
+    dm_img_str: &str,
+    dm_cover_img_str: &str,
+    dm_img_list: &str,
+    dm_img_inter: &str,
 ) -> Result<PlayUrlData> {
     for attempt in 0..2 {
         let mut params = vec![
@@ -260,10 +280,10 @@ async fn try_playurl_once(
             ("gaia_source".to_string(), "pre-load".to_string()),
             ("isGaiaAvoided".to_string(), "true".to_string()),
             ("web_location".to_string(), "1315873".to_string()),
-            ("dm_img_str".to_string(), "".to_string()),
-            ("dm_cover_img_str".to_string(), "".to_string()),
-            ("dm_img_list".to_string(), "[]".to_string()),
-            ("dm_img_inter".to_string(), r#"{"ds":[],"wh":[2560,1440,100],"of":[430,798,430]}"#.to_string()),
+            ("dm_img_str".to_string(), if dm_img_str.is_empty() { "".to_string() } else { dm_img_str.to_string() }),
+            ("dm_cover_img_str".to_string(), if dm_cover_img_str.is_empty() { "".to_string() } else { dm_cover_img_str.to_string() }),
+            ("dm_img_list".to_string(), if dm_img_list.is_empty() { "[]".to_string() } else { dm_img_list.to_string() }),
+            ("dm_img_inter".to_string(), if dm_img_inter.is_empty() { r#"{"ds":[],"wh":[2560,1440,100],"of":[430,798,430]}"#.to_string() } else { dm_img_inter.to_string() }),
         ];
 
         // WBI 签名
@@ -324,6 +344,11 @@ async fn try_bangumi_playurl(
     audio_min_qn: i64,
     codec_priority: &[String],
     ep_id: Option<u64>,
+    dm_img_str: &str,
+    dm_cover_img_str: &str,
+    dm_img_list: &str,
+    dm_img_inter: &str,
+    request_delay_ms: u64,
 ) -> Result<SelectedStreams> {
     let mut last_error = String::new();
 
@@ -334,12 +359,23 @@ async fn try_bangumi_playurl(
         .collect();
 
     for &qn in &levels {
+        // 请求间隔
+        if request_delay_ms > 0 {
+            tokio::time::sleep(std::time::Duration::from_millis(request_delay_ms)).await;
+        }
         let mut params = vec![
             ("cid".to_string(), cid.to_string()),
             ("qn".to_string(), qn.to_string()),
             ("fnval".to_string(), "4048".to_string()),
             ("fourk".to_string(), "1".to_string()),
             ("otype".to_string(), "json".to_string()),
+            ("gaia_source".to_string(), "pre-load".to_string()),
+            ("isGaiaAvoided".to_string(), "true".to_string()),
+            ("web_location".to_string(), "1315873".to_string()),
+            ("dm_img_str".to_string(), if dm_img_str.is_empty() { "".to_string() } else { dm_img_str.to_string() }),
+            ("dm_cover_img_str".to_string(), if dm_cover_img_str.is_empty() { "".to_string() } else { dm_cover_img_str.to_string() }),
+            ("dm_img_list".to_string(), if dm_img_list.is_empty() { "[]".to_string() } else { dm_img_list.to_string() }),
+            ("dm_img_inter".to_string(), if dm_img_inter.is_empty() { r#"{"ds":[],"wh":[2560,1440,100],"of":[430,798,430]}"#.to_string() } else { dm_img_inter.to_string() }),
         ];
 
         // 番剧 API 优先用 ep_id，其次用 bvid

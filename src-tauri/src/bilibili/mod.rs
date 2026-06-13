@@ -8,6 +8,7 @@ pub mod playurl;
 pub mod download;
 pub mod risk_control;
 pub mod favorite;
+pub mod fingerprint;
 
 // ==================== 共享常量 ====================
 

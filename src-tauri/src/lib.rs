@@ -2,7 +2,7 @@ mod commands;
 mod bilibili;
 mod db;
 
-use commands::settings::{get_settings, save_settings};
+use commands::settings::{get_settings, save_settings, get_gpu_presets, get_resolution_presets, generate_fingerprint_cmd, generate_random_fingerprint};
 use commands::video::parse_video;
 use commands::download::download_video;
 use commands::login::{login_generate_qrcode, login_poll_qrcode, login_check, login_logout};
@@ -108,6 +108,10 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_settings,
             save_settings,
+            get_gpu_presets,
+            get_resolution_presets,
+            generate_fingerprint_cmd,
+            generate_random_fingerprint,
             parse_video,
             download_video,
             login_generate_qrcode,

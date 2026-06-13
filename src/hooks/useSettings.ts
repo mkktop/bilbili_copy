@@ -13,6 +13,15 @@ export interface AppSettings {
   max_concurrent_downloads: number;  // 默认 1
   max_pages_per_video: number;       // 默认 2
   parallel_threads: number;          // 默认 4
+  // 防风控 - 设备指纹
+  fingerprint_gpu_preset: string;
+  fingerprint_resolution_preset: string;
+  dm_img_str: string;
+  dm_cover_img_str: string;
+  dm_img_list: string;
+  dm_img_inter: string;
+  // 防风控 - 请求间隔
+  request_delay_ms: number;
 }
 
 export function useSettings() {
@@ -27,6 +36,13 @@ export function useSettings() {
     max_concurrent_downloads: 1,
     max_pages_per_video: 2,
     parallel_threads: 4,
+    fingerprint_gpu_preset: "",
+    fingerprint_resolution_preset: "",
+    dm_img_str: "",
+    dm_cover_img_str: "",
+    dm_img_list: "",
+    dm_img_inter: "",
+    request_delay_ms: 0,
   });
   const [loading, setLoading] = useState(true);
 

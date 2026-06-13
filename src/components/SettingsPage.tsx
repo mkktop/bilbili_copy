@@ -4,10 +4,11 @@ import { GeneralTab } from "./settings/GeneralTab";
 import { QualityTab } from "./settings/QualityTab";
 import { DownloadTab } from "./settings/DownloadTab";
 import { AboutTab } from "./settings/AboutTab";
+import { AntiRiskTab } from "./settings/AntiRiskTab";
 import type { AppSettings } from "../hooks/useSettings";
 import { cn } from "../lib/utils";
 
-type Tab = "general" | "quality" | "download" | "about";
+type Tab = "general" | "quality" | "download" | "antirisk" | "about";
 
 interface SettingsPageProps {
   settings: AppSettings;
@@ -28,6 +29,14 @@ export function SettingsPage({ settings, onSave, onBack, onClearParse, onClearDo
   const [maxConcurrentDownloads, setMaxConcurrentDownloads] = useState(settings.max_concurrent_downloads);
   const [maxPagesPerVideo, setMaxPagesPerVideo] = useState(settings.max_pages_per_video);
   const [parallelThreads, setParallelThreads] = useState(settings.parallel_threads);
+  // 防风控
+  const [gpuPreset, setGpuPreset] = useState(settings.fingerprint_gpu_preset);
+  const [resolutionPreset, setResolutionPreset] = useState(settings.fingerprint_resolution_preset);
+  const [dmImgStr, setDmImgStr] = useState(settings.dm_img_str);
+  const [dmCoverImgStr, setDmCoverImgStr] = useState(settings.dm_cover_img_str);
+  const [dmImgList, setDmImgList] = useState(settings.dm_img_list);
+  const [dmImgInter, setDmImgInter] = useState(settings.dm_img_inter);
+  const [requestDelayMs, setRequestDelayMs] = useState(settings.request_delay_ms);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
@@ -42,6 +51,13 @@ export function SettingsPage({ settings, onSave, onBack, onClearParse, onClearDo
     setMaxConcurrentDownloads(settings.max_concurrent_downloads);
     setMaxPagesPerVideo(settings.max_pages_per_video);
     setParallelThreads(settings.parallel_threads);
+    setGpuPreset(settings.fingerprint_gpu_preset);
+    setResolutionPreset(settings.fingerprint_resolution_preset);
+    setDmImgStr(settings.dm_img_str);
+    setDmCoverImgStr(settings.dm_cover_img_str);
+    setDmImgList(settings.dm_img_list);
+    setDmImgInter(settings.dm_img_inter);
+    setRequestDelayMs(settings.request_delay_ms);
   }, [settings]);
 
   const handleSave = async () => {
@@ -58,6 +74,13 @@ export function SettingsPage({ settings, onSave, onBack, onClearParse, onClearDo
         max_concurrent_downloads: maxConcurrentDownloads,
         max_pages_per_video: maxPagesPerVideo,
         parallel_threads: parallelThreads,
+        fingerprint_gpu_preset: gpuPreset,
+        fingerprint_resolution_preset: resolutionPreset,
+        dm_img_str: dmImgStr,
+        dm_cover_img_str: dmCoverImgStr,
+        dm_img_list: dmImgList,
+        dm_img_inter: dmImgInter,
+        request_delay_ms: requestDelayMs,
       });
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
@@ -70,6 +93,7 @@ export function SettingsPage({ settings, onSave, onBack, onClearParse, onClearDo
     general: "通用",
     quality: "视频质量",
     download: "下载",
+    antirisk: "防风控",
     about: "关于",
   };
 
@@ -87,13 +111,13 @@ export function SettingsPage({ settings, onSave, onBack, onClearParse, onClearDo
       </div>
 
       {/* Tab bar */}
-      <div className="flex border-b border-gray-200 px-6">
-        {(["general", "quality", "download", "about"] as Tab[]).map((tab) => (
+      <div className="flex border-b border-gray-200 px-4">
+        {(["general", "quality", "download", "antirisk", "about"] as Tab[]).map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
             className={cn(
-              "px-4 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px",
+              "px-3 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px whitespace-nowrap",
               activeTab === tab
                 ? "border-blue-500 text-blue-600"
                 : "border-transparent text-gray-500 hover:text-gray-700"
@@ -142,6 +166,24 @@ export function SettingsPage({ settings, onSave, onBack, onClearParse, onClearDo
             onMaxPagesPerVideoChange={(v) => { setMaxPagesPerVideo(v); setSaved(false); }}
             parallelThreads={parallelThreads}
             onParallelThreadsChange={(v) => { setParallelThreads(v); setSaved(false); }}
+            saving={saving}
+            saved={saved}
+            onSave={handleSave}
+          />
+        )}
+        {activeTab === "antirisk" && (
+          <AntiRiskTab
+            gpuPreset={gpuPreset}
+            onGpuPresetChange={(v) => { setGpuPreset(v); setSaved(false); }}
+            resolutionPreset={resolutionPreset}
+            onResolutionPresetChange={(v) => { setResolutionPreset(v); setSaved(false); }}
+            dmImgStr={dmImgStr}
+            onDmImgStrChange={(v) => { setDmImgStr(v); setSaved(false); }}
+            onDmCoverImgStrChange={(v) => { setDmCoverImgStr(v); setSaved(false); }}
+            onDmImgListChange={(v) => { setDmImgList(v); setSaved(false); }}
+            onDmImgInterChange={(v) => { setDmImgInter(v); setSaved(false); }}
+            requestDelayMs={requestDelayMs}
+            onRequestDelayMsChange={(v) => { setRequestDelayMs(v); setSaved(false); }}
             saving={saving}
             saved={saved}
             onSave={handleSave}
