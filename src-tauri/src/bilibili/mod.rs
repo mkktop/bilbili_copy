@@ -11,6 +11,10 @@ pub mod favorite;
 pub mod fingerprint;
 pub mod danmaku;
 pub mod subtitle;
+pub mod watch_later;
+pub mod search;
+pub mod submission;
+pub mod collection;
 
 // ==================== 共享常量 ====================
 
@@ -26,7 +30,7 @@ pub const API_TIMEOUT: Duration = Duration::from_secs(15);
 
 // ==================== 共享类型 ====================
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 /// B站 API 通用响应结构
 #[derive(Debug, Deserialize)]
@@ -34,6 +38,37 @@ pub struct BilibiliResponse<T> {
     pub code: i64,
     pub data: Option<T>,
     pub message: Option<String>,
+}
+
+/// 通用视频列表项：稍后再看 / UP主投稿 / 合集 共用，前端可复用同一套卡片
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VideoListItem {
+    pub bvid: String,
+    pub title: String,
+    pub cover: String,
+    #[serde(default)]
+    pub upper_name: String,
+    #[serde(default)]
+    pub upper_mid: i64,
+    /// 时长（秒）
+    #[serde(default)]
+    pub duration: i64,
+    #[serde(default)]
+    pub play: i64,
+    #[serde(default)]
+    pub danmaku: i64,
+    /// 发布时间（unix 秒），0 表示未知
+    #[serde(default)]
+    pub pubdate: i64,
+}
+
+/// 通用分页结果
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PagedResult<T> {
+    pub items: Vec<T>,
+    pub total: i64,
+    pub has_more: bool,
+    pub page: u32,
 }
 
 // ==================== 共享工具函数 ====================

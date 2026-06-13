@@ -15,8 +15,11 @@ import {
   Eye,
   ThumbsUp,
   Crown,
+  Bookmark,
 } from "lucide-react";
 import type { UserInfo } from "../hooks/useLogin";
+import { WatchLaterTab } from "./tabs/WatchLaterTab";
+import { SubscriptionsTab } from "./tabs/SubscriptionsTab";
 import type {
   FavoriteFolder,
   FavoriteMedia,
@@ -65,6 +68,17 @@ export function UserProfilePage({
   const [parsingBvid, setParsingBvid] = useState<string | null>(null);
 
   const [loggingOut, setLoggingOut] = useState(false);
+
+  // Tab 切换：收藏夹 / 稍后再看 / 我的订阅
+  const [tab, setTab] = useState<"favorites" | "watch_later" | "subscriptions">(
+    "favorites"
+  );
+
+  const handleSetTab = (t: typeof tab) => {
+    setTab(t);
+    setSelectedFolder(null);
+    setMedias([]);
+  };
 
   // 加载收藏夹列表
   const loadFolders = useCallback(async () => {
@@ -171,8 +185,34 @@ export function UserProfilePage({
       </header>
 
       <div className="flex-1 overflow-auto px-6 py-4">
-        {/* 收藏夹列表视图 */}
+        {/* Tab 切换栏（收藏夹详情视图不显示） */}
         {!selectedFolder && (
+          <div className="flex gap-1 mb-4">
+            {(
+              [
+                { key: "favorites", label: "收藏夹", Icon: FolderOpen },
+                { key: "watch_later", label: "稍后再看", Icon: Clock },
+                { key: "subscriptions", label: "我的订阅", Icon: Bookmark },
+              ] as const
+            ).map(({ key, label, Icon }) => (
+              <button
+                key={key}
+                onClick={() => handleSetTab(key)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border transition-colors ${
+                  tab === key
+                    ? "bg-blue-50 border-blue-300 text-blue-600"
+                    : "bg-white border-gray-200 text-gray-500 hover:bg-gray-50"
+                }`}
+              >
+                <Icon size={14} />
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* 收藏夹列表视图 */}
+        {!selectedFolder && tab === "favorites" && (
           <>
             {/* 用户信息卡片 */}
             <div className="px-4 py-5 bg-white border border-gray-200 rounded-lg mb-4">
@@ -306,6 +346,22 @@ export function UserProfilePage({
               </div>
             )}
           </>
+        )}
+
+        {/* 稍后再看视图 */}
+        {!selectedFolder && tab === "watch_later" && (
+          <WatchLaterTab
+            onParseVideo={onParseVideo}
+            onSelectItem={onSelectItem}
+          />
+        )}
+
+        {/* 我的订阅视图 */}
+        {!selectedFolder && tab === "subscriptions" && (
+          <SubscriptionsTab
+            onParseVideo={onParseVideo}
+            onSelectItem={onSelectItem}
+          />
         )}
 
         {/* 收藏夹视频列表视图 */}

@@ -5,3 +5,7 @@ pub mod login;
 pub mod risk_control;
 pub mod history;
 pub mod favorite;
+pub mod watch_later;
+pub mod search;
+pub mod submission;
+pub mod collection;

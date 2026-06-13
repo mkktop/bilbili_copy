@@ -12,6 +12,10 @@ use commands::history::{
     get_download_history, save_download_entry, update_download_status, delete_download_history, get_download_count, clear_download_history,
 };
 use commands::favorite::{get_favorite_folders, get_favorite_videos};
+use commands::watch_later::get_watch_later;
+use commands::search::search_videos;
+use commands::submission::{get_upper_info, get_submission_videos};
+use commands::collection::{get_upper_collections, get_collection_videos, get_subscribed_collections};
 
 /// Read Windows system proxy settings and set HTTPS_PROXY env var
 /// so the Tauri updater (reqwest) can use the system proxy.
@@ -136,6 +140,13 @@ pub fn run() {
             clear_download_history,
             get_favorite_folders,
             get_favorite_videos,
+            get_watch_later,
+            search_videos,
+            get_upper_info,
+            get_submission_videos,
+            get_upper_collections,
+            get_collection_videos,
+            get_subscribed_collections,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

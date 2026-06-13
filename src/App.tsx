@@ -10,15 +10,16 @@ import { SettingsPage } from "./components/SettingsPage";
 import { LoginDialog } from "./components/LoginDialog";
 import { CaptchaDialog } from "./components/CaptchaDialog";
 import { UserProfilePage } from "./components/UserProfilePage";
+import { ExplorePage } from "./components/ExplorePage";
 import { useUpdate } from "./contexts/UpdateContext";
 import { useSettings } from "./hooks/useSettings";
 import { useLogin } from "./hooks/useLogin";
-import { Settings, Download } from "lucide-react";
+import { Settings, Download, Search } from "lucide-react";
 import type { AppSettings } from "./hooks/useSettings";
 import type { ParsedItem, DownloadTask, ParsedVideoInfo, ParseHistoryEntry, DownloadHistoryEntry } from "./types";
 import { dbToParsedItem, dbToDownloadTask } from "./types";
 
-type View = "main" | "settings" | "detail" | "downloads" | "profile";
+type View = "main" | "settings" | "detail" | "downloads" | "profile" | "explore";
 
 interface DownloadProgress {
   id: string;
@@ -371,6 +372,33 @@ export default function App() {
     );
   }
 
+  // Explore view
+  if (currentView === "explore") {
+    return (
+      <ExplorePage
+        onBack={() => setCurrentView("main")}
+        onParseVideo={handleParse}
+        onSelectItem={(videoInfo: ParsedVideoInfo) => {
+          const item: ParsedItem = {
+            id: `explore-${videoInfo.bvid}`,
+            url: videoInfo.bvid
+              ? `https://www.bilibili.com/video/${videoInfo.bvid}`
+              : "",
+            title: videoInfo.title,
+            status: "pending",
+            videoInfo,
+          };
+          if (videoInfo.bvid) {
+            invoke("touch_parse_history", { bvid: videoInfo.bvid }).catch(() => {});
+          }
+          setSelectedItem(item);
+          setPreviousView("explore");
+          setCurrentView("detail");
+        }}
+      />
+    );
+  }
+
   // Main view
   return (
     <div className="flex flex-col h-screen bg-gray-50 text-gray-900">
@@ -396,6 +424,15 @@ export default function App() {
         </div>
 
         <div className="flex items-center gap-2">
+          {/* 发现入口 */}
+          <button
+            onClick={() => setCurrentView("explore")}
+            title="发现"
+            className="p-1 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+          >
+            <Search size={16} />
+          </button>
+
           {/* 下载列表入口 */}
           <div className="relative">
             <button

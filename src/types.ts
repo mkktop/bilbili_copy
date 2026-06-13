@@ -148,3 +148,102 @@ export function dbToDownloadTask(entry: DownloadHistoryEntry): DownloadTask {
     errorMsg: entry.error_msg ?? undefined,
   };
 }
+
+// ==================== 通用列表类型 ====================
+
+/** 通用视频列表项：稍后再看 / 投稿 / 合集 共用 */
+export interface VideoListItem {
+  bvid: string;
+  title: string;
+  cover: string;
+  upper_name: string;
+  upper_mid: number;
+  duration: number;
+  play: number;
+  danmaku: number;
+  pubdate: number;
+}
+
+/** 通用分页结果 */
+export interface PagedResult<T> {
+  items: T[];
+  total: number;
+  has_more: boolean;
+  page: number;
+}
+
+/** unix 秒 → 本地日期字符串 */
+export function formatDate(unixSeconds: number): string {
+  if (!unixSeconds) return "";
+  const d = new Date(unixSeconds * 1000);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
+    d.getDate()
+  ).padStart(2, "0")}`;
+}
+
+// ==================== 搜索类型 ====================
+
+export type SearchResultType = "video" | "bili_user" | "media_bangumi" | "media_ft";
+
+export interface SearchResult {
+  type: SearchResultType;
+  title: string;
+  author: string;
+  bvid?: string;
+  aid?: number;
+  mid?: number;
+  season_id?: string;
+  media_id?: string;
+  cover: string;
+  description: string;
+  duration?: string;
+  pubdate?: number;
+  play?: number;
+  danmaku?: number;
+  follower?: number;
+}
+
+export interface SearchResultList {
+  results: SearchResult[];
+  total: number;
+  num_pages: number;
+  page: number;
+}
+
+// ==================== UP 主 / 合集类型 ====================
+
+/** UP 主卡片信息 */
+export interface UpperInfo {
+  mid: number;
+  name: string;
+  face: string;
+  sign: string;
+  level: number;
+  fans: number;
+  following: number;
+  archive_count: number;
+}
+
+/** UP 主的合集/列表 */
+export interface CollectionInfo {
+  id: string;
+  name: string;
+  cover: string;
+  description: string;
+  total: number;
+  collection_type: "season" | "series";
+  mid: number;
+}
+
+/** 用户订阅的合集/收藏夹 */
+export interface SubscribedCollection {
+  id: string;
+  name: string;
+  cover: string;
+  description: string;
+  total: number;
+  collection_type: "favorite" | "season";
+  upper_name: string;
+  upper_mid: number;
+}
+
