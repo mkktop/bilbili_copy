@@ -42,6 +42,12 @@ interface DownloadError {
   error: string;
 }
 
+/** download://state 事件载荷：任务状态变化（queued/downloading/paused/cancelled） */
+interface DownloadStateChange {
+  id: string;
+  status: "queued" | "downloading" | "paused" | "cancelled";
+}
+
 export default function App() {
   const [currentView, setCurrentView] = useState<View>("main");
   const [previousView, setPreviousView] = useState<View>("main");
@@ -163,6 +169,30 @@ export default function App() {
           setCaptchaVoucher(event.payload.v_voucher);
           toast.error("触发风控验证，请完成验证后重试");
         }),
+        listen<DownloadStateChange>("download://state", (event) => {
+          if (cancelled) return;
+          const { id, status } = event.payload;
+          if (status === "downloading") {
+            // dispatcher 拿到 permit 开始执行：UI 从 queued → downloading
+            setDownloads((prev) =>
+              prev.map((d) => (d.id === id ? { ...d, status: "downloading" as const } : d))
+            );
+            invoke("update_download_status", { id, status: "downloading", progress: null, phase: null, errorMsg: null, outputPath: null }).catch(() => {});
+          } else if (status === "paused") {
+            downloadingIds.current.delete(id);
+            lastProgressWrite.current.delete(id);
+            setDownloads((prev) =>
+              prev.map((d) => (d.id === id ? { ...d, status: "paused" as const } : d))
+            );
+            invoke("update_download_status", { id, status: "paused", progress: null, phase: null, errorMsg: null, outputPath: null }).catch(() => {});
+          } else if (status === "cancelled") {
+            downloadingIds.current.delete(id);
+            lastProgressWrite.current.delete(id);
+            // 取消即从列表移除（.tmp 已被后端清理，记录也删除）
+            setDownloads((prev) => prev.filter((d) => d.id !== id));
+            invoke("delete_download_history", { id }).catch(() => {});
+          }
+        }),
       ]);
       if (cancelled) {
         fns.forEach((fn) => fn());
@@ -179,7 +209,9 @@ export default function App() {
   }, [toast]);
 
   const hasUpdate = phase === "available" && updateInfo;
-  const activeDownloads = downloads.filter((d) => d.status === "downloading").length;
+  const activeDownloads = downloads.filter(
+    (d) => d.status === "downloading" || d.status === "queued"
+  ).length;
 
   const handleSaveSettings = async (s: AppSettings) => {
     await save(s);
@@ -243,25 +275,37 @@ export default function App() {
     duration?: number,
     pic?: string
   ) => {
-    // 用 ref 防止重复提交
+    // 用 ref 防止重复提交（queued/downloading 都算活跃，禁止重复）
     if (downloadingIds.current.has(id)) return;
     downloadingIds.current.add(id);
 
-    // 先加入 UI 列表（显示为 downloading），如果同 ID 已存在则替换
+    // 先加入 UI 列表（显示为 queued，dispatcher 拿到 permit 后会 emit downloading）。
+    // 同时填充恢复/重试所需的原始参数。
     setDownloads((prev) => {
       const filtered = prev.filter((d) => d.id !== id);
-      return [{ id, title, status: "downloading" as const, progress: 0, pic }, ...filtered];
+      return [{
+        id, title, status: "queued" as const, progress: 0, pic,
+        bvid, cid, epId: epId ?? null, videoTitle, duration,
+      }, ...filtered];
     });
 
-    // 持久化下载记录（含封面）
+    // 持久化下载记录（含封面 + 恢复参数）。
+    // quality 此处未知（需 playurl 后才确定），暂存 null；跨会话续传由流指纹保护。
     invoke("save_download_entry", {
-      entry: { id, title, bvid, cid, ep_id: epId ?? null, status: "downloading", progress: 0, phase: null, error_msg: null, output_path: null, pic: pic ?? null, created_at: new Date().toISOString() }
+      entry: {
+        id, title, bvid, cid, ep_id: epId ?? null,
+        status: "queued", progress: 0, phase: null,
+        error_msg: null, output_path: null,
+        pic: pic ?? null, created_at: new Date().toISOString(),
+        quality: null, video_title: videoTitle || null,
+      }
     }).catch(() => {});
 
-    // 直接 invoke，并发由 Rust 端 Semaphore 控制
+    // 提交到调度器（立即返回；下载中途状态/进度/完成/失败全走事件）。
+    // 命令返回的 Err 仅代表提交阶段失败（如未登录）。
     try {
       await invoke("download_video", { id, bvid, cid, title, videoTitle, epId, duration });
-      // downloadingIds 在 download://complete 事件中清理
+      // downloadingIds 在 download://complete/error/state(cancelled) 中清理
     } catch (err) {
       downloadingIds.current.delete(id);
       setDownloads((prev) =>
@@ -299,6 +343,61 @@ export default function App() {
     invoke("delete_download_history", { id })
       .then(() => loadDownloadPage(willBeEmpty ? downloadPage - 1 : downloadPage))
       .catch(() => {});
+  };
+
+  // 暂停运行中任务（保留 .tmp 供恢复续传），或移除排队中任务
+  const handlePause = (id: string) => {
+    invoke<boolean>("pause_download", { id })
+      .then((ok) => {
+        if (!ok) toast.error("暂停失败：任务可能已完成或不存在");
+      })
+      .catch((e) => toast.error(`暂停失败：${friendlyError(e)}`));
+  };
+
+  // 取消任务（中断运行并清理 .tmp，或移除排队任务）。后端 emit state(cancelled) 后会从列表移除
+  const handleCancel = (id: string) => {
+    invoke<boolean>("cancel_download", { id })
+      .then((ok) => {
+        if (!ok) {
+          // 后端没有该任务（可能已完成），直接前端移除
+          handleRemoveDownload(id);
+        }
+      })
+      .catch((e) => toast.error(`取消失败：${friendlyError(e)}`));
+  };
+
+  // 恢复已暂停的任务：用原 id + 原参数重新提交（后端检测 .tmp 存在且指纹匹配则续传）。
+  // 复用 handleDownload 的全套逻辑（去重、UI 插入、落库、提交）。
+  const handleResume = (item: DownloadTask) => {
+    if (!item.bvid || item.cid === undefined) {
+      toast.error("恢复失败：缺少下载参数");
+      return;
+    }
+    handleDownload(
+      item.id, item.bvid, item.cid, item.title, item.videoTitle || item.title,
+      item.epId ?? undefined, item.duration, item.pic
+    );
+  };
+
+  // 重试失败的任务（与恢复同：用原参数重新提交）
+  const handleRetry = (item: DownloadTask) => {
+    if (!item.bvid || item.cid === undefined) {
+      toast.error("重试失败：缺少下载参数");
+      return;
+    }
+    handleDownload(
+      item.id, item.bvid, item.cid, item.title, item.videoTitle || item.title,
+      item.epId ?? undefined, item.duration, item.pic
+    );
+  };
+
+  // 调整排队中任务的优先级（置顶：用一个比当前最高优先级更大的值）
+  const handleSetPriority = (id: string, priority: number) => {
+    invoke<boolean>("set_download_priority", { id, priority })
+      .then((ok) => {
+        if (!ok) toast.error("调整失败：任务已开始下载或不存在");
+      })
+      .catch((e) => toast.error(`调整失败：${friendlyError(e)}`));
   };
 
   // 详情页返回逻辑：回到来源页，保留其 state（来源页组件未被卸载）
@@ -368,6 +467,11 @@ export default function App() {
             <DownloadList
               downloads={downloads}
               onRemove={handleRemoveDownload}
+              onPause={handlePause}
+              onCancel={handleCancel}
+              onResume={handleResume}
+              onRetry={handleRetry}
+              onSetPriority={handleSetPriority}
               currentPage={downloadPage}
               totalCount={downloadTotal}
               onPageChange={loadDownloadPage}

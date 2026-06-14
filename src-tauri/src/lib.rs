@@ -1,10 +1,11 @@
 mod commands;
 mod bilibili;
 mod db;
+mod download_manager;
 
 use commands::settings::{get_settings, save_settings, get_gpu_presets, get_resolution_presets, generate_fingerprint_cmd, generate_random_fingerprint};
 use commands::video::parse_video;
-use commands::download::download_video;
+use commands::download::{download_video, pause_download, cancel_download, set_download_priority};
 use commands::login::{login_generate_qrcode, login_poll_qrcode, login_check, login_logout};
 use commands::risk_control::{captcha_register, captcha_validate};
 use commands::history::{
@@ -17,6 +18,7 @@ use commands::search::search_videos;
 use commands::submission::{get_upper_info, get_submission_videos};
 use commands::collection::{get_upper_collections, get_collection_videos, get_subscribed_collections};
 use commands::following::get_followings;
+use download_manager::manager;
 
 /// Read Windows system proxy settings and set HTTPS_PROXY env var
 /// so the Tauri updater (reqwest) can use the system proxy.
@@ -112,6 +114,15 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(db_state)
+        .setup(|app| {
+            // 启动下载调度器 dispatcher 后台循环。常驻运行：
+            // pop 最高优先级任务 → acquire permit → spawn 执行 → 处理 pause/cancel/优先级。
+            let app_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                manager().run_dispatcher(app_handle).await;
+            });
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             get_settings,
             save_settings,
@@ -121,6 +132,9 @@ pub fn run() {
             generate_random_fingerprint,
             parse_video,
             download_video,
+            pause_download,
+            cancel_download,
+            set_download_priority,
             login_generate_qrcode,
             login_poll_qrcode,
             login_check,

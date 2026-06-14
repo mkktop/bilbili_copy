@@ -24,9 +24,11 @@ pub fn init_db() -> anyhow::Result<DbState> {
     // 增量版本迁移：根据已记录的 schema_version 执行尚未完成的升级
     migrate_schema(&conn)?;
 
-    // 清理残留的 downloading 状态（应用异常退出）
+    // 应用异常退出后残留的 downloading 任务改为 paused（而非 error），
+    // 让用户可在「下载列表」手动恢复（复用 .tmp 续传）。临时文件由指纹机制保护，
+    // 不匹配时 download_stream 会自动丢弃重下，不会损坏。
     conn.execute(
-        "UPDATE download_history SET status='error', error_msg='应用异常退出' WHERE status='downloading'",
+        "UPDATE download_history SET status='paused' WHERE status='downloading'",
         [],
     )?;
 
@@ -65,8 +67,23 @@ fn migrate_schema(conn: &Connection) -> anyhow::Result<()> {
         version = 2;
     }
 
-    if version > 2 {
-        log::warn!("[db] schema_version={} 高于当前代码已知的最新版本(2)", version);
+    // v3: download_history 增加 quality（画质，用于跨会话续传指纹与恢复下载）与
+    //     video_title（合集名，用于重建下载目录路径）两列。
+    if version < 3 {
+        if !column_exists(conn, "download_history", "quality")? {
+            conn.execute("ALTER TABLE download_history ADD COLUMN quality INTEGER", [])?;
+            log::info!("[db] 迁移 v3: 已为 download_history 添加 quality 列");
+        }
+        if !column_exists(conn, "download_history", "video_title")? {
+            conn.execute("ALTER TABLE download_history ADD COLUMN video_title TEXT", [])?;
+            log::info!("[db] 迁移 v3: 已为 download_history 添加 video_title 列");
+        }
+        set_schema_version(conn, 3)?;
+        version = 3;
+    }
+
+    if version > 3 {
+        log::warn!("[db] schema_version={} 高于当前代码已知的最新版本(3)", version);
     }
     Ok(())
 }
@@ -110,6 +127,12 @@ pub struct DownloadHistoryEntry {
     /// 视频封面 URL（v2 schema 新增，旧记录为 None）
     pub pic: Option<String>,
     pub created_at: String,
+    /// 画质（v3 schema 新增）：恢复下载时作为 qn 参数，保证跨会话续传指纹匹配。旧记录为 None。
+    #[serde(default)]
+    pub quality: Option<i64>,
+    /// 合集名/视频名（v3 schema 新增）：用于恢复时重建下载目录路径。旧记录为 None。
+    #[serde(default)]
+    pub video_title: Option<String>,
 }
 
 // ==================== CRUD ====================
@@ -181,8 +204,8 @@ pub fn clear_all_parses(conn: &Connection) -> anyhow::Result<()> {
 
 pub fn insert_download(conn: &Connection, entry: &DownloadHistoryEntry) -> anyhow::Result<()> {
     conn.execute(
-        "INSERT OR REPLACE INTO download_history (id, title, bvid, cid, ep_id, status, progress, phase, error_msg, output_path, pic) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
-        params![entry.id, entry.title, entry.bvid, entry.cid, entry.ep_id, entry.status, entry.progress, entry.phase, entry.error_msg, entry.output_path, entry.pic],
+        "INSERT OR REPLACE INTO download_history (id, title, bvid, cid, ep_id, status, progress, phase, error_msg, output_path, pic, quality, video_title) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+        params![entry.id, entry.title, entry.bvid, entry.cid, entry.ep_id, entry.status, entry.progress, entry.phase, entry.error_msg, entry.output_path, entry.pic, entry.quality, entry.video_title],
     )?;
     Ok(())
 }
@@ -205,7 +228,7 @@ pub fn update_download(
 
 pub fn get_all_downloads(conn: &Connection, limit: u32, offset: u32) -> anyhow::Result<Vec<DownloadHistoryEntry>> {
     let mut stmt = conn.prepare(
-        "SELECT id, title, bvid, cid, ep_id, status, progress, phase, error_msg, output_path, pic, created_at FROM download_history ORDER BY created_at DESC LIMIT ?1 OFFSET ?2",
+        "SELECT id, title, bvid, cid, ep_id, status, progress, phase, error_msg, output_path, pic, created_at, quality, video_title FROM download_history ORDER BY created_at DESC LIMIT ?1 OFFSET ?2",
     )?;
     let rows = stmt.query_map(params![limit, offset], |row| {
         Ok(DownloadHistoryEntry {
@@ -221,6 +244,8 @@ pub fn get_all_downloads(conn: &Connection, limit: u32, offset: u32) -> anyhow::
             output_path: row.get(9)?,
             pic: row.get(10)?,
             created_at: row.get(11)?,
+            quality: row.get(12)?,
+            video_title: row.get(13)?,
         })
     })?;
     Ok(rows.filter_map(|r| r.ok()).collect())
@@ -269,7 +294,9 @@ CREATE TABLE IF NOT EXISTS download_history (
     error_msg TEXT,
     output_path TEXT,
     pic TEXT,
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    quality INTEGER,
+    video_title TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_download_created ON download_history(created_at DESC);
@@ -311,18 +338,39 @@ mod tests {
 
         migrate_schema(&conn).unwrap();
 
-        // 迁移后 pic 列存在，版本升到 2
+        // 迁移后 pic 列存在，版本升到 3（v2→pic，v3→quality/video_title 一次到位）
         assert!(column_exists(&conn, "download_history", "pic").unwrap());
+        assert_eq!(current_schema_version(&conn), 3);
+    }
+
+    #[test]
+    fn migrate_v3_adds_quality_and_video_title() {
+        // 构造一个停在 v2（有 pic，无 quality/video_title）的老库，模拟历史用户升级路径
+        let conn = legacy_v1_db();
+        // 只跑到 v2：手工应用 v2 迁移并记录版本
+        if !column_exists(&conn, "download_history", "pic").unwrap() {
+            conn.execute("ALTER TABLE download_history ADD COLUMN pic TEXT", []).unwrap();
+        }
+        conn.execute("INSERT OR REPLACE INTO schema_version (version) VALUES (2)", []).unwrap();
         assert_eq!(current_schema_version(&conn), 2);
+        assert!(!column_exists(&conn, "download_history", "quality").unwrap());
+        assert!(!column_exists(&conn, "download_history", "video_title").unwrap());
+
+        // 现在从 v2 升级到 v3
+        migrate_schema(&conn).unwrap();
+
+        assert!(column_exists(&conn, "download_history", "quality").unwrap());
+        assert!(column_exists(&conn, "download_history", "video_title").unwrap());
+        assert_eq!(current_schema_version(&conn), 3);
     }
 
     #[test]
     fn migrate_is_idempotent() {
         let conn = legacy_v1_db();
         migrate_schema(&conn).unwrap();
-        // 再次执行迁移不应报错（version 已是 2，跳过 ALTER）
+        // 再次执行迁移不应报错（version 已是 3，跳过 ALTER）
         migrate_schema(&conn).unwrap();
-        assert_eq!(current_schema_version(&conn), 2);
+        assert_eq!(current_schema_version(&conn), 3);
         assert!(column_exists(&conn, "download_history", "pic").unwrap());
     }
 
@@ -332,12 +380,14 @@ mod tests {
         let conn = Connection::open_in_memory().unwrap();
         conn.execute_batch(SCHEMA_SQL).unwrap();
         assert_eq!(current_schema_version(&conn), 0);
-        // 建表语句已含 pic 列
+        // 建表语句已含 pic / quality / video_title 列
         assert!(column_exists(&conn, "download_history", "pic").unwrap());
+        assert!(column_exists(&conn, "download_history", "quality").unwrap());
+        assert!(column_exists(&conn, "download_history", "video_title").unwrap());
 
         migrate_schema(&conn).unwrap();
-        // migrate_schema 的 v2 分支：列已存在则跳过 ALTER，但仍记录 version=2
-        assert_eq!(current_schema_version(&conn), 2);
+        // 全新库经 migrate_schema 走完 v2/v3 分支（列已存在则跳过 ALTER，但仍记录 version）
+        assert_eq!(current_schema_version(&conn), 3);
     }
 
     #[test]
@@ -346,26 +396,15 @@ mod tests {
         let conn = legacy_v1_db();
         migrate_schema(&conn).unwrap();
 
-        let entry = DownloadHistoryEntry {
-            id: "test-1".into(),
-            title: "测试视频".into(),
-            bvid: "BV1xx".into(),
-            cid: 123,
-            ep_id: None,
-            status: "downloading".into(),
-            progress: 50.0,
-            phase: Some("video".into()),
-            error_msg: None,
-            output_path: None,
-            pic: Some("https://example.com/cover.jpg".into()),
-            created_at: "2026-06-14T00:00:00Z".into(),
-        };
+        let entry = sample_entry();
         insert_download(&conn, &entry).unwrap();
 
         let rows = get_all_downloads(&conn, 10, 0).unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].pic.as_deref(), Some("https://example.com/cover.jpg"));
         assert_eq!(rows[0].title, "测试视频");
+        assert_eq!(rows[0].quality, Some(80));
+        assert_eq!(rows[0].video_title.as_deref(), Some("合集名"));
     }
 
     #[test]
@@ -384,5 +423,27 @@ mod tests {
         let rows = get_all_downloads(&conn, 10, 0).unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].pic, None);
+        assert_eq!(rows[0].quality, None);
+        assert_eq!(rows[0].video_title, None);
+    }
+
+    /// 辅助：构造一个带全部 v3 字段的下载记录
+    fn sample_entry() -> DownloadHistoryEntry {
+        DownloadHistoryEntry {
+            id: "test-1".into(),
+            title: "测试视频".into(),
+            bvid: "BV1xx".into(),
+            cid: 123,
+            ep_id: None,
+            status: "downloading".into(),
+            progress: 50.0,
+            phase: Some("video".into()),
+            error_msg: None,
+            output_path: None,
+            pic: Some("https://example.com/cover.jpg".into()),
+            created_at: "2026-06-14T00:00:00Z".into(),
+            quality: Some(80),
+            video_title: Some("合集名".into()),
+        }
     }
 }

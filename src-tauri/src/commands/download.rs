@@ -3,15 +3,17 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tauri::Emitter;
 use tokio::sync::Semaphore;
+use tokio_util::sync::CancellationToken;
 
 use crate::bilibili::credential::Credential;
 use crate::bilibili::download::{
-    cleanup_temp_files, download_stream, merge_streams, remux_to_mp4, sanitize_filename,
-    DownloadComplete, DownloadError,
+    cleanup_temp_files, download_stream, is_interrupted, merge_streams, remux_to_mp4,
+    sanitize_filename, stream_fingerprint,
 };
 use crate::bilibili::playurl::get_playurl;
 use crate::bilibili::url;
 use crate::commands::settings::{get_settings, AppSettings};
+use crate::download_manager::{manager, DownloadParams};
 use tauri::AppHandle;
 
 /// 校验 download_id，防止路径穿越
@@ -85,8 +87,9 @@ fn clamp_permits(n: usize) -> usize {
     if n == 0 { 1 } else { n }
 }
 
-/// 确保全局 Semaphore 的 permits 数与设置一致（仅在配置变化时重建）
-fn ensure_global_semaphore(settings: &AppSettings) -> Arc<Semaphore> {
+/// 确保全局 Semaphore 的 permits 数与设置一致（仅在配置变化时重建）。
+/// 由 dispatcher（download_manager）在取出任务后调用获取 permit。
+pub fn ensure_global_semaphore(settings: &AppSettings) -> Arc<Semaphore> {
     let mut guard = lock_or_recover(&DOWNLOAD_SEMAPHORE);
     guard.ensure(settings.max_concurrent_downloads)
 }
@@ -109,9 +112,29 @@ fn cleanup_video_semaphore(bvid: &str, max_pages: usize) {
     }
 }
 
+// ==================== execute_download 执行结果 ====================
+
+/// execute_download 的执行结果。dispatcher 据此（结合 target 状态）emit 对应事件。
+pub enum ExecOutcome {
+    /// 正常下载完成，附带输出路径
+    Done(String),
+    /// 真实失败（网络/解析/ffmpeg 等非中断错误）
+    Failed(String),
+    /// 被 cancel 信号中断（pause/cancel）
+    Interrupted,
+}
+
+/// 提交下载任务（命令入口）。
+///
+/// 与旧实现不同：本命令**只做前置校验并把任务提交到调度器**，立即返回 Ok。
+/// 真正的下载由 dispatcher 在拿到并发 permit 后异步执行，前端通过事件感知：
+/// - `download://state`(downloading) — 开始执行
+/// - `download://progress`           — 进度
+/// - `download://complete`           — 完成
+/// - `download://error`              — 失败（含风控）
+/// 命令返回的 Err 仅代表提交阶段失败（如未登录、参数非法），下载中途错误走事件。
 #[tauri::command]
 pub async fn download_video(
-    app: AppHandle,
     id: String,
     bvid: String,
     cid: i64,
@@ -123,59 +146,130 @@ pub async fn download_video(
 ) -> Result<(), String> {
     let download_id = sanitize_download_id(&id)?;
 
-    // 从设置中读取并发参数
-    let settings = get_settings().map_err(|e| e.to_string())?;
-    let global_sem = ensure_global_semaphore(&settings);
+    // 前置校验：登录态（避免无凭证任务进队列后才失败，浪费排队）
+    // 这里只验证凭证文件存在且可加载，不持有——execute_download 内会重新加载（凭证可能过期需刷新）
+    let cred_check = Credential::load().map_err(|e| e.to_string())?;
+    if cred_check.is_none() {
+        return Err("请先登录".to_string());
+    }
+
+    // 前置校验：settings 可读（dispatcher 会重新读，但这里早失败更友好）
+    let _ = get_settings().map_err(|e| e.to_string())?;
+
+    let params = DownloadParams {
+        id: download_id.clone(),
+        bvid,
+        cid,
+        title,
+        video_title,
+        qn,
+        ep_id,
+        duration,
+    };
+
+    match manager().submit(params, 0) {
+        crate::download_manager::SubmitOutcome::Queued => {
+            log::info!("[download] 任务已提交到调度器: id={}", download_id);
+            Ok(())
+        }
+        crate::download_manager::SubmitOutcome::Failed(msg) => Err(msg),
+    }
+}
+
+/// 暂停下载任务（中断运行中任务并保留 .tmp，或移除排队中任务）。
+#[tauri::command]
+pub fn pause_download(id: String) -> Result<bool, String> {
+    Ok(manager().pause(&id))
+}
+
+/// 取消下载任务（中断运行中任务并清理 .tmp，或移除排队中任务）。
+#[tauri::command]
+pub fn cancel_download(id: String) -> Result<bool, String> {
+    Ok(manager().cancel(&id))
+}
+
+/// 调整排队中任务的优先级（数值越大越优先）。运行中任务无法调整。
+#[tauri::command]
+pub fn set_download_priority(id: String, priority: i32) -> Result<bool, String> {
+    Ok(manager().set_priority(&id, priority))
+}
+
+// ==================== 实际下载执行（dispatcher spawn 调用） ====================
+
+/// 执行一个下载任务（由 dispatcher 在 acquire permit 后 spawn 调用）。
+/// 这是旧 download_video 命令的核心逻辑，剥离了全局 Semaphore 获取（dispatcher 负责），
+/// 新增 cancel 检查贯穿，返回 ExecOutcome 让 dispatcher 决定 emit。
+pub async fn execute_download(
+    app: &AppHandle,
+    params: DownloadParams,
+    cancel: &CancellationToken,
+) -> ExecOutcome {
+    let DownloadParams {
+        id,
+        bvid,
+        cid,
+        title,
+        video_title,
+        qn,
+        ep_id,
+        duration,
+    } = params;
+    let download_id = match sanitize_download_id(&id) {
+        Ok(s) => s,
+        Err(e) => return ExecOutcome::Failed(e),
+    };
+
+    // 重新读取 settings（dispatcher 提交后到这里可能已过一段时间，用户可能改了设置）
+    let settings = match get_settings() {
+        Ok(s) => s,
+        Err(e) => return ExecOutcome::Failed(e.to_string()),
+    };
     let max_pages = settings.max_pages_per_video;
 
-    // Feature 3: 获取全局下载 permit
-    let _global_permit = global_sem
-        .acquire()
-        .await
-        .map_err(|e| format!("获取下载许可失败: {}", e))?;
-
-    // Feature 4: 获取 per-video 分P permit
+    // 获取 per-video 分P permit（避免同一视频分P过多并发触发风控）
     let video_sem = get_video_semaphore(&bvid, max_pages);
-    let _video_permit = video_sem
-        .acquire()
-        .await
-        .map_err(|e| format!("获取分P下载许可失败: {}", e))?;
+    let _video_permit = match video_sem.acquire().await {
+        Ok(p) => p,
+        Err(e) => return ExecOutcome::Failed(format!("获取分P下载许可失败: {}", e)),
+    };
 
     log::info!(
-        "[download] 获得并发许可: id={}, 全局可用={}, 视频{}可用={}",
-        download_id,
-        global_sem.available_permits(),
-        bvid,
-        video_sem.available_permits()
+        "[download] 获得分P许可: id={}, 视频{}可用={}",
+        download_id, bvid, video_sem.available_permits()
     );
 
     // 1. 加载凭证（必须已登录）
-    let mut credential = Credential::load()
-        .map_err(|_| "请先登录".to_string())?
-        .ok_or_else(|| "请先登录".to_string())?;
+    let mut credential = match Credential::load() {
+        Ok(Some(c)) => c,
+        _ => return ExecOutcome::Failed("请先登录".to_string()),
+    };
 
-    // 2. 画质参数（复用已加载的 settings）
+    // 2. 画质参数
     let video_max_qn = qn.unwrap_or(settings.video_max_quality);
     let video_min_qn = settings.video_min_quality;
     let audio_max_qn = settings.audio_max_quality;
     let audio_min_qn = settings.audio_min_quality;
-    let codec_priority = settings.video_codec_priority;
+    let codec_priority = settings.video_codec_priority.clone();
 
     // 3. 确定下载目录
     let download_dir = if settings.default_download_dir.is_empty() {
-        let exe_dir = std::env::current_exe()
-            .map_err(|e| format!("获取exe路径失败: {}", e))?
-            .parent()
-            .map(|p| p.join("downloads"))
-            .ok_or_else(|| "无法确定下载目录".to_string())?;
-        std::fs::create_dir_all(&exe_dir)
-            .map_err(|e| format!("创建下载目录失败: {}", e))?;
+        let exe_dir = match std::env::current_exe() {
+            Ok(p) => match p.parent() {
+                Some(p) => p.join("downloads"),
+                None => return ExecOutcome::Failed("无法确定下载目录".to_string()),
+            },
+            Err(e) => return ExecOutcome::Failed(format!("获取exe路径失败: {}", e)),
+        };
+        if let Err(e) = std::fs::create_dir_all(&exe_dir) {
+            return ExecOutcome::Failed(format!("创建下载目录失败: {}", e));
+        }
         exe_dir
     } else {
         let dir = std::path::PathBuf::from(&settings.default_download_dir);
         if !dir.exists() {
-            std::fs::create_dir_all(&dir)
-                .map_err(|e| format!("创建下载目录失败: {}", e))?;
+            if let Err(e) = std::fs::create_dir_all(&dir) {
+                return ExecOutcome::Failed(format!("创建下载目录失败: {}", e));
+            }
         }
         dir
     };
@@ -183,8 +277,9 @@ pub async fn download_video(
     // 4. 构建输出文件路径（每个视频独立文件夹）
     let folder_name = if video_title.is_empty() { &title } else { &video_title };
     let video_folder = download_dir.join(sanitize_filename(folder_name));
-    std::fs::create_dir_all(&video_folder)
-        .map_err(|e| format!("创建视频目录失败: {}", e))?;
+    if let Err(e) = std::fs::create_dir_all(&video_folder) {
+        return ExecOutcome::Failed(format!("创建视频目录失败: {}", e));
+    }
     let filename = format!("{}.mp4", sanitize_filename(&title));
     let output_path = video_folder.join(&filename);
 
@@ -195,32 +290,24 @@ pub async fn download_video(
     let dm_img_inter = settings.dm_img_inter.clone();
     let request_delay_ms = settings.request_delay_ms;
 
-    // 执行下载流程
+    // 执行下载流程（带 cancel 信号）
     let result = run_download(
-        &app,
-        &download_id,
-        &bvid,
-        cid,
-        video_max_qn,
-        video_min_qn,
-        audio_max_qn,
-        audio_min_qn,
-        &codec_priority,
-        &credential,
-        &download_dir,
-        &output_path,
-        settings.parallel_threads,
-        ep_id,
-        &dm_img_str,
-        &dm_cover_img_str,
-        &dm_img_list,
-        &dm_img_inter,
-        request_delay_ms,
-    )
-    .await;
+        app, &download_id, &bvid, cid,
+        video_max_qn, video_min_qn, audio_max_qn, audio_min_qn,
+        &codec_priority, &credential, &download_dir, &output_path,
+        settings.parallel_threads, ep_id,
+        &dm_img_str, &dm_cover_img_str, &dm_img_list, &dm_img_inter,
+        request_delay_ms, cancel,
+    ).await;
 
-    // 清理 per-video semaphore（_video_permit 和 _global_permit 在函数返回时自动释放）
     cleanup_video_semaphore(&bvid, max_pages);
+
+    // 取消信号中断：立即返回 Interrupted（run_download 内部已处理 .tmp 保留）
+    if let Err(ref e) = result {
+        if is_interrupted(e) {
+            return ExecOutcome::Interrupted;
+        }
+    }
 
     // 如果下载因 -101 失败，尝试刷新 Cookie 后重试一次
     let result = match result {
@@ -230,12 +317,12 @@ pub async fn download_video(
                 credential = new_cred;
                 log::info!("[download] Cookie 刷新成功，重试下载");
                 run_download(
-                    &app, &download_id, &bvid, cid,
+                    app, &download_id, &bvid, cid,
                     video_max_qn, video_min_qn, audio_max_qn, audio_min_qn,
                     &codec_priority, &credential, &download_dir, &output_path,
                     settings.parallel_threads, ep_id,
                     &dm_img_str, &dm_cover_img_str, &dm_img_list, &dm_img_inter,
-                    request_delay_ms,
+                    request_delay_ms, cancel,
                 ).await
             } else {
                 result
@@ -243,6 +330,13 @@ pub async fn download_video(
         }
         _ => result,
     };
+
+    // 重试后再次检查中断
+    if let Err(ref e) = result {
+        if is_interrupted(e) {
+            return ExecOutcome::Interrupted;
+        }
+    }
 
     // 检测风控错误，通知前端弹出验证码
     if let Err(ref e) = result {
@@ -268,7 +362,7 @@ pub async fn download_video(
                 let aid = url::bvid_to_aid(&bvid);
                 let dur = duration.unwrap_or(0);
                 download_extras(
-                    &app,
+                    app,
                     &download_id,
                     &bvid,
                     cid,
@@ -283,14 +377,7 @@ pub async fn download_video(
                 .await;
             }
 
-            let _ = app.emit(
-                "download://complete",
-                DownloadComplete {
-                    id: download_id,
-                    output_path: output_path.to_string_lossy().to_string(),
-                },
-            );
-            Ok(())
+            ExecOutcome::Done(output_path.to_string_lossy().to_string())
         }
         Err(e) => {
             let error_msg = e.to_string();
@@ -299,14 +386,7 @@ pub async fn download_video(
                 download_id,
                 error_msg
             );
-            let _ = app.emit(
-                "download://error",
-                DownloadError {
-                    id: download_id,
-                    error: error_msg.clone(),
-                },
-            );
-            Err(error_msg)
+            ExecOutcome::Failed(error_msg)
         }
     }
 }
@@ -331,6 +411,7 @@ async fn run_download(
     dm_img_list: &str,
     dm_img_inter: &str,
     request_delay_ms: u64,
+    cancel: &CancellationToken,
 ) -> anyhow::Result<()> {
     // 5. 获取视频流地址
     log::info!(
@@ -348,29 +429,43 @@ async fn run_download(
         streams.video_urls.len(), streams.audio_urls.len()
     );
 
-    let mut temp_files: Vec<std::path::PathBuf> = Vec::new();
+    // 计算流指纹（基于稳定属性，跨会话续传关键）。
+    // video 流用 video_qn + video_codecid；audio 流用 video_qn(作额外种子) + audio_id。
+    let video_fp = stream_fingerprint(bvid, cid, streams.video_qn, streams.video_codecid, "v");
+    let audio_fp = stream_fingerprint(bvid, cid, streams.video_qn, streams.audio_id, "a");
 
-    // 用闭包封装实际逻辑，确保无论成功失败都清理临时文件
+    let mut temp_files: Vec<std::path::PathBuf> = Vec::new();
+    let mut interrupted = false;
+
+    // 用闭包封装实际逻辑；取消中断时不清理 .tmp（保留续传），其它失败清理。
     let result = async {
         if streams.is_legacy_format {
             let video_temp = download_stream(
-                app, download_id, &streams.video_urls, credential, temp_dir, "video", parallel_threads,
+                app, download_id, &streams.video_urls, credential, temp_dir,
+                "video", parallel_threads, &video_fp, cancel,
             ).await?;
             temp_files.push(video_temp.clone());
             remux_to_mp4(&video_temp, output_path).await?;
         } else if streams.has_audio() {
             let video_temp = download_stream(
-                app, download_id, &streams.video_urls, credential, temp_dir, "video", parallel_threads,
+                app, download_id, &streams.video_urls, credential, temp_dir,
+                "video", parallel_threads, &video_fp, cancel,
             ).await?;
             temp_files.push(video_temp.clone());
+            // 流切换前检查取消
+            if cancel.is_cancelled() {
+                anyhow::bail!("DOWNLOAD_INTERRUPTED:audio流切换前");
+            }
             let audio_temp = download_stream(
-                app, download_id, &streams.audio_urls, credential, temp_dir, "audio", parallel_threads,
+                app, download_id, &streams.audio_urls, credential, temp_dir,
+                "audio", parallel_threads, &audio_fp, cancel,
             ).await?;
             temp_files.push(audio_temp.clone());
             merge_streams(&video_temp, &audio_temp, output_path).await?;
         } else {
             let video_temp = download_stream(
-                app, download_id, &streams.video_urls, credential, temp_dir, "video", parallel_threads,
+                app, download_id, &streams.video_urls, credential, temp_dir,
+                "video", parallel_threads, &video_fp, cancel,
             ).await?;
             temp_files.push(video_temp.clone());
             tokio::fs::rename(&video_temp, output_path).await?;
@@ -380,8 +475,23 @@ async fn run_download(
     }
     .await;
 
-    // 无论成功失败都清理临时文件
-    cleanup_temp_files(&temp_files).await;
+    // 判断是否为取消中断
+    if let Err(ref e) = result {
+        interrupted = is_interrupted(e);
+    }
+
+    // 清理策略：
+    // - 取消中断：保留 .tmp 供恢复续传（不调用 cleanup_temp_files）
+    // - 正常完成/失败：清理 .tmp
+    if !interrupted {
+        cleanup_temp_files(&temp_files).await;
+    } else {
+        log::info!(
+            "[download] 任务被中断，保留临时文件供续传: id={}, files={}",
+            download_id,
+            temp_files.len()
+        );
+    }
 
     result
 }

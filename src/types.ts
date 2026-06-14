@@ -81,13 +81,24 @@ export interface ParsedItem {
 export interface DownloadTask {
   id: string;
   title: string;
-  status: "downloading" | "done" | "error";
+  /** queued=排队中, downloading=下载中, paused=已暂停, done=完成, error=失败 */
+  status: "queued" | "downloading" | "paused" | "done" | "error";
   progress?: number;
   /** 当前下载阶段 */
   phase?: "video" | "audio" | "merging";
   errorMsg?: string;
   /** 视频封面 URL */
   pic?: string;
+  // 以下字段用于「恢复/重试」下载时重新提交（pause→resume / error→retry）。
+  // 历史记录加载时从 DB 填充；运行时新提交的任务由 handleDownload 填充。
+  bvid?: string;
+  cid?: number;
+  epId?: number | null;
+  /** 画质（用于跨会话续传指纹匹配；恢复时作为 qn 传入） */
+  quality?: number | null;
+  /** 合集名（恢复时作为 video_title 传入以重建下载目录） */
+  videoTitle?: string;
+  duration?: number;
 }
 
 /** 格式化秒数为 mm:ss 或 hh:mm:ss */
@@ -128,6 +139,10 @@ export interface DownloadHistoryEntry {
   /** 视频封面 URL（v2 schema 新增，旧记录为 null） */
   pic: string | null;
   created_at: string;
+  /** 画质（v3 schema 新增，旧记录为 null） */
+  quality?: number | null;
+  /** 合集名（v3 schema 新增，旧记录为 null） */
+  video_title?: string | null;
 }
 
 /** DB 解析历史 → 前端 ParsedItem */
@@ -151,6 +166,12 @@ export function dbToDownloadTask(entry: DownloadHistoryEntry): DownloadTask {
     phase: (entry.phase as DownloadTask["phase"]) ?? undefined,
     errorMsg: entry.error_msg ?? undefined,
     pic: entry.pic ?? undefined,
+    // 恢复/重试所需的原始下载参数
+    bvid: entry.bvid,
+    cid: entry.cid,
+    epId: entry.ep_id,
+    quality: entry.quality ?? null,
+    videoTitle: entry.video_title ?? undefined,
   };
 }
 

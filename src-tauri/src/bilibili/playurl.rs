@@ -104,6 +104,13 @@ pub struct SelectedStreams {
     pub video_urls: Vec<String>,
     pub audio_urls: Vec<String>,
     pub is_legacy_format: bool,
+    /// 选中视频流的画质 id（QN）。用于跨会话续传指纹与持久化。
+    /// legacy 格式（durl）没有画质 id，此处为 0。
+    pub video_qn: i64,
+    /// 选中视频流的编解码器 id（7=AVC,12=HEVC,13=AV1）。用于续传指纹。legacy 为 0。
+    pub video_codecid: i64,
+    /// 选中音频流的 id（如 30280 Hi-Res、30251 Dolby 等）。用于音频流续传指纹。无音频为 0。
+    pub audio_id: i64,
 }
 
 impl SelectedStreams {
@@ -454,15 +461,20 @@ fn parse_streams(
         let video_stream = select_best_codec(dash, video_stream.id, codec_priority)
             .unwrap_or(video_stream);
 
+        let video_qn = video_stream.id;
+        let video_codecid = video_stream.codecid;
         let video_urls = build_url_list(&video_stream.base_url, &video_stream.backup_url);
 
-        // 选择音频流：按质量范围过滤
-        let audio_urls = select_audio(dash, audio_max_qn, audio_min_qn);
+        // 选择音频流：按质量范围过滤（返回 URL 列表与流 id）
+        let (audio_urls, audio_id) = select_audio(dash, audio_max_qn, audio_min_qn);
 
         return Some(SelectedStreams {
             video_urls,
             audio_urls,
             is_legacy_format: false,
+            video_qn,
+            video_codecid,
+            audio_id,
         });
     }
 
@@ -473,6 +485,9 @@ fn parse_streams(
                 video_urls,
                 audio_urls: Vec::new(),
                 is_legacy_format: true,
+                video_qn: 0,
+                video_codecid: 0,
+                audio_id: 0,
             });
         }
     }
@@ -526,8 +541,8 @@ fn codec_index(codec: &str, priority: &[String]) -> usize {
         .unwrap_or(usize::MAX)
 }
 
-/// 选择音频流：按质量范围过滤，选最高质量
-fn select_audio(dash: &DashData, max_qn: i64, min_qn: i64) -> Vec<String> {
+/// 选择音频流：按质量范围过滤，选最高质量。返回 (URL 列表, 流 id)。
+fn select_audio(dash: &DashData, max_qn: i64, min_qn: i64) -> (Vec<String>, i64) {
     // 收集所有音频流
     let mut all_audio: Vec<&DashStream> = Vec::new();
     all_audio.extend(dash.audio.iter());
@@ -552,15 +567,15 @@ fn select_audio(dash: &DashData, max_qn: i64, min_qn: i64) -> Vec<String> {
         .max_by_key(|s| s.id);
 
     if let Some(audio) = best {
-        return build_url_list(&audio.base_url, &audio.backup_url);
+        return (build_url_list(&audio.base_url, &audio.backup_url), audio.id);
     }
 
     // 没有符合范围的，退而求其次选最高质量的
     if let Some(audio) = all_audio.iter().max_by_key(|s| s.id) {
-        return build_url_list(&audio.base_url, &audio.backup_url);
+        return (build_url_list(&audio.base_url, &audio.backup_url), audio.id);
     }
 
-    Vec::new()
+    (Vec::new(), 0)
 }
 
 fn build_url_list(primary: &str, backup: &Option<Vec<String>>) -> Vec<String> {
