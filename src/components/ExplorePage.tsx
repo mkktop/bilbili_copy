@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
   Search,
@@ -36,9 +36,48 @@ const TYPE_TABS: { key: SearchResultType; label: string; Icon: typeof Film }[] =
   { key: "media_ft", label: "影视", Icon: Tv },
 ];
 
+// 排序选项（仅 video 类型有效）
+const ORDER_OPTIONS = [
+  { value: "totalrank", label: "综合" },
+  { value: "pubdate", label: "最新" },
+  { value: "click", label: "播放量" },
+  { value: "dm", label: "弹幕数" },
+];
+
+// 时长选项（仅 video 类型有效）
+const DURATION_OPTIONS = [
+  { value: "0", label: "全部" },
+  { value: "1", label: "<10分" },
+  { value: "2", label: "10-30分" },
+  { value: "3", label: "30-60分" },
+  { value: "4", label: ">60分" },
+];
+
+// 视频分区 tid（精简版一级分区，仅 video 类型有效）
+const TID_OPTIONS = [
+  { value: "0", label: "全分区" },
+  { value: "1", label: "动画" },
+  { value: "13", label: "番剧" },
+  { value: "3", label: "音乐" },
+  { value: "129", label: "舞蹈" },
+  { value: "4", label: "游戏" },
+  { value: "36", label: "科技" },
+  { value: "188", label: "科普" },
+  { value: "160", label: "生活" },
+  { value: "211", label: "美食" },
+  { value: "119", label: "鬼畜" },
+  { value: "155", label: "时尚" },
+  { value: "5", label: "娱乐" },
+  { value: "181", label: "影视" },
+];
+
 export function ExplorePage({ onBack, onParseVideo, onSelectItem }: Props) {
   const [keyword, setKeyword] = useState("");
   const [searchType, setSearchType] = useState<SearchResultType>("video");
+  // 视频搜索筛选器（仅 video 类型有效；其它类型时 state 保留但后端忽略）
+  const [order, setOrder] = useState("totalrank");
+  const [duration, setDuration] = useState("0");
+  const [tids, setTids] = useState("0");
   const [results, setResults] = useState<SearchResult[]>([]);
   const [total, setTotal] = useState(0);
   const [numPages, setNumPages] = useState(0);
@@ -48,45 +87,79 @@ export function ExplorePage({ onBack, onParseVideo, onSelectItem }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [upperMid, setUpperMid] = useState<number | null>(null);
   const [parsingKey, setParsingKey] = useState<string | null>(null);
+  // 请求竞态控制：每次新搜索递增，响应回来时校验是否仍是最新请求，丢弃过期响应
+  // 防止快速切换筛选器时旧响应覆盖新响应（结果错乱/累加）
+  const searchReqId = useRef(0);
 
   const doSearch = useCallback(
     async (
       kw: string,
       type: SearchResultType,
       p: number,
-      append: boolean
+      append: boolean,
+      // 筛选参数显式传入，避免依赖闭包里的 state（state 更新是异步的，
+      // onChange 后立即调 doSearch 会拿到旧值）
+      fOrder: string,
+      fDuration: string,
+      fTids: string
     ) => {
       if (!kw.trim()) return;
+      // 非追加（即新搜索/换筛选器/换页起点）时，标记为最新请求，丢弃之前的在途响应
+      const reqId = append ? searchReqId.current : ++searchReqId.current;
       setSearching(true);
       setError(null);
       try {
+        // 非 video 类型不传筛选参数（B站接口会忽略，这里显式回默认值更清晰）
+        const isVideo = type === "video";
         const res = await invoke<SearchResultList>("search_videos", {
           keyword: kw,
           searchType: type,
           page: p,
+          order: isVideo ? fOrder : "totalrank",
+          duration: isVideo ? fDuration : "0",
+          tids: isVideo ? fTids : "0",
         });
+        // 竞态校验：若期间又发起了新搜索，丢弃本次过期响应
+        if (reqId !== searchReqId.current) return;
         setResults((prev) => (append ? [...prev, ...res.results] : res.results));
         setTotal(res.total);
         setNumPages(res.num_pages);
         setPage(p);
         setSearched(true);
       } catch (e) {
+        if (reqId !== searchReqId.current) return;
         setError(friendlyError(e));
         if (!append) setResults([]);
       } finally {
-        setSearching(false);
+        // 仅当本次是最新请求时才关闭 loading（否则交给最新请求处理）
+        if (reqId === searchReqId.current) setSearching(false);
       }
     },
     []
   );
 
-  const handleSearch = () => doSearch(keyword, searchType, 1, false);
+  const handleSearch = () => doSearch(keyword, searchType, 1, false, order, duration, tids);
 
   const handleTypeChange = (type: SearchResultType) => {
     setSearchType(type);
     setResults([]);
     setSearched(false);
-    if (keyword.trim()) doSearch(keyword, type, 1, false);
+    if (keyword.trim()) doSearch(keyword, type, 1, false, order, duration, tids);
+  };
+
+  // 切换任一筛选器：用新值重置到第 1 页重新搜索（仅 video 类型有筛选器）
+  // 注意：必须把新值作为参数传入，不能用 state（setX 是异步的，闭包里还是旧值）
+  const handleOrderChange = (v: string) => {
+    setOrder(v);
+    if (keyword.trim()) doSearch(keyword, "video", 1, false, v, duration, tids);
+  };
+  const handleDurationChange = (v: string) => {
+    setDuration(v);
+    if (keyword.trim()) doSearch(keyword, "video", 1, false, order, v, tids);
+  };
+  const handleTidsChange = (v: string) => {
+    setTids(v);
+    if (keyword.trim()) doSearch(keyword, "video", 1, false, order, duration, v);
   };
 
   const handleSelectResult = async (r: SearchResult) => {
@@ -199,6 +272,30 @@ export function ExplorePage({ onBack, onParseVideo, onSelectItem }: Props) {
           ))}
         </div>
 
+        {/* 高级筛选器：仅 video 类型显示（UP主/番剧/影视搜索不支持 order/duration/tids） */}
+        {searchType === "video" && (
+          <div className="space-y-2 mb-4">
+            <FilterRow
+              label="排序"
+              options={ORDER_OPTIONS}
+              value={order}
+              onChange={handleOrderChange}
+            />
+            <FilterRow
+              label="时长"
+              options={DURATION_OPTIONS}
+              value={duration}
+              onChange={handleDurationChange}
+            />
+            <FilterRow
+              label="分区"
+              options={TID_OPTIONS}
+              value={tids}
+              onChange={handleTidsChange}
+            />
+          </div>
+        )}
+
         {/* 错误 */}
         {error && (
           <div className="flex items-center gap-2 px-4 py-3 mb-3 text-sm text-red-500 bg-red-50 border border-red-200 rounded-lg">
@@ -242,7 +339,7 @@ export function ExplorePage({ onBack, onParseVideo, onSelectItem }: Props) {
             {page < numPages && (
               <div className="flex justify-center pt-2">
                 <button
-                  onClick={() => doSearch(keyword, searchType, page + 1, true)}
+                  onClick={() => doSearch(keyword, searchType, page + 1, true, order, duration, tids)}
                   disabled={searching}
                   className="flex items-center gap-1.5 px-4 py-2 text-sm text-gray-500 border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50 transition-colors"
                 >
@@ -259,6 +356,40 @@ export function ExplorePage({ onBack, onParseVideo, onSelectItem }: Props) {
             )}
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+/** 筛选器一行：左侧 label + 右侧分段按钮组（分区项多时自动换行） */
+function FilterRow({
+  label,
+  options,
+  value,
+  onChange,
+}: {
+  label: string;
+  options: { value: string; label: string }[];
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <div className="flex items-start gap-3">
+      <span className="text-xs text-gray-500 mt-1.5 w-8 shrink-0">{label}</span>
+      <div className="flex gap-1 flex-wrap">
+        {options.map((opt) => (
+          <button
+            key={opt.value}
+            onClick={() => onChange(opt.value)}
+            className={`px-2.5 py-1 text-xs rounded-md border transition-colors ${
+              value === opt.value
+                ? "bg-blue-50 border-blue-300 text-blue-600"
+                : "bg-white border-gray-200 text-gray-500 hover:bg-gray-50"
+            }`}
+          >
+            {opt.label}
+          </button>
+        ))}
       </div>
     </div>
   );

@@ -64,12 +64,15 @@ pub async fn search(
     search_type: &str,
     page: u32,
     credential: &Credential,
+    order: &str,
+    duration: &str,
+    tids: &str,
 ) -> Result<SearchResultList> {
-    match search_via_legacy(keyword, search_type, page, credential).await {
+    match search_via_legacy(keyword, search_type, page, credential, order, duration, tids).await {
         Ok(res) => Ok(res),
         Err(err) => {
             log::warn!("[search] 旧搜索接口失败，回退 WBI 接口: {}", err);
-            search_via_wbi(keyword, search_type, page, credential).await
+            search_via_wbi(keyword, search_type, page, credential, order, duration, tids).await
         }
     }
 }
@@ -80,6 +83,9 @@ async fn search_via_legacy(
     search_type: &str,
     page: u32,
     credential: &Credential,
+    order: &str,
+    duration: &str,
+    tids: &str,
 ) -> Result<SearchResultList> {
     let client = bilibili_client()?;
     let resp_text = client
@@ -91,9 +97,9 @@ async fn search_via_legacy(
             ("search_type", search_type),
             ("page", &page.to_string()),
             ("page_size", "20"),
-            ("order", "totalrank"),
-            ("duration", "0"),
-            ("tids", "0"),
+            ("order", order),
+            ("duration", duration),
+            ("tids", tids),
         ])
         .send()
         .await?
@@ -109,6 +115,9 @@ async fn search_via_wbi(
     search_type: &str,
     page: u32,
     credential: &Credential,
+    order: &str,
+    duration: &str,
+    tids: &str,
 ) -> Result<SearchResultList> {
     let client = bilibili_client()?;
     let mixin_key = wbi::get_mixin_key_cached(credential)
@@ -120,8 +129,9 @@ async fn search_via_wbi(
         ("search_type".to_string(), search_type.to_string()),
         ("page".to_string(), page.to_string()),
         ("page_size".to_string(), "20".to_string()),
-        ("order".to_string(), "totalrank".to_string()),
-        ("duration".to_string(), "0".to_string()),
+        ("order".to_string(), order.to_string()),
+        ("duration".to_string(), duration.to_string()),
+        ("tids".to_string(), tids.to_string()),
         ("platform".to_string(), "pc".to_string()),
         ("highlight".to_string(), "1".to_string()),
         ("single_column".to_string(), "0".to_string()),
