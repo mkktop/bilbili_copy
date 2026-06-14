@@ -47,6 +47,15 @@ pub struct VideoInfo {
     /// 番剧系列名（不含集号），非番剧为 None
     #[serde(skip_serializing_if = "Option::is_none")]
     pub series_title: Option<String>,
+    /// 发布时间戳（Unix 秒），0 表示未知
+    #[serde(default)]
+    pub pubdate: i64,
+    /// 点赞数
+    #[serde(default)]
+    pub like_count: u64,
+    /// 标签（普通视频来自 tag API，番剧来自 season API 的 styles）
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<String>,
 }
 
 /// view API 返回的 JSON 结构
@@ -64,6 +73,8 @@ struct ViewData {
     pages: Vec<ViewPage>,
     #[serde(default)]
     stat: Option<ViewStat>,
+    #[serde(default)]
+    pubdate: i64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -72,6 +83,8 @@ struct ViewStat {
     view: u64,
     #[serde(default)]
     danmaku: u64,
+    #[serde(default)]
+    like: u64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -155,6 +168,49 @@ fn bilibili_client() -> Result<Client> {
         .cookie_store(false)
         .build()
         .context("创建 HTTP 客户端失败")
+}
+
+/// 获取视频标签列表（普通 UGC 视频用，番剧用 season API 的 styles）。
+/// 失败返回空 vec（不致命，NFO 的 <genre> 块会跳过）。
+/// API: https://api.bilibili.com/x/tag/archive/tags?bvid=xxx → data[].tag_name
+async fn fetch_tags(client: &Client, bvid: &str, credential: Option<&Credential>) -> Vec<String> {
+    let mut request = client
+        .get("https://api.bilibili.com/x/tag/archive/tags")
+        .header("Referer", REFERER)
+        .query(&[("bvid", bvid)]);
+    if let Some(cred) = credential {
+        request = request.header("Cookie", cred.cookie_header());
+    }
+    match request.send().await {
+        Ok(resp) => match resp.json::<serde_json::Value>().await {
+            Ok(json) => {
+                if json["code"].as_i64() != Some(0) {
+                    log::debug!(
+                        "[video] tag API 返回非 0: code={}, msg={}",
+                        json["code"].as_i64().unwrap_or(-1),
+                        json["message"].as_str().unwrap_or("")
+                    );
+                    return Vec::new();
+                }
+                json["data"]
+                    .as_array()
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|t| t["tag_name"].as_str().map(|s| s.to_string()))
+                            .collect()
+                    })
+                    .unwrap_or_default()
+            }
+            Err(e) => {
+                log::debug!("[video] tag API 响应解析失败: {}", e);
+                Vec::new()
+            }
+        },
+        Err(e) => {
+            log::debug!("[video] tag API 请求失败: {}", e);
+            Vec::new()
+        }
+    }
 }
 
 /// 根据BV号/AV号/ep_id/season_id/media_id获取视频详细信息
@@ -273,6 +329,9 @@ pub async fn get_video_info(
         })
         .collect();
 
+    // 拉取视频标签（失败不致命，返回空 vec）
+    let tags = fetch_tags(&client, &data.bvid, credential).await;
+
     Ok(VideoInfo {
         bvid: data.bvid,
         aid: data.aid as u64,
@@ -289,6 +348,9 @@ pub async fn get_video_info(
         view_count: data.stat.as_ref().map(|s| s.view).unwrap_or(0),
         danmaku_count: data.stat.as_ref().map(|s| s.danmaku).unwrap_or(0),
         series_title: None,
+        pubdate: data.pubdate,
+        like_count: data.stat.as_ref().map(|s| s.like).unwrap_or(0),
+        tags,
     })
 }
 
@@ -466,5 +528,20 @@ async fn try_bangumi_season_info(
         view_count: result["stat"]["views"].as_u64().unwrap_or(0),
         danmaku_count: result["stat"]["danmakus"].as_u64().unwrap_or(0),
         series_title: Some(title),
+        // 番剧发布时间：publish.pub_time 或 publish.time（Unix 秒），失败为 0
+        pubdate: result["publish"]["pub_time"]
+            .as_i64()
+            .or_else(|| result["publish"]["time"].as_i64())
+            .unwrap_or(0),
+        like_count: result["stat"]["likes"].as_u64().unwrap_or(0),
+        // 番剧类型标签：result.styles[].name（如"热血""机战"）
+        tags: result["styles"]
+            .as_array()
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|s| s["name"].as_str().map(|n| n.to_string()))
+                    .collect()
+            })
+            .unwrap_or_default(),
     })
 }

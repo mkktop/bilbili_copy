@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { ArrowLeft, Download, Clock, CheckCircle2, Eye, MessageSquare, ArrowUpDown } from "lucide-react";
-import type { ParsedItem, VideoPage } from "../types";
+import type { ParsedItem, VideoPage, VideoMeta } from "../types";
 import { formatDuration } from "../types";
 import { cn } from "../lib/utils";
 import { formatCount } from "./VideoCard";
@@ -19,7 +19,8 @@ interface VideoDetailProps {
     epId?: number,
     duration?: number,
     pic?: string,
-    subtitleOnly?: boolean
+    subtitleOnly?: boolean,
+    videoMeta?: VideoMeta
   ) => void;
 }
 
@@ -72,12 +73,30 @@ export function VideoDetail({ entry, onBack, onDownload }: VideoDetailProps) {
 
   const handleDownload = () => {
     const folderName = info.series_title || info.title;
+    // 从已解析的 videoInfo 构造 NFO 元数据快照（透传给后端生成 .nfo + 封面图）。
+    // 分P场景下 title 按具体分P覆盖，其它字段（简介/UP主/封面/统计）合集共用。
+    const buildMeta = (nfoTitle: string, duration: number): VideoMeta => ({
+      bvid: info.bvid,
+      title: nfoTitle,
+      desc: info.desc,
+      pic: info.pic,
+      owner_mid: info.owner_mid,
+      owner_name: info.owner_name,
+      owner_face: info.owner_face,
+      duration,
+      pubdate: info.pubdate ?? 0,
+      view_count: info.view_count ?? 0,
+      like_count: info.like_count ?? 0,
+      danmaku_count: info.danmaku_count ?? 0,
+      tags: info.tags ?? [],
+    });
+
     const ids: string[] = [];
     if (!isMultiPage) {
       const p = info.pages[0];
       const pageBvid = p.bvid || info.bvid;
       const pageEpId = p.ep_id || info.ep_id;
-      onDownload(entry.id, pageBvid, p.cid, info.title, folderName, pageEpId, p.duration, info.pic, subtitleOnly);
+      onDownload(entry.id, pageBvid, p.cid, info.title, folderName, pageEpId, p.duration, info.pic, subtitleOnly, buildMeta(info.title, p.duration));
       ids.push(entry.id);
     } else {
       selectedPages.forEach((page) => {
@@ -87,7 +106,7 @@ export function VideoDetail({ entry, onBack, onDownload }: VideoDetailProps) {
           const pageEpId = p.ep_id || info.ep_id;
           const title = `P${p.page} ${p.part}`;
           const id = `${entry.id}_P${p.page}`;
-          onDownload(id, pageBvid, p.cid, title, folderName, pageEpId, p.duration, info.pic, subtitleOnly);
+          onDownload(id, pageBvid, p.cid, title, folderName, pageEpId, p.duration, info.pic, subtitleOnly, buildMeta(title, p.duration));
           ids.push(id);
         }
       });

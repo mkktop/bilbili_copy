@@ -16,6 +16,7 @@ pub mod search;
 pub mod submission;
 pub mod collection;
 pub mod following;
+pub mod nfo;
 
 // ==================== 共享常量 ====================
 

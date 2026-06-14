@@ -34,6 +34,14 @@ export interface AppSettings {
   danmaku_block_bottom: boolean;
   // 字幕导出格式 "srt" | "vtt"
   subtitle_format: string;
+  // 附加下载 - NFO 元数据刮削（生成 Kodi/Jellyfin/Emby 兼容 .nfo + 封面图）
+  download_nfo: boolean;
+  // NFO 详细选项 - 写入标签 <genre>（视频 tag / 番剧 style）
+  nfo_include_genre: boolean;
+  // NFO 详细选项 - 写入 UP 主信息 <actor>
+  nfo_include_actor: boolean;
+  // NFO 详细选项 - 写入播放统计 <tag>(播放量/点赞数)
+  nfo_include_stats: boolean;
 }
 
 export function useSettings() {
@@ -63,6 +71,10 @@ export function useSettings() {
     danmaku_block_top: false,
     danmaku_block_bottom: false,
     subtitle_format: "srt",
+    download_nfo: false,
+    nfo_include_genre: true,
+    nfo_include_actor: true,
+    nfo_include_stats: true,
   });
   const [loading, setLoading] = useState(true);
 

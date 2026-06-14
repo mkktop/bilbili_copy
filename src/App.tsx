@@ -17,7 +17,7 @@ import { useSettings } from "./hooks/useSettings";
 import { useLogin } from "./hooks/useLogin";
 import { Settings, Download, Search } from "lucide-react";
 import type { AppSettings } from "./hooks/useSettings";
-import type { ParsedItem, DownloadTask, ParsedVideoInfo, ParseHistoryEntry, DownloadHistoryEntry } from "./types";
+import type { ParsedItem, DownloadTask, ParsedVideoInfo, ParseHistoryEntry, DownloadHistoryEntry, VideoMeta } from "./types";
 import { dbToParsedItem, dbToDownloadTask } from "./types";
 import { friendlyError } from "./lib/errors";
 import { DOWNLOAD_PROGRESS_THROTTLE_MS } from "./lib/constants";
@@ -274,7 +274,8 @@ export default function App() {
     epId?: number,
     duration?: number,
     pic?: string,
-    subtitleOnly?: boolean
+    subtitleOnly?: boolean,
+    videoMeta?: VideoMeta
   ) => {
     // 用 ref 防止重复提交（queued/downloading 都算活跃，禁止重复）
     if (downloadingIds.current.has(id)) return;
@@ -305,7 +306,7 @@ export default function App() {
     // 提交到调度器（立即返回；下载中途状态/进度/完成/失败全走事件）。
     // 命令返回的 Err 仅代表提交阶段失败（如未登录）。
     try {
-      await invoke("download_video", { id, bvid, cid, title, videoTitle, epId, duration, subtitleOnly });
+      await invoke("download_video", { id, bvid, cid, title, videoTitle, epId, duration, subtitleOnly, videoMeta });
       // downloadingIds 在 download://complete/error/state(cancelled) 中清理
     } catch (err) {
       downloadingIds.current.delete(id);

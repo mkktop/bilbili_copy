@@ -13,7 +13,7 @@ use crate::bilibili::download::{
 use crate::bilibili::playurl::get_playurl;
 use crate::bilibili::url;
 use crate::commands::settings::{get_settings, AppSettings};
-use crate::download_manager::{manager, DownloadParams};
+use crate::download_manager::{manager, DownloadParams, VideoMeta};
 use tauri::AppHandle;
 
 /// 校验 download_id，防止路径穿越
@@ -144,6 +144,7 @@ pub async fn download_video(
     ep_id: Option<u64>,
     duration: Option<u64>,
     subtitle_only: Option<bool>,
+    video_meta: Option<VideoMeta>,
 ) -> Result<(), String> {
     let download_id = sanitize_download_id(&id)?;
 
@@ -155,7 +156,10 @@ pub async fn download_video(
     }
 
     // 前置校验：settings 可读（dispatcher 会重新读，但这里早失败更友好）
-    let _ = get_settings().map_err(|e| e.to_string())?;
+    let settings = get_settings().map_err(|e| e.to_string())?;
+
+    // 若用户未开启 NFO，丢弃前端透传的 video_meta 节省内存（调度器保存到任务队列里）
+    let video_meta = if settings.download_nfo { video_meta } else { None };
 
     let params = DownloadParams {
         id: download_id.clone(),
@@ -167,6 +171,7 @@ pub async fn download_video(
         ep_id,
         duration,
         subtitle_only: subtitle_only.unwrap_or(false),
+        video_meta,
     };
 
     match manager().submit(params, 0) {
@@ -216,6 +221,7 @@ pub async fn execute_download(
         ep_id,
         duration,
         subtitle_only,
+        video_meta,
     } = params;
     let download_id = match sanitize_download_id(&id) {
         Ok(s) => s,
@@ -396,6 +402,29 @@ pub async fn execute_download(
                 .await;
             }
 
+            // 附加下载：NFO 元数据 + 封面图（非致命，仅当开启且前端透传了元数据）
+            if settings.download_nfo {
+                match &video_meta {
+                    Some(meta) => {
+                        download_nfo_with_assets(
+                            app,
+                            &download_id,
+                            meta,
+                            &settings,
+                            &output_path,
+                        )
+                        .await;
+                    }
+                    None => {
+                        // 恢复/重试场景下 DB 未保存完整元数据，跳过（不影响视频下载）
+                        log::warn!(
+                            "[download] NFO 开关已开启但缺少元数据，跳过生成: id={}",
+                            download_id
+                        );
+                    }
+                }
+            }
+
             ExecOutcome::Done(output_path.to_string_lossy().to_string())
         }
         Err(e) => {
@@ -572,6 +601,99 @@ async fn download_extras(
     }
 
     let _ = app; // 保留 app 参数供将来扩展（如进度事件）
+}
+
+/// 生成 NFO 元数据 + 下载封面图（thumb/fanart），非致命。
+/// 在视频下载成功后调用。文件命名：
+/// - `<base>.nfo`（与视频同名同目录）
+/// - `<base>-thumb.jpg`（封面缩略图，海报）
+/// - `<base>-fanart.jpg`（背景图，由 thumb 复制）
+/// 其中 `<base>` = output_path 去掉 `.mp4` 扩展名。
+async fn download_nfo_with_assets(
+    app: &AppHandle,
+    download_id: &str,
+    meta: &VideoMeta,
+    settings: &AppSettings,
+    output_path: &std::path::Path,
+) {
+    let base_path = output_path.with_extension("");
+    let nfo_path = output_path.with_extension("nfo");
+
+    // 1. 生成并写入 NFO
+    let nfo = crate::bilibili::nfo::MovieNfo { meta, settings }.render();
+    match tokio::fs::write(&nfo_path, nfo.as_bytes()).await {
+        Ok(()) => log::info!("[download] NFO 保存成功: {}", nfo_path.display()),
+        Err(e) => {
+            log::warn!("[download] NFO 写入失败(id={}): {}", download_id, e);
+            return; // NFO 写不进去，封面图也无意义，直接返回
+        }
+    }
+
+    // 2. 下载封面图（无 pic URL 则跳过；失败不致命）
+    if meta.pic.trim().is_empty() {
+        log::info!("[download] 无封面 URL，跳过 thumb/fanart 下载(id={})", download_id);
+        let _ = app;
+        return;
+    }
+
+    let client = match build_extras_client() {
+        Some(c) => c,
+        None => {
+            let _ = app;
+            return;
+        }
+    };
+
+    // base_name 用于拼接 `<base>-thumb.jpg` / `<base>-fanart.jpg`
+    let base_name = match base_path.file_name().and_then(|n| n.to_str()) {
+        Some(n) => n.to_string(),
+        None => {
+            log::warn!("[download] 无法解析文件名用于 thumb 路径: {}", base_path.display());
+            let _ = app;
+            return;
+        }
+    };
+    let parent = base_path.parent().unwrap_or_else(|| std::path::Path::new("."));
+
+    let thumb_path = parent.join(format!("{}-thumb.jpg", base_name));
+    match fetch_image(&client, &meta.pic, &thumb_path).await {
+        Ok(()) => {
+            log::info!("[download] 封面 thumb 保存成功: {}", thumb_path.display());
+            // 复制 thumb → fanart（背景图复用封面，B站无独立背景图）
+            let fanart_path = parent.join(format!("{}-fanart.jpg", base_name));
+            if let Err(e) = tokio::fs::copy(&thumb_path, &fanart_path).await {
+                log::warn!("[download] fanart 复制失败(id={}): {}", download_id, e);
+            }
+        }
+        Err(e) => {
+            log::warn!("[download] 封面 thumb 下载失败(id={}): {}", download_id, e);
+        }
+    }
+
+    let _ = app;
+}
+
+/// 下载图片 URL 并写入本地文件。失败返回 Err（调用方决定是否记录）。
+async fn fetch_image(
+    client: &reqwest::Client,
+    url: &str,
+    out_path: &std::path::Path,
+) -> Result<(), anyhow::Error> {
+    let bytes = client
+        .get(url)
+        .header("Referer", crate::bilibili::REFERER)
+        .send()
+        .await?
+        .error_for_status()?
+        .bytes()
+        .await?;
+    if let Some(parent) = out_path.parent() {
+        if !parent.as_os_str().is_empty() {
+            tokio::fs::create_dir_all(parent).await.ok();
+        }
+    }
+    tokio::fs::write(out_path, &bytes).await?;
+    Ok(())
 }
 
 /// 字幕库模式：跳过视频，只下载字幕（可选附加弹幕，按全局开关）。

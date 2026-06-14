@@ -55,6 +55,12 @@ export interface ParsedVideoInfo {
   view_count?: number;
   danmaku_count?: number;
   series_title?: string;
+  /** 发布时间戳（Unix 秒），0 表示未知 */
+  pubdate?: number;
+  /** 点赞数 */
+  like_count?: number;
+  /** 标签（普通视频来自 tag API，番剧来自 season API 的 styles） */
+  tags?: string[];
 }
 
 export interface DownloadEntry {
@@ -99,6 +105,26 @@ export interface DownloadTask {
   /** 合集名（恢复时作为 video_title 传入以重建下载目录） */
   videoTitle?: string;
   duration?: number;
+}
+
+/**
+ * NFO 元数据快照：从 ParsedVideoInfo 提取，下载完成时透传给后端生成 .nfo + 封面图。
+ * 字段与 Rust 的 `VideoMeta` 一一对应（serde 自动序列化为 snake_case）。
+ */
+export interface VideoMeta {
+  bvid: string;
+  title: string;
+  desc: string;
+  pic: string;
+  owner_mid: number;
+  owner_name: string;
+  owner_face: string;
+  duration: number;
+  pubdate: number;
+  view_count: number;
+  like_count: number;
+  danmaku_count: number;
+  tags: string[];
 }
 
 /** 格式化秒数为 mm:ss 或 hh:mm:ss */

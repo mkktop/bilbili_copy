@@ -48,6 +48,11 @@ export function SettingsPage({ settings, onSave, onBack, onClearParse, onClearDo
   const [dmBlockBottom, setDmBlockBottom] = useState(settings.danmaku_block_bottom);
   // 字幕格式
   const [subtitleFormat, setSubtitleFormat] = useState(settings.subtitle_format);
+  // NFO 元数据刮削
+  const [downloadNfo, setDownloadNfo] = useState(settings.download_nfo);
+  const [nfoIncludeGenre, setNfoIncludeGenre] = useState(settings.nfo_include_genre);
+  const [nfoIncludeActor, setNfoIncludeActor] = useState(settings.nfo_include_actor);
+  const [nfoIncludeStats, setNfoIncludeStats] = useState(settings.nfo_include_stats);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
@@ -77,6 +82,10 @@ export function SettingsPage({ settings, onSave, onBack, onClearParse, onClearDo
     setDmBlockTop(settings.danmaku_block_top);
     setDmBlockBottom(settings.danmaku_block_bottom);
     setSubtitleFormat(settings.subtitle_format);
+    setDownloadNfo(settings.download_nfo);
+    setNfoIncludeGenre(settings.nfo_include_genre);
+    setNfoIncludeActor(settings.nfo_include_actor);
+    setNfoIncludeStats(settings.nfo_include_stats);
   }, [settings]);
 
   const handleSave = async () => {
@@ -108,6 +117,10 @@ export function SettingsPage({ settings, onSave, onBack, onClearParse, onClearDo
         danmaku_block_top: dmBlockTop,
         danmaku_block_bottom: dmBlockBottom,
         subtitle_format: subtitleFormat,
+        download_nfo: downloadNfo,
+        nfo_include_genre: nfoIncludeGenre,
+        nfo_include_actor: nfoIncludeActor,
+        nfo_include_stats: nfoIncludeStats,
       });
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
@@ -194,6 +207,14 @@ export function SettingsPage({ settings, onSave, onBack, onClearParse, onClearDo
             onMaxPagesPerVideoChange={(v) => { setMaxPagesPerVideo(v); setSaved(false); }}
             parallelThreads={parallelThreads}
             onParallelThreadsChange={(v) => { setParallelThreads(v); setSaved(false); }}
+            downloadNfo={downloadNfo}
+            onDownloadNfoChange={(v) => { setDownloadNfo(v); setSaved(false); }}
+            nfoIncludeGenre={nfoIncludeGenre}
+            onNfoIncludeGenreChange={(v) => { setNfoIncludeGenre(v); setSaved(false); }}
+            nfoIncludeActor={nfoIncludeActor}
+            onNfoIncludeActorChange={(v) => { setNfoIncludeActor(v); setSaved(false); }}
+            nfoIncludeStats={nfoIncludeStats}
+            onNfoIncludeStatsChange={(v) => { setNfoIncludeStats(v); setSaved(false); }}
             saving={saving}
             saved={saved}
             onSave={handleSave}

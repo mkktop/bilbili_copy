@@ -59,6 +59,20 @@ fn default_subtitle_format() -> String {
     "srt".to_string()
 }
 
+// ---- NFO 元数据刮削（用户可见配置）----
+
+fn default_nfo_include_genre() -> bool {
+    true // 写入标签 <genre>（视频 tag / 番剧 style）
+}
+
+fn default_nfo_include_actor() -> bool {
+    true // 写入 UP 主信息 <actor>
+}
+
+fn default_nfo_include_stats() -> bool {
+    true // 写入播放统计 <tag>(播放量/点赞数)
+}
+
 // ==================== 旧格式（用于向后兼容迁移） ====================
 
 #[derive(Debug, Deserialize)]
@@ -142,6 +156,18 @@ pub struct AppSettings {
     // 字幕导出格式 "srt" | "vtt"
     #[serde(default = "default_subtitle_format")]
     pub subtitle_format: String,
+    // 附加下载 - NFO 元数据刮削（生成 Kodi/Jellyfin/Emby 兼容的 .nfo + 封面图）
+    #[serde(default)]
+    pub download_nfo: bool,
+    // NFO 详细选项 - 写入标签 <genre>（视频 tag / 番剧 style）
+    #[serde(default = "default_nfo_include_genre")]
+    pub nfo_include_genre: bool,
+    // NFO 详细选项 - 写入 UP 主信息 <actor>
+    #[serde(default = "default_nfo_include_actor")]
+    pub nfo_include_actor: bool,
+    // NFO 详细选项 - 写入播放统计 <tag>(播放量/点赞数)
+    #[serde(default = "default_nfo_include_stats")]
+    pub nfo_include_stats: bool,
 }
 
 impl Default for AppSettings {
@@ -172,6 +198,10 @@ impl Default for AppSettings {
             danmaku_block_top: false,
             danmaku_block_bottom: false,
             subtitle_format: default_subtitle_format(),
+            download_nfo: false,
+            nfo_include_genre: default_nfo_include_genre(),
+            nfo_include_actor: default_nfo_include_actor(),
+            nfo_include_stats: default_nfo_include_stats(),
         }
     }
 }
@@ -212,6 +242,10 @@ impl From<LegacySettings> for AppSettings {
             danmaku_block_top: false,
             danmaku_block_bottom: false,
             subtitle_format: default_subtitle_format(),
+            download_nfo: false,
+            nfo_include_genre: default_nfo_include_genre(),
+            nfo_include_actor: default_nfo_include_actor(),
+            nfo_include_stats: default_nfo_include_stats(),
         }
     }
 }

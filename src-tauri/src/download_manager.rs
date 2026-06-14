@@ -67,6 +67,29 @@ pub fn manager() -> &'static DownloadManager {
     &MANAGER
 }
 
+/// NFO 元数据快照：由前端从已解析的 ParsedVideoInfo 透传，供下载完成后生成 .nfo + 封面图。
+/// 仅当用户在设置里开启 NFO 时前端会传入；恢复/重试场景因 DB 不保存完整元数据，传 None 跳过 NFO。
+#[derive(Clone, Debug, Default, serde::Deserialize)]
+pub struct VideoMeta {
+    pub bvid: String,
+    pub title: String,
+    pub desc: String,
+    pub pic: String,
+    pub owner_mid: u64,
+    pub owner_name: String,
+    pub owner_face: String,
+    pub duration: u64,
+    pub pubdate: i64,
+    pub view_count: u64,
+    pub like_count: u64,
+    /// 弹幕数（当前 NFO 模板未使用，保留供未来扩展与前端透传一致性校验）
+    #[allow(dead_code)]
+    pub danmaku_count: u64,
+    /// 标签（普通视频来自 tag API，番剧来自 season API 的 styles），写入 NFO <genre>
+    #[serde(default)]
+    pub tags: Vec<String>,
+}
+
 /// 任务参数快照：download_video 命令把校验后的参数打包成它，提交给调度器。
 #[derive(Clone)]
 pub struct DownloadParams {
@@ -81,6 +104,8 @@ pub struct DownloadParams {
     /// 字幕库模式：跳过视频下载，仅下载字幕（可选附加弹幕）。
     /// 单任务选项，不持久化到 DB（恢复/重试按普通视频下载处理）。
     pub subtitle_only: bool,
+    /// NFO 元数据快照（前端透传，用于生成 .nfo 和下载封面）。None = 不生成 NFO。
+    pub video_meta: Option<VideoMeta>,
 }
 
 /// `download://state` 事件载荷：通知前端任务状态变化（queued/downloading/paused/cancelled）。
@@ -462,6 +487,7 @@ mod tests {
             ep_id: None,
             duration: None,
             subtitle_only: false,
+            video_meta: None,
         }
     }
 

@@ -1,5 +1,5 @@
-import { Download, Zap, Layers, Server } from "lucide-react";
-import { SettingCard, SegmentedControl } from "./shared";
+import { Download, Zap, Layers, Server, FileText, Sliders } from "lucide-react";
+import { SettingCard, SegmentedControl, ToggleRow, ToggleSwitch } from "./shared";
 
 interface DownloadTabProps {
   maxConcurrentDownloads: number;
@@ -8,6 +8,15 @@ interface DownloadTabProps {
   onMaxPagesPerVideoChange: (v: number) => void;
   parallelThreads: number;
   onParallelThreadsChange: (v: number) => void;
+  // NFO 元数据刮削
+  downloadNfo: boolean;
+  onDownloadNfoChange: (v: boolean) => void;
+  nfoIncludeGenre: boolean;
+  onNfoIncludeGenreChange: (v: boolean) => void;
+  nfoIncludeActor: boolean;
+  onNfoIncludeActorChange: (v: boolean) => void;
+  nfoIncludeStats: boolean;
+  onNfoIncludeStatsChange: (v: boolean) => void;
   saving: boolean;
   saved: boolean;
   onSave: () => void;
@@ -23,6 +32,14 @@ export function DownloadTab({
   onMaxPagesPerVideoChange,
   parallelThreads,
   onParallelThreadsChange,
+  downloadNfo,
+  onDownloadNfoChange,
+  nfoIncludeGenre,
+  onNfoIncludeGenreChange,
+  nfoIncludeActor,
+  onNfoIncludeActorChange,
+  nfoIncludeStats,
+  onNfoIncludeStatsChange,
   saving,
   saved,
   onSave,
@@ -83,6 +100,48 @@ export function DownloadTab({
           ✓ 已默认开启，无需手动配置
         </span>
       </SettingCard>
+
+      {/* NFO 元数据刮削区块标题 */}
+      <div className="pt-3">
+        <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">元数据</h3>
+      </div>
+
+      <SettingCard
+        icon={FileText}
+        title="生成 NFO 元数据"
+        description="视频下载完成后自动生成 Kodi / Jellyfin / Emby 兼容的 .nfo 文件，并下载封面图（-thumb.jpg / -fanart.jpg）到视频同目录，方便媒体库刮削入库。"
+      >
+        <ToggleSwitch checked={downloadNfo} onChange={onDownloadNfoChange} />
+      </SettingCard>
+
+      {downloadNfo && (
+        <SettingCard
+          icon={Sliders}
+          title="NFO 详细选项"
+          description="控制 .nfo 文件写入哪些字段。封面图不受此开关影响，开启 NFO 即下载。"
+        >
+          <div className="divide-y divide-gray-100">
+            <ToggleRow
+              label="写入标签（<genre>）"
+              checked={nfoIncludeGenre}
+              onChange={onNfoIncludeGenreChange}
+            />
+            <ToggleRow
+              label="写入 UP 主信息（<actor>）"
+              checked={nfoIncludeActor}
+              onChange={onNfoIncludeActorChange}
+            />
+            <ToggleRow
+              label="写入播放统计（<tag> 播放量/点赞数）"
+              checked={nfoIncludeStats}
+              onChange={onNfoIncludeStatsChange}
+            />
+          </div>
+          <p className="text-xs text-gray-400 mt-2">
+            标签来自普通视频的 tag / 番剧的类型风格；恢复/重试下载时若缺少元数据将跳过 NFO 生成（不影响视频本身）。
+          </p>
+        </SettingCard>
+      )}
 
       {/* Save button */}
       <button
