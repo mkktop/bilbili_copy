@@ -10,3 +10,5 @@ pub mod search;
 pub mod submission;
 pub mod collection;
 pub mod following;
+pub mod history_cmd;
+pub mod ranking;

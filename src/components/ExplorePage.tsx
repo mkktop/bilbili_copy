@@ -22,6 +22,7 @@ import type {
 import { UpperView } from "./tabs/UpperView";
 import { formatCount } from "./VideoCard";
 import { friendlyError } from "../lib/errors";
+import { TID_OPTIONS } from "../lib/constants";
 
 interface Props {
   onBack: () => void;
@@ -53,23 +54,7 @@ const DURATION_OPTIONS = [
   { value: "4", label: ">60分" },
 ];
 
-// 视频分区 tid（精简版一级分区，仅 video 类型有效）
-const TID_OPTIONS = [
-  { value: "0", label: "全分区" },
-  { value: "1", label: "动画" },
-  { value: "13", label: "番剧" },
-  { value: "3", label: "音乐" },
-  { value: "129", label: "舞蹈" },
-  { value: "4", label: "游戏" },
-  { value: "36", label: "科技" },
-  { value: "188", label: "科普" },
-  { value: "160", label: "生活" },
-  { value: "211", label: "美食" },
-  { value: "119", label: "鬼畜" },
-  { value: "155", label: "时尚" },
-  { value: "5", label: "娱乐" },
-  { value: "181", label: "影视" },
-];
+// 视频分区 tid 复用全局常量（与排行榜筛选共享）：见文件顶部 import TID_OPTIONS
 
 export function ExplorePage({ onBack, onParseVideo, onSelectItem }: Props) {
   const [keyword, setKeyword] = useState("");

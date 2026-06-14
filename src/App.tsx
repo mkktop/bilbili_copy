@@ -11,18 +11,19 @@ import { LoginDialog } from "./components/LoginDialog";
 import { CaptchaDialog } from "./components/CaptchaDialog";
 import { UserProfilePage } from "./components/UserProfilePage";
 import { ExplorePage } from "./components/ExplorePage";
+import { RankingPage } from "./components/RankingPage";
 import { useToast } from "./components/Toast";
 import { useUpdate } from "./contexts/UpdateContext";
 import { useSettings } from "./hooks/useSettings";
 import { useLogin } from "./hooks/useLogin";
-import { Settings, Download, Search } from "lucide-react";
+import { Settings, Download, Search, Trophy } from "lucide-react";
 import type { AppSettings } from "./hooks/useSettings";
 import type { ParsedItem, DownloadTask, ParsedVideoInfo, ParseHistoryEntry, DownloadHistoryEntry, VideoMeta } from "./types";
 import { dbToParsedItem, dbToDownloadTask } from "./types";
 import { friendlyError } from "./lib/errors";
 import { DOWNLOAD_PROGRESS_THROTTLE_MS } from "./lib/constants";
 
-type View = "main" | "settings" | "detail" | "downloads" | "profile" | "explore";
+type View = "main" | "settings" | "detail" | "downloads" | "profile" | "explore" | "ranking";
 
 interface DownloadProgress {
   id: string;
@@ -556,6 +557,38 @@ export default function App() {
     );
   }
 
+  // Ranking view
+  // detail 状态下若来源是 ranking，仍渲染 RankingPage（被详情覆盖层遮挡），
+  // 保证返回时 RankingPage 的 state（筛选器与排行列表）不丢失。
+  if (currentView === "ranking" || (currentView === "detail" && previousView === "ranking")) {
+    return (
+      <>
+        <RankingPage
+          onBack={() => setCurrentView("main")}
+          onParseVideo={handleParse}
+          onSelectItem={(videoInfo: ParsedVideoInfo) => {
+            const item: ParsedItem = {
+              id: `ranking-${videoInfo.bvid}`,
+              url: videoInfo.bvid
+                ? `https://www.bilibili.com/video/${videoInfo.bvid}`
+                : "",
+              title: videoInfo.title,
+              status: "pending",
+              videoInfo,
+            };
+            if (videoInfo.bvid) {
+              invoke("touch_parse_history", { bvid: videoInfo.bvid }).catch(() => {});
+            }
+            setSelectedItem(item);
+            setPreviousView("ranking");
+            setCurrentView("detail");
+          }}
+        />
+        {detailOverlay}
+      </>
+    );
+  }
+
   // Main view
   return (
     <div className="flex flex-col h-screen bg-gray-50 text-gray-900">
@@ -588,6 +621,15 @@ export default function App() {
             className="p-1 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
           >
             <Search size={16} />
+          </button>
+
+          {/* 排行榜入口 */}
+          <button
+            onClick={() => setCurrentView("ranking")}
+            title="热门排行榜"
+            className="p-1 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+          >
+            <Trophy size={16} />
           </button>
 
           {/* 下载列表入口 */}

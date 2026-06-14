@@ -18,6 +18,8 @@ use commands::search::search_videos;
 use commands::submission::{get_upper_info, get_submission_videos};
 use commands::collection::{get_upper_collections, get_collection_videos, get_subscribed_collections};
 use commands::following::get_followings;
+use commands::history_cmd::get_watch_history;
+use commands::ranking::get_ranking;
 use download_manager::manager;
 
 /// Read Windows system proxy settings and set HTTPS_PROXY env var
@@ -163,6 +165,8 @@ pub fn run() {
             get_collection_videos,
             get_subscribed_collections,
             get_followings,
+            get_watch_history,
+            get_ranking,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

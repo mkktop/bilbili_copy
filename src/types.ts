@@ -216,6 +216,32 @@ export interface VideoListItem {
   pubdate: number;
 }
 
+/** 观看历史条目：通用视频字段 + 观看时间 + 已观看秒数 */
+export interface HistoryItem extends VideoListItem {
+  /** 观看时间（unix 秒），cursor 分页用 */
+  view_at: number;
+  /** 已观看秒数 */
+  progress: number;
+}
+
+/** 排行榜条目：通用视频字段 + 名次 + 综合分 + 点赞 */
+export interface RankingItem {
+  /** 名次 1..100 */
+  rank: number;
+  bvid: string;
+  title: string;
+  cover: string;
+  upper_name: string;
+  upper_mid: number;
+  duration: number;
+  play: number;
+  danmaku: number;
+  pubdate: number;
+  /** 综合得分（B站排行计算用） */
+  score: number;
+  like: number;
+}
+
 /** 通用分页结果 */
 export interface PagedResult<T> {
   items: T[];

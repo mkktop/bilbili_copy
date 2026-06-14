@@ -16,9 +16,11 @@ import {
   ThumbsUp,
   Crown,
   Bookmark,
+  History,
 } from "lucide-react";
 import type { UserInfo } from "../hooks/useLogin";
 import { WatchLaterTab } from "./tabs/WatchLaterTab";
+import { WatchHistoryTab } from "./tabs/WatchHistoryTab";
 import { SubscriptionsTab } from "./tabs/SubscriptionsTab";
 import { FollowingsTab } from "./tabs/FollowingsTab";
 import { UpperView } from "./tabs/UpperView";
@@ -70,9 +72,9 @@ export function UserProfilePage({
   // 我的关注 tab 中选中的 UP 主 mid（null = 关注列表，非 null = 该 UP 主主页）
   const [selectedUpperMid, setSelectedUpperMid] = useState<number | null>(null);
 
-  // Tab 切换：收藏夹 / 稍后再看 / 我的关注 / 我的订阅
+  // Tab 切换：收藏夹 / 观看历史 / 稍后再看 / 我的关注 / 我的订阅
   const [tab, setTab] = useState<
-    "favorites" | "watch_later" | "followings" | "subscriptions"
+    "favorites" | "history" | "watch_later" | "followings" | "subscriptions"
   >("favorites");
 
   const toast = useToast();
@@ -207,6 +209,7 @@ export function UserProfilePage({
             {(
               [
                 { key: "favorites", label: "收藏夹", Icon: FolderOpen },
+                { key: "history", label: "观看历史", Icon: History },
                 { key: "watch_later", label: "稍后再看", Icon: Clock },
                 { key: "followings", label: "我的关注", Icon: Users },
                 { key: "subscriptions", label: "我的订阅", Icon: Bookmark },
@@ -368,6 +371,14 @@ export function UserProfilePage({
         {/* 稍后再看视图 */}
         {!selectedFolder && selectedUpperMid === null && tab === "watch_later" && (
           <WatchLaterTab
+            onParseVideo={onParseVideo}
+            onSelectItem={onSelectItem}
+          />
+        )}
+
+        {/* 观看历史视图（cursor 分页） */}
+        {!selectedFolder && selectedUpperMid === null && tab === "history" && (
+          <WatchHistoryTab
             onParseVideo={onParseVideo}
             onSelectItem={onSelectItem}
           />

@@ -17,6 +17,8 @@ pub mod submission;
 pub mod collection;
 pub mod following;
 pub mod nfo;
+pub mod history;
+pub mod ranking;
 
 // ==================== 共享常量 ====================
 
