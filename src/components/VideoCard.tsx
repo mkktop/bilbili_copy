@@ -18,8 +18,10 @@ interface VideoCardProps {
   onClick: () => void;
 }
 
+/** 格式化播放量：万 / 亿。统一版本，供全项目复用。 */
 export function formatCount(n: number): string {
-  if (n >= 10000) return (n / 10000).toFixed(1) + "万";
+  if (n >= 100_000_000) return (n / 100_000_000).toFixed(1) + "亿";
+  if (n >= 10_000) return (n / 10_000).toFixed(1) + "万";
   return String(n);
 }
 

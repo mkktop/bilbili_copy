@@ -11,6 +11,7 @@ import { LoginDialog } from "./components/LoginDialog";
 import { CaptchaDialog } from "./components/CaptchaDialog";
 import { UserProfilePage } from "./components/UserProfilePage";
 import { ExplorePage } from "./components/ExplorePage";
+import { useToast } from "./components/Toast";
 import { useUpdate } from "./contexts/UpdateContext";
 import { useSettings } from "./hooks/useSettings";
 import { useLogin } from "./hooks/useLogin";
@@ -18,6 +19,8 @@ import { Settings, Download, Search } from "lucide-react";
 import type { AppSettings } from "./hooks/useSettings";
 import type { ParsedItem, DownloadTask, ParsedVideoInfo, ParseHistoryEntry, DownloadHistoryEntry } from "./types";
 import { dbToParsedItem, dbToDownloadTask } from "./types";
+import { friendlyError } from "./lib/errors";
+import { DOWNLOAD_PROGRESS_THROTTLE_MS } from "./lib/constants";
 
 type View = "main" | "settings" | "detail" | "downloads" | "profile" | "explore";
 
@@ -60,6 +63,7 @@ export default function App() {
   const { phase, updateInfo } = useUpdate();
   const { settings, save } = useSettings();
   const { userInfo, logout, generateQrcode, pollQrcode } = useLogin();
+  const toast = useToast();
   const [version, setVersion] = useState("");
   const [loginDialogOpen, setLoginDialogOpen] = useState(false);
 
@@ -78,9 +82,9 @@ export default function App() {
       setParseTotal(total);
       setParsePage(page);
     } catch (e) {
-      console.warn("加载解析历史失败:", e);
+      toast.error(friendlyError(e));
     }
-  }, []);
+  }, [toast]);
 
   const loadDownloadPage = useCallback(async (page: number) => {
     try {
@@ -92,9 +96,9 @@ export default function App() {
       setDownloadTotal(total);
       setDownloadPage(page);
     } catch (e) {
-      console.warn("加载下载历史失败:", e);
+      toast.error(friendlyError(e));
     }
-  }, []);
+  }, [toast]);
 
   // 启动时从 DB 加载第一页
   useEffect(() => {
@@ -118,11 +122,12 @@ export default function App() {
               d.id === id ? { ...d, status: "downloading" as const, progress: percent, phase } : d
             )
           );
-          // 节流写库：每个 id 至少间隔 1.2s 落一次进度（完成时由 complete 事件负责最终落库），
-          // 避免并行分片高频触发 update_download_status 造成 SQLite 锁竞争与 UI 卡顿。
+          // 节流写库：每个 id 至少间隔 DOWNLOAD_PROGRESS_THROTTLE_MS 落一次进度
+          // （完成时由 complete 事件负责最终落库），避免并行分片高频触发
+          // update_download_status 造成 SQLite 锁竞争与 UI 卡顿。
           const now = Date.now();
           const last = lastProgressWrite.current.get(id) ?? 0;
-          if (now - last >= 1200) {
+          if (now - last >= DOWNLOAD_PROGRESS_THROTTLE_MS) {
             lastProgressWrite.current.set(id, now);
             invoke("update_download_status", { id, status: "downloading", progress: percent, phase, errorMsg: null, outputPath: null }).catch(() => {});
           }
@@ -150,11 +155,13 @@ export default function App() {
             )
           );
           invoke("update_download_status", { id, status: "error", progress: null, phase: null, errorMsg: error, outputPath: null }).catch(() => {});
+          toast.error(`下载失败：${error}`);
         }),
         listen<{ v_voucher: string }>("download://risk_control", (event) => {
           if (cancelled) return;
           console.warn("[risk] 收到风控事件");
           setCaptchaVoucher(event.payload.v_voucher);
+          toast.error("触发风控验证，请完成验证后重试");
         }),
       ]);
       if (cancelled) {
@@ -169,7 +176,7 @@ export default function App() {
       cancelled = true;
       unlisteners.forEach((fn) => fn());
     };
-  }, []);
+  }, [toast]);
 
   const hasUpdate = phase === "available" && updateInfo;
   const activeDownloads = downloads.filter((d) => d.status === "downloading").length;
@@ -198,19 +205,27 @@ export default function App() {
             : p
         )
       );
-      // 持久化解析成功的记录
+      // 持久化解析成功的记录：仅当用户停留在第 1 页时刷新列表（乐观更新已在上面完成），
+      // 否则不打断用户对其他页的浏览，仅 toast 提示已记录。
       invoke("save_parse_history", {
         entry: { id, url, bvid: videoInfo.bvid, title: videoInfo.title, video_info: videoInfo, parsed_at: new Date().toISOString() }
-      }).then(() => loadParsePage(1)).catch(() => {});
+      })
+        .then(() => {
+          if (parsePage === 1) {
+            loadParsePage(1);
+          }
+        })
+        .catch(() => {});
       return videoInfo;
     } catch (err) {
       setParsedItems((prev) =>
         prev.map((p) =>
           p.id === id
-            ? { ...p, status: "error" as const, errorMsg: String(err) }
+            ? { ...p, status: "error" as const, errorMsg: friendlyError(err) }
             : p
         )
       );
+      toast.error(`解析失败：${friendlyError(err)}`);
       throw err;
     } finally {
       setIsParsing(false);
@@ -225,7 +240,8 @@ export default function App() {
     title: string,
     videoTitle: string,
     epId?: number,
-    duration?: number
+    duration?: number,
+    pic?: string
   ) => {
     // 用 ref 防止重复提交
     if (downloadingIds.current.has(id)) return;
@@ -234,12 +250,12 @@ export default function App() {
     // 先加入 UI 列表（显示为 downloading），如果同 ID 已存在则替换
     setDownloads((prev) => {
       const filtered = prev.filter((d) => d.id !== id);
-      return [{ id, title, status: "downloading" as const, progress: 0 }, ...filtered];
+      return [{ id, title, status: "downloading" as const, progress: 0, pic }, ...filtered];
     });
 
-    // 持久化下载记录
+    // 持久化下载记录（含封面）
     invoke("save_download_entry", {
-      entry: { id, title, bvid, cid, ep_id: epId ?? null, status: "downloading", progress: 0, phase: null, error_msg: null, output_path: null, created_at: new Date().toISOString() }
+      entry: { id, title, bvid, cid, ep_id: epId ?? null, status: "downloading", progress: 0, phase: null, error_msg: null, output_path: null, pic: pic ?? null, created_at: new Date().toISOString() }
     }).catch(() => {});
 
     // 直接 invoke，并发由 Rust 端 Semaphore 控制
@@ -250,9 +266,10 @@ export default function App() {
       downloadingIds.current.delete(id);
       setDownloads((prev) =>
         prev.map((d) =>
-          d.id === id ? { ...d, status: "error" as const, errorMsg: String(err) } : d
+          d.id === id ? { ...d, status: "error" as const, errorMsg: friendlyError(err) } : d
         )
       );
+      toast.error(`下载失败：${friendlyError(err)}`);
     }
   };
 
@@ -268,21 +285,29 @@ export default function App() {
   };
 
   const handleRemoveParsed = (id: string) => {
+    // 先判断删除后当前页是否变空（仅剩这一条且非首页）→ 回退到上一页
+    const willBeEmpty = parsedItems.length === 1 && parsePage > 1;
     setParsedItems((prev) => prev.filter((p) => p.id !== id));
-    invoke("delete_parse_history", { id }).then(() => loadParsePage(parsePage)).catch(() => {});
+    invoke("delete_parse_history", { id })
+      .then(() => loadParsePage(willBeEmpty ? parsePage - 1 : parsePage))
+      .catch(() => {});
   };
 
   const handleRemoveDownload = (id: string) => {
+    const willBeEmpty = downloads.length === 1 && downloadPage > 1;
     setDownloads((prev) => prev.filter((d) => d.id !== id));
-    invoke("delete_download_history", { id }).then(() => loadDownloadPage(downloadPage)).catch(() => {});
+    invoke("delete_download_history", { id })
+      .then(() => loadDownloadPage(willBeEmpty ? downloadPage - 1 : downloadPage))
+      .catch(() => {});
   };
 
   // 详情页返回逻辑：回到来源页，保留其 state（来源页组件未被卸载）
+  // 返回时保持当前页码（修复：原先强制回到第 1 页，丢失用户的分页位置）
   const handleDetailBack = () => {
     const prev = previousView;
     setCurrentView(prev);
     setSelectedItem(null);
-    if (prev === "main") loadParsePage(1);
+    if (prev === "main") loadParsePage(parsePage);
   };
 
   // 视频详情覆盖层：无论当前在哪个视图都叠在最上层。

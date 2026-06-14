@@ -3,15 +3,9 @@ import { ArrowLeft, Download, Clock, CheckCircle2, Eye, MessageSquare, ArrowUpDo
 import type { ParsedItem, VideoPage } from "../types";
 import { formatDuration } from "../types";
 import { cn } from "../lib/utils";
+import { formatCount } from "./VideoCard";
 
 type EpisodeTab = "main" | "extra";
-
-/** 格式化播放量：万 / 亿 */
-function formatCount(n: number): string {
-  if (n >= 100_000_000) return (n / 100_000_000).toFixed(1) + "亿";
-  if (n >= 10_000) return (n / 10_000).toFixed(1) + "万";
-  return n.toString();
-}
 
 interface VideoDetailProps {
   entry: ParsedItem;
@@ -23,7 +17,8 @@ interface VideoDetailProps {
     title: string,
     videoTitle: string,
     epId?: number,
-    duration?: number
+    duration?: number,
+    pic?: string
   ) => void;
 }
 
@@ -80,7 +75,7 @@ export function VideoDetail({ entry, onBack, onDownload }: VideoDetailProps) {
       const p = info.pages[0];
       const pageBvid = p.bvid || info.bvid;
       const pageEpId = p.ep_id || info.ep_id;
-      onDownload(entry.id, pageBvid, p.cid, info.title, folderName, pageEpId, p.duration);
+      onDownload(entry.id, pageBvid, p.cid, info.title, folderName, pageEpId, p.duration, info.pic);
       ids.push(entry.id);
     } else {
       selectedPages.forEach((page) => {
@@ -90,7 +85,7 @@ export function VideoDetail({ entry, onBack, onDownload }: VideoDetailProps) {
           const pageEpId = p.ep_id || info.ep_id;
           const title = `P${p.page} ${p.part}`;
           const id = `${entry.id}_P${p.page}`;
-          onDownload(id, pageBvid, p.cid, title, folderName, pageEpId, p.duration);
+          onDownload(id, pageBvid, p.cid, title, folderName, pageEpId, p.duration, info.pic);
           ids.push(id);
         }
       });

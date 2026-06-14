@@ -21,6 +21,7 @@ import type {
 } from "../types";
 import { UpperView } from "./tabs/UpperView";
 import { formatCount } from "./VideoCard";
+import { friendlyError } from "../lib/errors";
 
 interface Props {
   onBack: () => void;
@@ -70,7 +71,7 @@ export function ExplorePage({ onBack, onParseVideo, onSelectItem }: Props) {
         setPage(p);
         setSearched(true);
       } catch (e) {
-        setError(String(e));
+        setError(friendlyError(e));
         if (!append) setResults([]);
       } finally {
         setSearching(false);

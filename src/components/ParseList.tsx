@@ -7,13 +7,12 @@ import {
   Clock,
   Layers,
   ChevronRight,
-  ChevronLeft,
 } from "lucide-react";
 import type { ParsedItem } from "../types";
 import { formatDuration } from "../types";
 import { cn } from "../lib/utils";
-
-const PAGE_SIZE = 20;
+import { HISTORY_PAGE_SIZE } from "../lib/constants";
+import { Pagination } from "./Pagination";
 
 interface ParseListProps {
   items: ParsedItem[];
@@ -151,29 +150,12 @@ export function ParseList({ items, onRemove, onSelect, currentPage, totalCount, 
       })}
 
       {/* 分页控件 */}
-      {totalCount > PAGE_SIZE && (
-        <div className="flex items-center justify-center gap-3 pt-3 pb-1">
-          <button
-            onClick={() => onPageChange(currentPage - 1)}
-            disabled={currentPage <= 1}
-            className="flex items-center gap-1 px-2 py-1 text-xs text-gray-500 rounded hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-          >
-            <ChevronLeft size={12} />
-            上一页
-          </button>
-          <span className="text-xs text-gray-400">
-            第 {currentPage} / {Math.ceil(totalCount / PAGE_SIZE)} 页
-          </span>
-          <button
-            onClick={() => onPageChange(currentPage + 1)}
-            disabled={currentPage >= Math.ceil(totalCount / PAGE_SIZE)}
-            className="flex items-center gap-1 px-2 py-1 text-xs text-gray-500 rounded hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-          >
-            下一页
-            <ChevronRight size={12} />
-          </button>
-        </div>
-      )}
+      <Pagination
+        currentPage={currentPage}
+        totalCount={totalCount}
+        pageSize={HISTORY_PAGE_SIZE}
+        onPageChange={onPageChange}
+      />
     </div>
   );
 }

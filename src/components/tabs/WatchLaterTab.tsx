@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { Loader2, AlertCircle, Clock } from "lucide-react";
 import type { VideoListItem, ParsedVideoInfo } from "../../types";
 import { VideoCard } from "../VideoCard";
+import { friendlyError } from "../../lib/errors";
 
 interface Props {
   onParseVideo: (url: string) => Promise<ParsedVideoInfo>;
@@ -22,7 +23,7 @@ export function WatchLaterTab({ onParseVideo, onSelectItem }: Props) {
       const result = await invoke<VideoListItem[]>("get_watch_later");
       setItems(result);
     } catch (e) {
-      setError(String(e));
+      setError(friendlyError(e));
     } finally {
       setLoading(false);
     }

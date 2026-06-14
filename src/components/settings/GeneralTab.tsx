@@ -2,6 +2,8 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import { FolderOpen, Check, Trash2 } from "lucide-react";
 import { useState } from "react";
+import { useToast } from "../Toast";
+import { friendlyError } from "../../lib/errors";
 
 interface GeneralTabProps {
   dir: string;
@@ -23,12 +25,16 @@ export function GeneralTab({
   onClearDownload,
 }: GeneralTabProps) {
   const [clearing, setClearing] = useState<"parse" | "download" | null>(null);
+  const toast = useToast();
 
   const handleClearParse = async () => {
     setClearing("parse");
     try {
       await invoke("clear_parse_history");
       onClearParse?.();
+      toast.success("已清除解析记录");
+    } catch (e) {
+      toast.error(`清除失败：${friendlyError(e)}`);
     } finally {
       setClearing(null);
     }
@@ -39,6 +45,9 @@ export function GeneralTab({
     try {
       await invoke("clear_download_history");
       onClearDownload?.();
+      toast.success("已清除下载记录");
+    } catch (e) {
+      toast.error(`清除失败：${friendlyError(e)}`);
     } finally {
       setClearing(null);
     }

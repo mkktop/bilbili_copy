@@ -86,6 +86,8 @@ export interface DownloadTask {
   /** 当前下载阶段 */
   phase?: "video" | "audio" | "merging";
   errorMsg?: string;
+  /** 视频封面 URL */
+  pic?: string;
 }
 
 /** 格式化秒数为 mm:ss 或 hh:mm:ss */
@@ -123,6 +125,8 @@ export interface DownloadHistoryEntry {
   phase: string | null;
   error_msg: string | null;
   output_path: string | null;
+  /** 视频封面 URL（v2 schema 新增，旧记录为 null） */
+  pic: string | null;
   created_at: string;
 }
 
@@ -146,6 +150,7 @@ export function dbToDownloadTask(entry: DownloadHistoryEntry): DownloadTask {
     progress: entry.progress,
     phase: (entry.phase as DownloadTask["phase"]) ?? undefined,
     errorMsg: entry.error_msg ?? undefined,
+    pic: entry.pic ?? undefined,
   };
 }
 

@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import QRCode from "qrcode";
 import { X, Loader2, Smartphone, CheckCircle2, AlertCircle } from "lucide-react";
 import type { QrCodeResult, QrPollStatus } from "../hooks/useLogin";
+import { friendlyError } from "../lib/errors";
 
 interface LoginDialogProps {
   open: boolean;
@@ -59,7 +60,7 @@ export function LoginDialog({
         setPhase("polling");
       } catch (e) {
         if (!mountedRef.current) return;
-        setErrorMsg(String(e));
+        setErrorMsg(friendlyError(e));
         setPhase("error");
       }
     })();
@@ -99,7 +100,7 @@ export function LoginDialog({
         }
       } catch (e) {
         if (!mountedRef.current) return;
-        setErrorMsg(String(e));
+        setErrorMsg(friendlyError(e));
         setPhase("error");
         return;
       }
@@ -165,7 +166,7 @@ export function LoginDialog({
       setQrDataUrl(dataUrl);
       setPhase("polling");
     } catch (e) {
-      setErrorMsg(String(e));
+      setErrorMsg(friendlyError(e));
       setPhase("error");
     }
   };

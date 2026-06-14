@@ -18,6 +18,8 @@ import type {
   ParsedVideoInfo,
 } from "../../types";
 import { VideoCard, formatCount } from "../VideoCard";
+import { useToast } from "../Toast";
+import { friendlyError } from "../../lib/errors";
 
 interface Props {
   mid: number;
@@ -38,19 +40,24 @@ export function UpperView({ mid, onParseVideo, onSelectItem }: Props) {
   const [subHasMore, setSubHasMore] = useState(false);
   const [subTotal, setSubTotal] = useState(0);
   const [loadingSubs, setLoadingSubs] = useState(false);
+  const [subError, setSubError] = useState<string | null>(null);
 
   // 合集
   const [collections, setCollections] = useState<CollectionInfo[]>([]);
   const [loadingCols, setLoadingCols] = useState(false);
   const [colsLoaded, setColsLoaded] = useState(false);
+  const [colsError, setColsError] = useState<string | null>(null);
   const [selectedCol, setSelectedCol] = useState<CollectionInfo | null>(null);
   const [colVideos, setColVideos] = useState<VideoListItem[]>([]);
   const [colPage, setColPage] = useState(1);
   const [colHasMore, setColHasMore] = useState(false);
   const [colTotal, setColTotal] = useState(0);
   const [loadingColVideos, setLoadingColVideos] = useState(false);
+  const [colVideoError, setColVideoError] = useState<string | null>(null);
 
   const [parsingBvid, setParsingBvid] = useState<string | null>(null);
+
+  const toast = useToast();
 
   // 加载 UP 主信息
   useEffect(() => {
@@ -62,7 +69,7 @@ export function UpperView({ mid, onParseVideo, onSelectItem }: Props) {
         if (!cancelled) setUpper(info);
       })
       .catch((e) => {
-        if (!cancelled) setUpperError(String(e));
+        if (!cancelled) setUpperError(friendlyError(e));
       })
       .finally(() => {
         if (!cancelled) setLoadingUpper(false);
@@ -76,6 +83,7 @@ export function UpperView({ mid, onParseVideo, onSelectItem }: Props) {
   const loadSubmissions = useCallback(
     async (page: number, append: boolean) => {
       setLoadingSubs(true);
+      if (!append) setSubError(null);
       try {
         const res = await invoke<PagedResult<VideoListItem>>(
           "get_submission_videos",
@@ -86,12 +94,14 @@ export function UpperView({ mid, onParseVideo, onSelectItem }: Props) {
         setSubHasMore(res.has_more);
         setSubTotal(res.total);
       } catch (e) {
-        console.error("加载投稿失败:", e);
+        const msg = friendlyError(e);
+        setSubError(msg);
+        toast.error(`加载投稿失败：${msg}`);
       } finally {
         setLoadingSubs(false);
       }
     },
-    [mid]
+    [mid, toast]
   );
 
   useEffect(() => {
@@ -102,18 +112,21 @@ export function UpperView({ mid, onParseVideo, onSelectItem }: Props) {
   const loadCollections = useCallback(async () => {
     if (colsLoaded || loadingCols) return;
     setLoadingCols(true);
+    setColsError(null);
     try {
       const res = await invoke<CollectionInfo[]>("get_upper_collections", {
         mid,
       });
       setCollections(res);
     } catch (e) {
-      console.error("加载合集失败:", e);
+      const msg = friendlyError(e);
+      setColsError(msg);
+      toast.error(`加载合集失败：${msg}`);
     } finally {
       setLoadingCols(false);
       setColsLoaded(true);
     }
-  }, [mid, colsLoaded, loadingCols]);
+  }, [mid, colsLoaded, loadingCols, toast]);
 
   useEffect(() => {
     if (tab === "collection" && !selectedCol) loadCollections();
@@ -122,6 +135,7 @@ export function UpperView({ mid, onParseVideo, onSelectItem }: Props) {
   const loadCollectionVideos = useCallback(
     async (c: CollectionInfo, page: number, append: boolean) => {
       setLoadingColVideos(true);
+      if (!append) setColVideoError(null);
       try {
         const res = await invoke<PagedResult<VideoListItem>>(
           "get_collection_videos",
@@ -132,12 +146,14 @@ export function UpperView({ mid, onParseVideo, onSelectItem }: Props) {
         setColHasMore(res.has_more);
         setColTotal(res.total);
       } catch (e) {
-        console.error("加载合集视频失败:", e);
+        const msg = friendlyError(e);
+        setColVideoError(msg);
+        toast.error(`加载合集视频失败：${msg}`);
       } finally {
         setLoadingColVideos(false);
       }
     },
-    [mid]
+    [mid, toast]
   );
 
   const handleSelectCollection = (c: CollectionInfo) => {
@@ -178,7 +194,18 @@ export function UpperView({ mid, onParseVideo, onSelectItem }: Props) {
           <span className="text-xs text-gray-400">{colTotal} 个视频</span>
         </div>
 
-        {colVideos.length === 0 && !loadingColVideos ? (
+        {colVideoError && colVideos.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-12 text-gray-400 gap-2">
+            <AlertCircle size={20} />
+            <p className="text-sm">{colVideoError}</p>
+            <button
+              onClick={() => loadCollectionVideos(selectedCol, 1, false)}
+              className="text-xs text-blue-500 hover:underline"
+            >
+              重试
+            </button>
+          </div>
+        ) : colVideos.length === 0 && !loadingColVideos ? (
           <div className="flex flex-col items-center justify-center py-12 text-gray-400 gap-2">
             <Layers size={40} strokeWidth={1.5} />
             <p className="text-sm">合集中暂无视频</p>
@@ -321,7 +348,18 @@ export function UpperView({ mid, onParseVideo, onSelectItem }: Props) {
       {/* 投稿列表 */}
       {tab === "submission" && (
         <div className="space-y-2">
-          {submissions.length === 0 && !loadingSubs ? (
+          {subError && submissions.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-12 text-gray-400 gap-2">
+              <AlertCircle size={20} />
+              <p className="text-sm">{subError}</p>
+              <button
+                onClick={() => loadSubmissions(1, false)}
+                className="text-xs text-blue-500 hover:underline"
+              >
+                重试
+              </button>
+            </div>
+          ) : submissions.length === 0 && !loadingSubs ? (
             <div className="flex flex-col items-center justify-center py-12 text-gray-400 gap-2">
               <ListVideo size={40} strokeWidth={1.5} />
               <p className="text-sm">暂无投稿</p>
@@ -372,6 +410,20 @@ export function UpperView({ mid, onParseVideo, onSelectItem }: Props) {
             <div className="flex items-center justify-center py-12 text-gray-400 gap-2">
               <Loader2 size={20} className="animate-spin" />
               <span className="text-sm">加载中...</span>
+            </div>
+          ) : colsError && collections.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-12 text-gray-400 gap-2">
+              <AlertCircle size={20} />
+              <p className="text-sm">{colsError}</p>
+              <button
+                onClick={() => {
+                  setColsLoaded(false);
+                  loadCollections();
+                }}
+                className="text-xs text-blue-500 hover:underline"
+              >
+                重试
+              </button>
             </div>
           ) : collections.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-12 text-gray-400 gap-2">

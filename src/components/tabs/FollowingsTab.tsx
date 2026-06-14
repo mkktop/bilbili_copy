@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Loader2, AlertCircle, Users } from "lucide-react";
 import type { FollowingItem, PagedResult } from "../../types";
+import { friendlyError } from "../../lib/errors";
 
 interface Props {
   onSelectUpper: (mid: number) => void;
@@ -32,10 +33,11 @@ export function FollowingsTab({ onSelectUpper }: Props) {
       setPage(res.page);
       setHasMore(res.has_more);
     } catch (e) {
+      const msg = friendlyError(e);
       if (append) {
-        setError(String(e));
+        setError(msg);
       } else {
-        setError(String(e));
+        setError(msg);
         setItems([]);
       }
     } finally {

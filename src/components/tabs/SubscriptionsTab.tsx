@@ -16,6 +16,8 @@ import type {
   ParsedVideoInfo,
 } from "../../types";
 import { VideoCard } from "../VideoCard";
+import { useToast } from "../Toast";
+import { friendlyError } from "../../lib/errors";
 
 interface Props {
   onParseVideo: (url: string) => Promise<ParsedVideoInfo>;
@@ -33,7 +35,10 @@ export function SubscriptionsTab({ onParseVideo, onSelectItem }: Props) {
   const [hasMore, setHasMore] = useState(false);
   const [total, setTotal] = useState(0);
   const [loadingVideos, setLoadingVideos] = useState(false);
+  const [videoError, setVideoError] = useState<string | null>(null);
   const [parsingBvid, setParsingBvid] = useState<string | null>(null);
+
+  const toast = useToast();
 
   const loadCollections = useCallback(async () => {
     setLoading(true);
@@ -44,7 +49,7 @@ export function SubscriptionsTab({ onParseVideo, onSelectItem }: Props) {
       );
       setCollections(result);
     } catch (e) {
-      setError(String(e));
+      setError(friendlyError(e));
     } finally {
       setLoading(false);
     }
@@ -57,6 +62,7 @@ export function SubscriptionsTab({ onParseVideo, onSelectItem }: Props) {
   const loadVideos = useCallback(
     async (c: SubscribedCollection, page: number, append: boolean) => {
       setLoadingVideos(true);
+      setVideoError(null);
       try {
         let items: VideoListItem[] = [];
         let resultTotal = 0;
@@ -97,12 +103,14 @@ export function SubscriptionsTab({ onParseVideo, onSelectItem }: Props) {
         setHasMore(resultHasMore);
         setTotal(resultTotal);
       } catch (e) {
-        console.error("加载订阅内容失败:", e);
+        const msg = friendlyError(e);
+        setVideoError(msg);
+        toast.error(`加载内容失败：${msg}`);
       } finally {
         setLoadingVideos(false);
       }
     },
-    []
+    [toast]
   );
 
   const handleSelectCollection = (c: SubscribedCollection) => {
@@ -148,7 +156,18 @@ export function SubscriptionsTab({ onParseVideo, onSelectItem }: Props) {
           <span className="text-xs text-gray-400">{total} 个内容</span>
         </div>
 
-        {videos.length === 0 && !loadingVideos ? (
+        {videoError && videos.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-12 text-gray-400 gap-2">
+            <AlertCircle size={20} />
+            <p className="text-sm">{videoError}</p>
+            <button
+              onClick={() => loadVideos(selected, 1, false)}
+              className="text-xs text-blue-500 hover:underline"
+            >
+              重试
+            </button>
+          </div>
+        ) : videos.length === 0 && !loadingVideos ? (
           <div className="flex flex-col items-center justify-center py-12 text-gray-400 gap-2">
             <Bookmark size={40} strokeWidth={1.5} />
             <p className="text-sm">暂无内容</p>

@@ -22,6 +22,9 @@ import { WatchLaterTab } from "./tabs/WatchLaterTab";
 import { SubscriptionsTab } from "./tabs/SubscriptionsTab";
 import { FollowingsTab } from "./tabs/FollowingsTab";
 import { UpperView } from "./tabs/UpperView";
+import { formatCount } from "./VideoCard";
+import { useToast } from "./Toast";
+import { friendlyError } from "../lib/errors";
 import type {
   FavoriteFolder,
   FavoriteMedia,
@@ -29,13 +32,6 @@ import type {
   ParsedVideoInfo,
 } from "../types";
 import { formatDuration } from "../types";
-
-function formatCount(count: number): string {
-  if (count >= 10000) {
-    return (count / 10000).toFixed(1) + "万";
-  }
-  return count.toString();
-}
 
 interface UserProfilePageProps {
   userInfo: UserInfo;
@@ -79,6 +75,8 @@ export function UserProfilePage({
     "favorites" | "watch_later" | "followings" | "subscriptions"
   >("favorites");
 
+  const toast = useToast();
+
   const handleSetTab = (t: typeof tab) => {
     setTab(t);
     setSelectedFolder(null);
@@ -94,7 +92,7 @@ export function UserProfilePage({
       const result = await invoke<FavoriteFolder[]>("get_favorite_folders");
       setFolders(result);
     } catch (e) {
-      setFolderError(String(e));
+      setFolderError(friendlyError(e));
     } finally {
       setLoadingFolders(false);
     }
@@ -122,12 +120,12 @@ export function UserProfilePage({
         setHasMore(result.has_more);
         setMediaTotal(result.total);
       } catch (e) {
-        console.error("加载收藏夹视频失败:", e);
+        toast.error(`加载收藏夹视频失败：${friendlyError(e)}`);
       } finally {
         setLoadingMedias(false);
       }
     },
-    []
+    [toast]
   );
 
   // 点击收藏夹
