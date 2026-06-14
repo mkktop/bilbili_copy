@@ -41,3 +41,17 @@ export const TID_OPTIONS = [
   { value: "119", label: "鬼畜" },
   { value: "181", label: "影视" },
 ];
+
+/**
+ * PGC 排行榜分类（番剧/国创/电影/电视剧/纪录片/综艺）。
+ * 注意 B站 PGC season_type 是离散枚举，6=不存在，1/2/3/4/5/7 是有效值。
+ * 排序按用户使用频率：国创/番剧/电影 放前面。
+ */
+export const PGC_SEASON_TYPE_OPTIONS = [
+  { value: "4", label: "国创" },
+  { value: "1", label: "番剧" },
+  { value: "2", label: "电影" },
+  { value: "5", label: "电视剧" },
+  { value: "3", label: "纪录片" },
+  { value: "7", label: "综艺" },
+];

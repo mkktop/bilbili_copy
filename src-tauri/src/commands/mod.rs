@@ -12,3 +12,4 @@ pub mod collection;
 pub mod following;
 pub mod history_cmd;
 pub mod ranking;
+pub mod pgc;

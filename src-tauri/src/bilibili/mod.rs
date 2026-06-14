@@ -19,6 +19,7 @@ pub mod following;
 pub mod nfo;
 pub mod history;
 pub mod ranking;
+pub mod pgc;
 
 // ==================== 共享常量 ====================
 

@@ -242,6 +242,23 @@ export interface RankingItem {
   like: number;
 }
 
+/** PGC 排行榜条目（番剧/国创/电影等维度，非单视频） */
+export interface PgcRankItem {
+  /** 名次 1..100 */
+  rank: number;
+  /** 番剧季 ID（用于 season API 解析到单集） */
+  season_id: number;
+  title: string;
+  cover: string;
+  /** 综合得分（PGC 接口真实返回，UGC v2 没有） */
+  score: number;
+  /** 状态标签（如「全12话」「已完结」） */
+  badge: string;
+  desc: string;
+  views: number;
+  danmaku: number;
+}
+
 /** 通用分页结果 */
 export interface PagedResult<T> {
   items: T[];

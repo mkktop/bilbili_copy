@@ -20,6 +20,7 @@ use commands::collection::{get_upper_collections, get_collection_videos, get_sub
 use commands::following::get_followings;
 use commands::history_cmd::get_watch_history;
 use commands::ranking::get_ranking;
+use commands::pgc::get_pgc_rank;
 use download_manager::manager;
 
 /// Read Windows system proxy settings and set HTTPS_PROXY env var
@@ -167,6 +168,7 @@ pub fn run() {
             get_followings,
             get_watch_history,
             get_ranking,
+            get_pgc_rank,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
