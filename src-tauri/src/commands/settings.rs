@@ -41,6 +41,24 @@ fn default_request_delay_ms() -> u64 {
     0
 }
 
+// ---- 弹幕渲染（用户可见配置）----
+
+fn default_dm_font_size() -> u32 {
+    25 // 中号（前端映射：小18 / 中25 / 大36）
+}
+
+fn default_dm_scroll_duration() -> f64 {
+    15.0 // 标准滚动时长（秒）；越大越慢
+}
+
+fn default_dm_opacity() -> f64 {
+    0.3 // 显示透明度 0.0-1.0
+}
+
+fn default_subtitle_format() -> String {
+    "srt".to_string()
+}
+
 // ==================== 旧格式（用于向后兼容迁移） ====================
 
 #[derive(Debug, Deserialize)]
@@ -110,6 +128,20 @@ pub struct AppSettings {
     // 附加下载 - 字幕
     #[serde(default)]
     pub download_subtitle: bool,
+    // 弹幕渲染 - 字号 / 滚动时长 / 透明度 / 屏蔽顶底
+    #[serde(default = "default_dm_font_size")]
+    pub danmaku_font_size: u32,
+    #[serde(default = "default_dm_scroll_duration")]
+    pub danmaku_scroll_duration: f64,
+    #[serde(default = "default_dm_opacity")]
+    pub danmaku_opacity: f64,
+    #[serde(default)]
+    pub danmaku_block_top: bool,
+    #[serde(default)]
+    pub danmaku_block_bottom: bool,
+    // 字幕导出格式 "srt" | "vtt"
+    #[serde(default = "default_subtitle_format")]
+    pub subtitle_format: String,
 }
 
 impl Default for AppSettings {
@@ -134,6 +166,12 @@ impl Default for AppSettings {
             request_delay_ms: default_request_delay_ms(),
             download_danmaku: false,
             download_subtitle: false,
+            danmaku_font_size: default_dm_font_size(),
+            danmaku_scroll_duration: default_dm_scroll_duration(),
+            danmaku_opacity: default_dm_opacity(),
+            danmaku_block_top: false,
+            danmaku_block_bottom: false,
+            subtitle_format: default_subtitle_format(),
         }
     }
 }
@@ -168,6 +206,35 @@ impl From<LegacySettings> for AppSettings {
             request_delay_ms: default_request_delay_ms(),
             download_danmaku: false,
             download_subtitle: false,
+            danmaku_font_size: default_dm_font_size(),
+            danmaku_scroll_duration: default_dm_scroll_duration(),
+            danmaku_opacity: default_dm_opacity(),
+            danmaku_block_top: false,
+            danmaku_block_bottom: false,
+            subtitle_format: default_subtitle_format(),
+        }
+    }
+}
+
+impl AppSettings {
+    /// 将设置中的弹幕渲染参数映射为 `DanmakuOption`（其余字段用默认值）。
+    /// 供 download_extras 在下载弹幕时构造 ASS 渲染配置。
+    pub fn to_danmaku_option(&self) -> crate::bilibili::danmaku::DanmakuOption {
+        let mut opt = crate::bilibili::danmaku::DanmakuOption::default();
+        opt.font_size = self.danmaku_font_size;
+        opt.duration = self.danmaku_scroll_duration;
+        opt.opacity = self.danmaku_opacity;
+        opt.block_top = self.danmaku_block_top;
+        opt.block_bottom = self.danmaku_block_bottom;
+        opt
+    }
+
+    /// 字幕导出格式归一化为 "srt" 或 "vtt"（非法值回退 srt）
+    pub fn normalized_subtitle_format(&self) -> &str {
+        if self.subtitle_format.eq_ignore_ascii_case("vtt") {
+            "vtt"
+        } else {
+            "srt"
         }
     }
 }

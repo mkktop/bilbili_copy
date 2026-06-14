@@ -273,7 +273,8 @@ export default function App() {
     videoTitle: string,
     epId?: number,
     duration?: number,
-    pic?: string
+    pic?: string,
+    subtitleOnly?: boolean
   ) => {
     // 用 ref 防止重复提交（queued/downloading 都算活跃，禁止重复）
     if (downloadingIds.current.has(id)) return;
@@ -304,7 +305,7 @@ export default function App() {
     // 提交到调度器（立即返回；下载中途状态/进度/完成/失败全走事件）。
     // 命令返回的 Err 仅代表提交阶段失败（如未登录）。
     try {
-      await invoke("download_video", { id, bvid, cid, title, videoTitle, epId, duration });
+      await invoke("download_video", { id, bvid, cid, title, videoTitle, epId, duration, subtitleOnly });
       // downloadingIds 在 download://complete/error/state(cancelled) 中清理
     } catch (err) {
       downloadingIds.current.delete(id);

@@ -26,6 +26,14 @@ export interface AppSettings {
   download_danmaku: boolean;
   // 附加下载 - 字幕
   download_subtitle: boolean;
+  // 弹幕渲染 - 字号 / 滚动时长 / 透明度 / 屏蔽顶底
+  danmaku_font_size: number;        // 小18 / 中25 / 大36
+  danmaku_scroll_duration: number;  // 快8 / 标准15 / 慢25（秒，越大越慢）
+  danmaku_opacity: number;          // 0.0-1.0（低0.2 / 中0.5 / 高0.8）
+  danmaku_block_top: boolean;
+  danmaku_block_bottom: boolean;
+  // 字幕导出格式 "srt" | "vtt"
+  subtitle_format: string;
 }
 
 export function useSettings() {
@@ -49,6 +57,12 @@ export function useSettings() {
     request_delay_ms: 0,
     download_danmaku: false,
     download_subtitle: false,
+    danmaku_font_size: 25,
+    danmaku_scroll_duration: 15.0,
+    danmaku_opacity: 0.3,
+    danmaku_block_top: false,
+    danmaku_block_bottom: false,
+    subtitle_format: "srt",
   });
   const [loading, setLoading] = useState(true);
 

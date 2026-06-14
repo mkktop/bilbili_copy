@@ -215,7 +215,7 @@ async fn fetch_segment(
 
 // ==================== 公开 API ====================
 
-/// 获取弹幕并转换为 ASS 格式文件
+/// 获取弹幕并转换为 ASS 格式文件（使用指定渲染配置）
 pub async fn fetch_danmaku_ass(
     client: &reqwest::Client,
     credential: &Credential,
@@ -223,42 +223,59 @@ pub async fn fetch_danmaku_ass(
     aid: u64,
     duration_secs: u64,
     title: &str,
+    opt: &DanmakuOption,
 ) -> anyhow::Result<String> {
     let elems = fetch_danmaku_elems(client, credential, cid, aid, duration_secs).await?;
     let danmus: Vec<Danmu> = elems.into_iter().map(Danmu::from).collect();
-    Ok(to_ass(&danmus, title))
+    Ok(to_ass(&danmus, title, opt))
 }
 
 // ==================== ASS 格式输出 ====================
 
-/// ASS 弹幕配置（和 bili-sync-up 一致的默认值）
-struct DanmakuOption {
-    duration: f64,
-    font: &'static str,
-    font_size: u32,
-    width_ratio: f64,
-    horizontal_gap: f64,
-    lane_size: u32,
-    float_percentage: f64,
-    opacity: u8,
-    bold: bool,
-    outline: f64,
+/// ASS 弹幕配置（默认值和 bili-sync-up 一致）。
+/// 公开后允许从 `AppSettings` 注入用户配置（字号 / 滚动速度 / 透明度 / 屏蔽顶底）。
+#[derive(Clone)]
+pub struct DanmakuOption {
+    pub duration: f64,
+    pub font: String,
+    pub font_size: u32,
+    pub width_ratio: f64,
+    pub horizontal_gap: f64,
+    pub lane_size: u32,
+    pub float_percentage: f64,
+    /// 显示透明度 0.0-1.0（用户视角，1.0=完全不透明），内部换算成 ASS alpha。
+    pub opacity: f64,
+    pub bold: bool,
+    pub outline: f64,
+    /// 屏蔽顶部弹幕（固定显示在屏幕顶部）
+    pub block_top: bool,
+    /// 屏蔽底部弹幕（固定显示在屏幕底部，如字幕位）
+    pub block_bottom: bool,
 }
 
 impl Default for DanmakuOption {
     fn default() -> Self {
         Self {
             duration: 15.0,
-            font: "黑体",
+            font: "黑体".to_string(),
             font_size: 25,
             width_ratio: 1.2,
             horizontal_gap: 20.0,
             lane_size: 32,
             float_percentage: 0.5,
-            opacity: (0.3 * 255.0) as u8,
+            opacity: 0.3,
             bold: true,
             outline: 0.8,
+            block_top: false,
+            block_bottom: false,
         }
+    }
+}
+
+impl DanmakuOption {
+    /// opacity(0.0-1.0) → ASS alpha 字节（0=完全不透明，255=完全透明）
+    fn alpha_byte(&self) -> u8 {
+        ((1.0 - self.opacity.clamp(0.0, 1.0)) * 255.0).round() as u8
     }
 }
 
@@ -282,7 +299,10 @@ struct Drawable {
 
 /// 绘制特效
 enum DrawEffect {
+    /// 滚动弹幕：从 start 移动到 end
     Move { start: (i32, i32), end: (i32, i32) },
+    /// 固定弹幕（顶部/底部）：在 pos 处静止显示 duration 秒
+    Fixed { pos: (i32, i32) },
 }
 
 /// 碰撞类型
@@ -292,11 +312,15 @@ enum Collision {
     Collide { time_needed: f64 },
 }
 
-/// 弹幕槽位
+/// 弹幕槽位。滚动弹幕用 `last_shoot_time`/`last_length` 做速度碰撞；
+/// 顶部/底部固定弹幕用 `occupied_until` 做时间窗碰撞（一条没消失前不放第二条）。
 #[derive(Debug, Clone)]
 struct Lane {
     last_shoot_time: f64,
     last_length: f64,
+    /// 固定弹幕占用截止时间（该 lane 上一条固定弹幕的 end 时刻）。
+    /// 滚动弹幕 lane 不用此字段（保持 0.0）。
+    occupied_until: f64,
 }
 
 impl Lane {
@@ -304,6 +328,16 @@ impl Lane {
         Lane {
             last_shoot_time: danmu.timeline_s,
             last_length: danmu.length(config),
+            occupied_until: 0.0,
+        }
+    }
+
+    /// 固定弹幕占用：从 timeline_s 开始显示 config.duration 秒
+    fn occupy_fixed(danmu: &Danmu, config: &DanmakuOption) -> Self {
+        Lane {
+            last_shoot_time: danmu.timeline_s,
+            last_length: danmu.length(config),
+            occupied_until: danmu.timeline_s + config.duration,
         }
     }
 
@@ -346,22 +380,45 @@ struct Canvas {
     height: u64,
     config: DanmakuOption,
     float_lanes: Vec<Option<Lane>>,
+    /// 顶部固定弹幕通道（DanmuType::Top）
+    top_lanes: Vec<Option<Lane>>,
+    /// 底部固定弹幕通道（DanmuType::Bottom）
+    bottom_lanes: Vec<Option<Lane>>,
 }
 
 impl Canvas {
-    fn new(width: u64, height: u64) -> Self {
-        let config = DanmakuOption::default();
+    fn new(width: u64, height: u64, config: DanmakuOption) -> Self {
         let float_lanes_cnt =
             (config.float_percentage * height as f64 / config.lane_size as f64) as usize;
-        Canvas { width, height, config, float_lanes: vec![None; float_lanes_cnt] }
+        // 顶部/底部各预留屏幕高度的 1/4 放固定弹幕（与多数播放器习惯一致）
+        let fixed_lanes_cnt = (height as f64 / config.lane_size as f64 / 4.0) as usize;
+        let fixed_lanes_cnt = fixed_lanes_cnt.max(1);
+        Canvas {
+            width,
+            height,
+            config,
+            float_lanes: vec![None; float_lanes_cnt],
+            top_lanes: vec![None; fixed_lanes_cnt],
+            bottom_lanes: vec![None; fixed_lanes_cnt],
+        }
     }
 
-    fn draw(&mut self, mut danmu: Danmu) -> Option<Drawable> {
-        // 不支持的弹幕类型统一当滚动处理
-        if !matches!(danmu.r#type, DanmuType::Float) {
-            danmu.r#type = DanmuType::Float;
+    fn draw(&mut self, danmu: Danmu) -> Option<Drawable> {
+        match danmu.r#type {
+            DanmuType::Float | DanmuType::Reverse => self.draw_float(danmu),
+            DanmuType::Top => {
+                if self.config.block_top {
+                    return None;
+                }
+                self.draw_fixed(danmu, FixedKind::Top)
+            }
+            DanmuType::Bottom => {
+                if self.config.block_bottom {
+                    return None;
+                }
+                self.draw_fixed(danmu, FixedKind::Bottom)
+            }
         }
-        self.draw_float(danmu)
     }
 
     fn draw_float(&mut self, mut danmu: Danmu) -> Option<Drawable> {
@@ -404,16 +461,71 @@ impl Canvas {
             },
         }
     }
+
+    /// 顶部/底部固定弹幕：简化碰撞——找到一条该时刻未被占用的通道即放置；
+    /// 全部被占用则丢弃（与官方「弹幕太密就少显示几条」的体验一致）。
+    fn draw_fixed(&mut self, danmu: Danmu, kind: FixedKind) -> Option<Drawable> {
+        let lanes = match kind {
+            FixedKind::Top => &mut self.top_lanes,
+            FixedKind::Bottom => &mut self.bottom_lanes,
+        };
+        let now = danmu.timeline_s;
+        for (idx, lane) in lanes.iter_mut().enumerate() {
+            let free = match lane {
+                None => true,
+                Some(l) => now >= l.occupied_until,
+            };
+            if free {
+                return Some(self.draw_fixed_in_lane(danmu, kind, idx));
+            }
+        }
+        None
+    }
+
+    fn draw_fixed_in_lane(
+        &mut self,
+        danmu: Danmu,
+        kind: FixedKind,
+        lane_idx: usize,
+    ) -> Drawable {
+        let lanes = match kind {
+            FixedKind::Top => &mut self.top_lanes,
+            FixedKind::Bottom => &mut self.bottom_lanes,
+        };
+        lanes[lane_idx] = Some(Lane::occupy_fixed(&danmu, &self.config));
+        // 居中放置
+        let x = (self.width as f64 / 2.0) as i32;
+        let y = match kind {
+            FixedKind::Top => lane_idx as i32 * self.config.lane_size as i32,
+            FixedKind::Bottom => {
+                self.height as i32 - (lane_idx as i32 + 1) * self.config.lane_size as i32
+            }
+        };
+        Drawable {
+            danmu,
+            duration: self.config.duration,
+            style_name: match kind {
+                FixedKind::Top => "Top",
+                FixedKind::Bottom => "Bottom",
+            },
+            effect: DrawEffect::Fixed { pos: (x, y) },
+        }
+    }
 }
 
-/// 将弹幕列表转换为 ASS 格式文本
-fn to_ass(danmus: &[Danmu], title: &str) -> String {
+/// 固定弹幕种类（顶部/底部），用于分发到对应通道
+enum FixedKind {
+    Top,
+    Bottom,
+}
+
+/// 将弹幕列表转换为 ASS 格式文本（使用指定渲染配置）
+fn to_ass(danmus: &[Danmu], title: &str, opt: &DanmakuOption) -> String {
     let width: u64 = 1280;
     let height: u64 = 720;
-    let opt = DanmakuOption::default();
 
-    // 画布布局
-    let mut canvas = Canvas::new(width, height);
+    // 画布布局（所有权移交：opt 内字段都实现了 Clone，这里克隆一份给 Canvas）
+    let mut canvas = Canvas::new(width, height, opt.clone());
     let mut drawables = Vec::new();
     for danmu in danmus {
         if let Some(drawable) = canvas.draw(danmu.clone()) {
@@ -421,11 +533,13 @@ fn to_ass(danmus: &[Danmu], title: &str) -> String {
         }
     }
 
+    let alpha = opt.alpha_byte();
+
     // ASS 头部
     let mut ass = format!(
         "\
 [Script Info]
-; Script generated by bilbili_copy
+; Script generated by bilbli_copy
 Title: {title}
 ScriptType: v4.00+
 PlayResX: {width}
@@ -449,7 +563,7 @@ Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n"
             "Style: {style_name},{font},{font_size},&H{a:02x}FFFFFF,&H00FFFFFF,&H{a:02x}000000,&H00000000,\
 {bold}, 0, 0, 0, 100, 100, 0.00, 0.00, 1, \
 {outline}, 0, 7, 0, 0, 0, 1\n",
-            a = opt.opacity,
+            a = alpha,
             font = opt.font,
             font_size = opt.font_size,
             bold = opt.bold as u8,
@@ -463,20 +577,27 @@ Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n"
     for d in &drawables {
         let start = format_ass_time(d.danmu.timeline_s);
         let end = format_ass_time(d.danmu.timeline_s + d.duration);
-        let (x0, y0, x1, y1) = match &d.effect {
-            DrawEffect::Move { start, end } => (start.0, start.1, end.0, end.1),
-        };
         let (r, g, b) = d.danmu.rgb;
         let text = escape_ass_text(&d.danmu.content);
         let name = build_event_name(&d.danmu);
 
+        // 滚动弹幕用 \move，固定弹幕（顶/底）用 \pos
+        let positioning = match &d.effect {
+            DrawEffect::Move { start, end } => {
+                format!("\\move({}, {}, {}, {})", start.0, start.1, end.0, end.1)
+            }
+            DrawEffect::Fixed { pos } => {
+                format!("\\pos({}, {})", pos.0, pos.1)
+            }
+        };
+
         ass.push_str(&format!(
-            "Dialogue: 2,{start},{end},{style},{name},0,0,0,,{{\\move({x0}, {y0}, {x1}, {y1})\\c&H{b:02x}{g:02x}{r:02x}&}}{text}\n",
+            "Dialogue: 2,{start},{end},{style},{name},0,0,0,,{{{pos}\\c&H{b:02x}{g:02x}{r:02x}&}}{text}\n",
             start = start,
             end = end,
             style = d.style_name,
             name = name,
-            x0 = x0, y0 = y0, x1 = x1, y1 = y1,
+            pos = positioning,
             r = r, g = g, b = b,
             text = text,
         ));
@@ -507,4 +628,97 @@ fn build_event_name(danmu: &Danmu) -> String {
 /// ASS 文本转义（换行符 -> \N）
 fn escape_ass_text(text: &str) -> String {
     text.trim().replace('\n', "\\N")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn danmu(t: f64, content: &str, ty: DanmuType) -> Danmu {
+        Danmu {
+            timeline_s: t,
+            content: content.to_string(),
+            r#type: ty,
+            fontsize: 25,
+            rgb: (255, 255, 255),
+            sent_at: None,
+            source_id: None,
+        }
+    }
+
+    #[test]
+    fn alpha_byte_inverts_opacity() {
+        let mut opt = DanmakuOption::default();
+        // opacity 0.3 → alpha = round((1-0.3)*255) = 179
+        opt.opacity = 0.3;
+        assert_eq!(opt.alpha_byte(), 179);
+        opt.opacity = 1.0; // 完全不透明 → alpha 0
+        assert_eq!(opt.alpha_byte(), 0);
+        opt.opacity = 0.0; // 完全透明 → alpha 255
+        assert_eq!(opt.alpha_byte(), 255);
+    }
+
+    #[test]
+    fn float_danmu_emits_move() {
+        let opt = DanmakuOption::default();
+        let ass = to_ass(&[danmu(1.0, "hello", DanmuType::Float)], "t", &opt);
+        assert!(ass.contains("\\move("), "滚动弹幕应输出 \\move");
+        assert!(!ass.contains("\\pos("));
+        assert!(ass.contains("Style: Float"));
+    }
+
+    #[test]
+    fn top_danmu_emits_pos_when_not_blocked() {
+        let opt = DanmakuOption::default();
+        let ass = to_ass(&[danmu(1.0, "top msg", DanmuType::Top)], "t", &opt);
+        assert!(ass.contains("\\pos("), "顶部弹幕应输出 \\pos");
+        assert!(ass.contains("Style: Top"));
+        assert!(!ass.contains("\\move("));
+    }
+
+    #[test]
+    fn bottom_danmu_emits_pos_when_not_blocked() {
+        let opt = DanmakuOption::default();
+        let ass = to_ass(&[danmu(1.0, "btm msg", DanmuType::Bottom)], "t", &opt);
+        assert!(ass.contains("\\pos("));
+        assert!(ass.contains("Style: Bottom"));
+    }
+
+    #[test]
+    fn block_top_drops_top_danmu() {
+        let mut opt = DanmakuOption::default();
+        opt.block_top = true;
+        let ass = to_ass(&[danmu(1.0, "top msg", DanmuType::Top)], "t", &opt);
+        // 样式表总会定义 Style: Top（三类 Style 一并写出），所以应针对 Dialogue 行断言。
+        // Dialogue 行格式：Dialogue: 2,<start>,<end>,<Style>,... — Top 被屏蔽时应不存在这样的行。
+        let top_dialogues: usize = ass
+            .lines()
+            .filter(|l| l.starts_with("Dialogue:") && l.contains(",Top,"))
+            .count();
+        assert_eq!(top_dialogues, 0, "block_top 时不应产生 Top 的 Dialogue 行");
+    }
+
+    #[test]
+    fn block_bottom_drops_bottom_danmu() {
+        let mut opt = DanmakuOption::default();
+        opt.block_bottom = true;
+        let ass = to_ass(&[danmu(1.0, "btm msg", DanmuType::Bottom)], "t", &opt);
+        let bottom_dialogues: usize = ass
+            .lines()
+            .filter(|l| l.starts_with("Dialogue:") && l.contains(",Bottom,"))
+            .count();
+        assert_eq!(bottom_dialogues, 0, "block_bottom 时不应产生 Bottom 的 Dialogue 行");
+    }
+
+    #[test]
+    fn font_size_and_opacity_reflect_in_style() {
+        let mut opt = DanmakuOption::default();
+        opt.font_size = 36;
+        opt.opacity = 0.8;
+        let ass = to_ass(&[danmu(0.0, "x", DanmuType::Float)], "t", &opt);
+        // fontsize=36 直接出现在 Style 行
+        assert!(ass.contains(",36,"));
+        // alpha = round((1-0.8)*255) = 51 = 0x33
+        assert!(ass.contains("&H33FFFFFF"));
+    }
 }

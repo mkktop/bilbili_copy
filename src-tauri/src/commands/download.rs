@@ -143,6 +143,7 @@ pub async fn download_video(
     qn: Option<i64>,
     ep_id: Option<u64>,
     duration: Option<u64>,
+    subtitle_only: Option<bool>,
 ) -> Result<(), String> {
     let download_id = sanitize_download_id(&id)?;
 
@@ -165,6 +166,7 @@ pub async fn download_video(
         qn,
         ep_id,
         duration,
+        subtitle_only: subtitle_only.unwrap_or(false),
     };
 
     match manager().submit(params, 0) {
@@ -213,6 +215,7 @@ pub async fn execute_download(
         qn,
         ep_id,
         duration,
+        subtitle_only,
     } = params;
     let download_id = match sanitize_download_id(&id) {
         Ok(s) => s,
@@ -282,6 +285,21 @@ pub async fn execute_download(
     }
     let filename = format!("{}.mp4", sanitize_filename(&title));
     let output_path = video_folder.join(&filename);
+
+    // 字幕库模式：跳过视频下载，只取字幕（可选附加弹幕，按全局开关）。
+    // 单任务选项优先于全局 download_subtitle（勾选即强制下载字幕）。
+    if subtitle_only {
+        log::info!("[download] 字幕库模式：跳过视频下载，仅下载字幕: id={}", download_id);
+        let aid = url::bvid_to_aid(&bvid);
+        let dur = duration.unwrap_or(0);
+        let base_path = video_folder.join(sanitize_filename(&title));
+        download_subtitle_only(
+            &download_id, &bvid, cid, aid, dur, &credential,
+            &base_path, settings.download_danmaku, &settings,
+        ).await;
+        cleanup_video_semaphore(&bvid, max_pages);
+        return ExecOutcome::Done(video_folder.to_string_lossy().to_string());
+    }
 
     // 防风控指纹参数
     let dm_img_str = settings.dm_img_str.clone();
@@ -373,6 +391,7 @@ pub async fn execute_download(
                     settings.download_danmaku,
                     settings.download_subtitle,
                     &title,
+                    &settings,
                 )
                 .await;
             }
@@ -496,7 +515,8 @@ async fn run_download(
     result
 }
 
-/// 附加下载：弹幕（XML）和字幕（SRT），非致命
+/// 附加下载：弹幕（ASS）和字幕（SRT/VTT），非致命。
+/// 在视频下载成功后调用，按全局开关决定是否下载。
 async fn download_extras(
     app: &AppHandle,
     download_id: &str,
@@ -509,27 +529,20 @@ async fn download_extras(
     want_danmaku: bool,
     want_subtitle: bool,
     title: &str,
+    settings: &AppSettings,
 ) {
-    let client = match reqwest::Client::builder()
-        .user_agent(crate::bilibili::USER_AGENT)
-        .cookie_store(false)
-        .connect_timeout(std::time::Duration::from_secs(10))
-        .read_timeout(std::time::Duration::from_secs(30))
-        .build()
-    {
-        Ok(c) => c,
-        Err(e) => {
-            log::warn!("[download] 创建附加下载客户端失败: {}", e);
-            return;
-        }
+    let client = match build_extras_client() {
+        Some(c) => c,
+        None => return,
     };
 
     let base_path = output_path.with_extension("");
 
-    // 弹幕下载（ASS 格式）
+    // 弹幕下载（ASS 格式，应用用户渲染配置）
     if want_danmaku {
+        let opt = settings.to_danmaku_option();
         match crate::bilibili::danmaku::fetch_danmaku_ass(
-            &client, credential, cid, aid, duration_secs, title,
+            &client, credential, cid, aid, duration_secs, title, &opt,
         )
         .await
         {
@@ -550,58 +563,126 @@ async fn download_extras(
         }
     }
 
-    // 字幕下载
+    // 字幕下载（按 settings.subtitle_format 决定 SRT / VTT）
     if want_subtitle {
-        match crate::bilibili::subtitle::get_subtitle_urls(
-            &client, credential, cid, bvid, aid,
-        )
-        .await
-        {
-            Ok(subtitles) => {
-                if subtitles.is_empty() {
-                    log::info!("[download] 该视频无可用字幕(id={})", download_id);
-                }
-                for sub in &subtitles {
-                    match crate::bilibili::subtitle::fetch_subtitle_srt(
-                        &client,
-                        &sub.subtitle_url,
-                    )
-                    .await
-                    {
-                        Ok(srt_content) => {
-                            // 清洗语言代码，防止路径穿越（sub.lan 来自 API，可能含非法字符）
-                            let safe_lan = sanitize_filename(&sub.lan);
-                            let srt_path = format!("{}.{}.srt", base_path.display(), safe_lan);
-                            match tokio::fs::write(&srt_path, &srt_content).await {
-                                Ok(()) => {
-                                    log::info!(
-                                        "[download] 字幕保存成功({}): {}",
-                                        sub.lan,
-                                        srt_path
-                                    )
-                                }
-                                Err(e) => {
-                                    log::warn!("[download] 字幕写入失败({}): {}", sub.lan, e)
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            log::warn!("[download] 字幕下载失败({}): {}", sub.lan, e)
-                        }
-                    }
-                }
-            }
-            Err(e) => {
-                log::warn!(
-                    "[download] 获取字幕列表失败(id={}): {}",
-                    download_id,
-                    e
-                );
-            }
-        }
+        fetch_and_save_subtitles(
+            &client, download_id, bvid, cid, aid, credential,
+            &base_path, settings,
+        ).await;
     }
 
     let _ = app; // 保留 app 参数供将来扩展（如进度事件）
+}
+
+/// 字幕库模式：跳过视频，只下载字幕（可选附加弹幕，按全局开关）。
+/// base_path 为不含扩展名的字幕文件前缀（视频未下载，用 title 作为文件名）。
+async fn download_subtitle_only(
+    download_id: &str,
+    bvid: &str,
+    cid: i64,
+    aid: u64,
+    duration_secs: u64,
+    credential: &Credential,
+    base_path: &std::path::Path,
+    want_danmaku: bool,
+    settings: &AppSettings,
+) {
+    let client = match build_extras_client() {
+        Some(c) => c,
+        None => return,
+    };
+
+    // 字幕库模式强制下载字幕（单任务选项优先于全局开关）
+    fetch_and_save_subtitles(
+        &client, download_id, bvid, cid, aid, credential,
+        base_path, settings,
+    ).await;
+
+    // 可选附加弹幕
+    if want_danmaku {
+        let opt = settings.to_danmaku_option();
+        match crate::bilibili::danmaku::fetch_danmaku_ass(
+            &client, credential, cid, aid, duration_secs, "", &opt,
+        )
+        .await
+        {
+            Ok(ass_content) => {
+                // 字幕库模式没有视频文件，弹幕写到 base_path.ass
+                let dm_path = base_path.with_extension("ass");
+                match tokio::fs::write(&dm_path, &ass_content).await {
+                    Ok(()) => log::info!("[download] 字幕库模式弹幕保存成功: {}", dm_path.display()),
+                    Err(e) => log::warn!("[download] 弹幕写入失败: {}", e),
+                }
+            }
+            Err(e) => {
+                log::warn!("[download] 字幕库模式弹幕下载失败(id={}): {}", download_id, e);
+            }
+        }
+    }
+}
+
+/// 构建附加下载（弹幕/字幕）专用 reqwest 客户端
+fn build_extras_client() -> Option<reqwest::Client> {
+    match reqwest::Client::builder()
+        .user_agent(crate::bilibili::USER_AGENT)
+        .cookie_store(false)
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .read_timeout(std::time::Duration::from_secs(30))
+        .build()
+    {
+        Ok(c) => Some(c),
+        Err(e) => {
+            log::warn!("[download] 创建附加下载客户端失败: {}", e);
+            None
+        }
+    }
+}
+
+/// 获取字幕列表并逐条保存为 SRT/VTT（按 settings.subtitle_format）。
+/// 文件名：<base_path>.<lan>.{srt|vtt}，lan 经 sanitize 防路径穿越。
+async fn fetch_and_save_subtitles(
+    client: &reqwest::Client,
+    download_id: &str,
+    bvid: &str,
+    cid: i64,
+    aid: u64,
+    credential: &Credential,
+    base_path: &std::path::Path,
+    settings: &AppSettings,
+) {
+    let format = settings.normalized_subtitle_format(); // "srt" | "vtt"
+    match crate::bilibili::subtitle::get_subtitle_urls(client, credential, cid, bvid, aid).await {
+        Ok(subtitles) => {
+            if subtitles.is_empty() {
+                log::info!("[download] 该视频无可用字幕(id={}, format={})", download_id, format);
+            }
+            for sub in &subtitles {
+                let fetch_result = if format == "vtt" {
+                    crate::bilibili::subtitle::fetch_subtitle_vtt(client, &sub.subtitle_url).await
+                } else {
+                    crate::bilibili::subtitle::fetch_subtitle_srt(client, &sub.subtitle_url).await
+                };
+                match fetch_result {
+                    Ok(content) => {
+                        // 清洗语言代码，防止路径穿越（sub.lan 来自 API，可能含非法字符）
+                        let safe_lan = sanitize_filename(&sub.lan);
+                        let out_path = format!("{}.{}.{}", base_path.display(), safe_lan, format);
+                        match tokio::fs::write(&out_path, &content).await {
+                            Ok(()) => log::info!(
+                                "[download] 字幕保存成功({}, {}): {}",
+                                sub.lan, format, out_path
+                            ),
+                            Err(e) => log::warn!("[download] 字幕写入失败({}): {}", sub.lan, e),
+                        }
+                    }
+                    Err(e) => log::warn!("[download] 字幕下载失败({}): {}", sub.lan, e),
+                }
+            }
+        }
+        Err(e) => {
+            log::warn!("[download] 获取字幕列表失败(id={}): {}", download_id, e);
+        }
+    }
 }
 
 #[cfg(test)]

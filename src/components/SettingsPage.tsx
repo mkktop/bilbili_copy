@@ -3,12 +3,13 @@ import { ArrowLeft } from "lucide-react";
 import { GeneralTab } from "./settings/GeneralTab";
 import { QualityTab } from "./settings/QualityTab";
 import { DownloadTab } from "./settings/DownloadTab";
+import { SubtitleTab } from "./settings/SubtitleTab";
 import { AboutTab } from "./settings/AboutTab";
 import { AntiRiskTab } from "./settings/AntiRiskTab";
 import type { AppSettings } from "../hooks/useSettings";
 import { cn } from "../lib/utils";
 
-type Tab = "general" | "quality" | "download" | "antirisk" | "about";
+type Tab = "general" | "quality" | "download" | "subtitle" | "antirisk" | "about";
 
 interface SettingsPageProps {
   settings: AppSettings;
@@ -39,6 +40,14 @@ export function SettingsPage({ settings, onSave, onBack, onClearParse, onClearDo
   const [requestDelayMs, setRequestDelayMs] = useState(settings.request_delay_ms);
   const [downloadDanmaku, setDownloadDanmaku] = useState(settings.download_danmaku);
   const [downloadSubtitle, setDownloadSubtitle] = useState(settings.download_subtitle);
+  // 弹幕渲染
+  const [dmFontSize, setDmFontSize] = useState(settings.danmaku_font_size);
+  const [dmScrollDuration, setDmScrollDuration] = useState(settings.danmaku_scroll_duration);
+  const [dmOpacity, setDmOpacity] = useState(settings.danmaku_opacity);
+  const [dmBlockTop, setDmBlockTop] = useState(settings.danmaku_block_top);
+  const [dmBlockBottom, setDmBlockBottom] = useState(settings.danmaku_block_bottom);
+  // 字幕格式
+  const [subtitleFormat, setSubtitleFormat] = useState(settings.subtitle_format);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
@@ -62,6 +71,12 @@ export function SettingsPage({ settings, onSave, onBack, onClearParse, onClearDo
     setRequestDelayMs(settings.request_delay_ms);
     setDownloadDanmaku(settings.download_danmaku);
     setDownloadSubtitle(settings.download_subtitle);
+    setDmFontSize(settings.danmaku_font_size);
+    setDmScrollDuration(settings.danmaku_scroll_duration);
+    setDmOpacity(settings.danmaku_opacity);
+    setDmBlockTop(settings.danmaku_block_top);
+    setDmBlockBottom(settings.danmaku_block_bottom);
+    setSubtitleFormat(settings.subtitle_format);
   }, [settings]);
 
   const handleSave = async () => {
@@ -87,6 +102,12 @@ export function SettingsPage({ settings, onSave, onBack, onClearParse, onClearDo
         request_delay_ms: requestDelayMs,
         download_danmaku: downloadDanmaku,
         download_subtitle: downloadSubtitle,
+        danmaku_font_size: dmFontSize,
+        danmaku_scroll_duration: dmScrollDuration,
+        danmaku_opacity: dmOpacity,
+        danmaku_block_top: dmBlockTop,
+        danmaku_block_bottom: dmBlockBottom,
+        subtitle_format: subtitleFormat,
       });
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
@@ -99,6 +120,7 @@ export function SettingsPage({ settings, onSave, onBack, onClearParse, onClearDo
     general: "通用",
     quality: "视频质量",
     download: "下载",
+    subtitle: "字幕弹幕",
     antirisk: "防风控",
     about: "关于",
   };
@@ -118,7 +140,7 @@ export function SettingsPage({ settings, onSave, onBack, onClearParse, onClearDo
 
       {/* Tab bar */}
       <div className="flex border-b border-gray-200 px-4">
-        {(["general", "quality", "download", "antirisk", "about"] as Tab[]).map((tab) => (
+        {(["general", "quality", "download", "subtitle", "antirisk", "about"] as Tab[]).map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -172,10 +194,29 @@ export function SettingsPage({ settings, onSave, onBack, onClearParse, onClearDo
             onMaxPagesPerVideoChange={(v) => { setMaxPagesPerVideo(v); setSaved(false); }}
             parallelThreads={parallelThreads}
             onParallelThreadsChange={(v) => { setParallelThreads(v); setSaved(false); }}
+            saving={saving}
+            saved={saved}
+            onSave={handleSave}
+          />
+        )}
+        {activeTab === "subtitle" && (
+          <SubtitleTab
             downloadDanmaku={downloadDanmaku}
             onDownloadDanmakuChange={(v) => { setDownloadDanmaku(v); setSaved(false); }}
+            dmFontSize={dmFontSize}
+            onDmFontSizeChange={(v) => { setDmFontSize(v); setSaved(false); }}
+            dmScrollDuration={dmScrollDuration}
+            onDmScrollDurationChange={(v) => { setDmScrollDuration(v); setSaved(false); }}
+            dmOpacity={dmOpacity}
+            onDmOpacityChange={(v) => { setDmOpacity(v); setSaved(false); }}
+            dmBlockTop={dmBlockTop}
+            onDmBlockTopChange={(v) => { setDmBlockTop(v); setSaved(false); }}
+            dmBlockBottom={dmBlockBottom}
+            onDmBlockBottomChange={(v) => { setDmBlockBottom(v); setSaved(false); }}
             downloadSubtitle={downloadSubtitle}
             onDownloadSubtitleChange={(v) => { setDownloadSubtitle(v); setSaved(false); }}
+            subtitleFormat={subtitleFormat}
+            onSubtitleFormatChange={(v) => { setSubtitleFormat(v); setSaved(false); }}
             saving={saving}
             saved={saved}
             onSave={handleSave}

@@ -1,5 +1,5 @@
-import { Download, Zap, Layers, Server, MessageSquare, FileText } from "lucide-react";
-import { cn } from "../../lib/utils";
+import { Download, Zap, Layers, Server } from "lucide-react";
+import { SettingCard, SegmentedControl } from "./shared";
 
 interface DownloadTabProps {
   maxConcurrentDownloads: number;
@@ -8,10 +8,6 @@ interface DownloadTabProps {
   onMaxPagesPerVideoChange: (v: number) => void;
   parallelThreads: number;
   onParallelThreadsChange: (v: number) => void;
-  downloadDanmaku: boolean;
-  onDownloadDanmakuChange: (v: boolean) => void;
-  downloadSubtitle: boolean;
-  onDownloadSubtitleChange: (v: boolean) => void;
   saving: boolean;
   saved: boolean;
   onSave: () => void;
@@ -20,60 +16,6 @@ interface DownloadTabProps {
 const NUMBER_OPTIONS = [1, 2, 3, 4, 5];
 const THREAD_OPTIONS = [1, 2, 4, 8];
 
-function SettingCard({
-  icon: Icon,
-  title,
-  description,
-  children,
-}: {
-  icon: React.ElementType;
-  title: string;
-  description: React.ReactNode;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="flex items-start gap-4 p-4 rounded-xl border border-gray-100 bg-white">
-      <div className="p-2 rounded-lg bg-blue-50 text-blue-500 mt-0.5">
-        <Icon size={18} />
-      </div>
-      <div className="flex-1 min-w-0">
-        <h3 className="text-sm font-medium text-gray-800">{title}</h3>
-        <p className="text-xs text-gray-400 mt-0.5">{description}</p>
-        <div className="mt-3">{children}</div>
-      </div>
-    </div>
-  );
-}
-
-function SegmentedControl({
-  options,
-  value,
-  onChange,
-}: {
-  options: { value: number; label: string }[];
-  value: number;
-  onChange: (v: number) => void;
-}) {
-  return (
-    <div className="inline-flex rounded-lg border border-gray-200 p-0.5 bg-gray-50">
-      {options.map((opt) => (
-        <button
-          key={opt.value}
-          onClick={() => onChange(opt.value)}
-          className={cn(
-            "px-3 py-1.5 text-xs font-medium rounded-md transition-all",
-            value === opt.value
-              ? "bg-white text-blue-600 shadow-sm border border-gray-200"
-              : "text-gray-500 hover:text-gray-700"
-          )}
-        >
-          {opt.label}
-        </button>
-      ))}
-    </div>
-  );
-}
-
 export function DownloadTab({
   maxConcurrentDownloads,
   onMaxConcurrentDownloadsChange,
@@ -81,10 +23,6 @@ export function DownloadTab({
   onMaxPagesPerVideoChange,
   parallelThreads,
   onParallelThreadsChange,
-  downloadDanmaku,
-  onDownloadDanmakuChange,
-  downloadSubtitle,
-  onDownloadSubtitleChange,
   saving,
   saved,
   onSave,
@@ -146,58 +84,16 @@ export function DownloadTab({
         </span>
       </SettingCard>
 
-      <SettingCard
-        icon={MessageSquare}
-        title="下载弹幕"
-        description="视频下载完成后自动保存弹幕为 ASS 字幕文件，可直接在播放器中加载显示。"
-      >
-        <button
-          onClick={() => onDownloadDanmakuChange(!downloadDanmaku)}
-          className={cn(
-            "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
-            downloadDanmaku ? "bg-blue-500" : "bg-gray-300"
-          )}
-        >
-          <span
-            className={cn(
-              "inline-block h-4 w-4 transform rounded-full bg-white transition-transform shadow-sm",
-              downloadDanmaku ? "translate-x-6" : "translate-x-1"
-            )}
-          />
-        </button>
-      </SettingCard>
-
-      <SettingCard
-        icon={FileText}
-        title="下载字幕"
-        description="自动保存 CC 字幕为 SRT 文件（按语言分别保存，如 zh-Hans.srt、en.srt）。"
-      >
-        <button
-          onClick={() => onDownloadSubtitleChange(!downloadSubtitle)}
-          className={cn(
-            "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
-            downloadSubtitle ? "bg-blue-500" : "bg-gray-300"
-          )}
-        >
-          <span
-            className={cn(
-              "inline-block h-4 w-4 transform rounded-full bg-white transition-transform shadow-sm",
-              downloadSubtitle ? "translate-x-6" : "translate-x-1"
-            )}
-          />
-        </button>
-      </SettingCard>
-
       {/* Save button */}
       <button
         onClick={onSave}
         disabled={saving}
-        className={cn(
-          "w-full py-2.5 rounded-lg text-sm font-medium transition-colors",
-          saved
+        className={
+          "w-full py-2.5 rounded-lg text-sm font-medium transition-colors " +
+          (saved
             ? "bg-green-500 text-white"
-            : "bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-50"
-        )}
+            : "bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-50")
+        }
       >
         {saving ? "保存中..." : saved ? "已保存 ✓" : "保存设置"}
       </button>

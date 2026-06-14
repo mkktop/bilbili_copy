@@ -139,6 +139,24 @@ pub async fn fetch_subtitle_srt(
     client: &reqwest::Client,
     subtitle_url: &str,
 ) -> anyhow::Result<String> {
+    let items = fetch_subtitle_content(client, subtitle_url).await?;
+    Ok(to_srt(&items))
+}
+
+/// 下载单条字幕并转换为 VTT (WebVTT) 格式
+pub async fn fetch_subtitle_vtt(
+    client: &reqwest::Client,
+    subtitle_url: &str,
+) -> anyhow::Result<String> {
+    let items = fetch_subtitle_content(client, subtitle_url).await?;
+    Ok(to_vtt(&items))
+}
+
+/// 下载并解析字幕 JSON 为条目列表（SRT / VTT 转换共用）
+async fn fetch_subtitle_content(
+    client: &reqwest::Client,
+    subtitle_url: &str,
+) -> anyhow::Result<Vec<SubtitleItem>> {
     // 补全 URL 前缀（API 返回 //aisubtitle.hdslb.com/... 格式）
     let url = if subtitle_url.starts_with("//") {
         format!("https:{}", subtitle_url)
@@ -157,12 +175,12 @@ pub async fn fetch_subtitle_srt(
     let content: SubtitleContent = serde_json::from_str(&body_text)
         .context("字幕内容解析失败")?;
 
-    Ok(to_srt(&content.body))
+    Ok(content.body)
 }
 
-// ==================== SRT 格式转换 ====================
+// ==================== SRT / VTT 格式转换 ====================
 
-/// 将秒数格式化为 SRT 时间格式 `HH:MM:SS,mmm`
+/// 将秒数格式化为 SRT 时间格式 `HH:MM:SS,mmm`（毫秒分隔符为逗号）
 fn format_srt_time(seconds: f64) -> String {
     let total_ms = (seconds * 1000.0).round() as u64;
     let h = total_ms / 3_600_000;
@@ -170,6 +188,16 @@ fn format_srt_time(seconds: f64) -> String {
     let s = (total_ms % 60_000) / 1000;
     let ms = total_ms % 1000;
     format!("{:02}:{:02}:{:02},{:03}", h, m, s, ms)
+}
+
+/// 将秒数格式化为 VTT 时间格式 `HH:MM:SS.mmm`（毫秒分隔符为点）
+fn format_vtt_time(seconds: f64) -> String {
+    let total_ms = (seconds * 1000.0).round() as u64;
+    let h = total_ms / 3_600_000;
+    let m = (total_ms % 3_600_000) / 60_000;
+    let s = (total_ms % 60_000) / 1000;
+    let ms = total_ms % 1000;
+    format!("{:02}:{:02}:{:02}.{:03}", h, m, s, ms)
 }
 
 /// 将字幕条目列表转换为 SRT 文本
@@ -188,4 +216,46 @@ fn to_srt(items: &[SubtitleItem]) -> String {
         })
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+/// 将字幕条目列表转换为 WebVTT 文本（以 `WEBVTT` 头开头，时间戳用 `.` 分隔毫秒）
+fn to_vtt(items: &[SubtitleItem]) -> String {
+    let mut out = String::from("WEBVTT\n\n");
+    for item in items {
+        out.push_str(&format!(
+            "{} --> {}\n{}\n\n",
+            format_vtt_time(item.from),
+            format_vtt_time(item.to),
+            item.content
+        ));
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn items() -> Vec<SubtitleItem> {
+        vec![
+            SubtitleItem { from: 1.5, to: 3.0, content: "你好".into() },
+            SubtitleItem { from: 4.0, to: 6.5, content: "world".into() },
+        ]
+    }
+
+    #[test]
+    fn srt_uses_comma_and_index() {
+        let srt = to_srt(&items());
+        assert!(srt.starts_with("1\n"));
+        assert!(srt.contains("00:00:01,500 --> 00:00:03,000"));
+        assert!(srt.contains("你好"));
+    }
+
+    #[test]
+    fn vtt_starts_with_header_and_uses_dot() {
+        let vtt = to_vtt(&items());
+        assert!(vtt.starts_with("WEBVTT\n\n"));
+        assert!(vtt.contains("00:00:01.500 --> 00:00:03.000"));
+        assert!(!vtt.contains("--> 00:00:03,000"), "VTT 不应用逗号");
+    }
 }

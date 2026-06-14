@@ -78,6 +78,9 @@ pub struct DownloadParams {
     pub qn: Option<i64>,
     pub ep_id: Option<u64>,
     pub duration: Option<u64>,
+    /// 字幕库模式：跳过视频下载，仅下载字幕（可选附加弹幕）。
+    /// 单任务选项，不持久化到 DB（恢复/重试按普通视频下载处理）。
+    pub subtitle_only: bool,
 }
 
 /// `download://state` 事件载荷：通知前端任务状态变化（queued/downloading/paused/cancelled）。
@@ -458,6 +461,7 @@ mod tests {
             qn: None,
             ep_id: None,
             duration: None,
+            subtitle_only: false,
         }
     }
 
