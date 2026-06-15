@@ -2,6 +2,7 @@ import { getVersion } from "@tauri-apps/api/app";
 import { useEffect, useRef, useState, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { revealItemInDir, openPath } from "@tauri-apps/plugin-opener";
 import { DownloadInput } from "./components/DownloadInput";
 import { DownloadList } from "./components/DownloadList";
 import { ParseList } from "./components/ParseList";
@@ -153,7 +154,7 @@ export default function App() {
           lastProgressWrite.current.delete(id);
           setDownloads((prev) =>
             prev.map((d) =>
-              d.id === id ? { ...d, status: "done" as const, progress: 100 } : d
+              d.id === id ? { ...d, status: "done" as const, progress: 100, outputPath: output_path } : d
             )
           );
           invoke("update_download_status", { id, status: "done", progress: 100, phase: null, errorMsg: null, outputPath: output_path }).catch(() => {});
@@ -411,6 +412,63 @@ export default function App() {
       .catch((e) => toast.error(`调整失败：${friendlyError(e)}`));
   };
 
+  // 打开下载文件所在目录：
+  // 1) 若有 output_path 且文件存在 → revealItemInDir 选中该文件
+  // 2) 文件不存在（用户已删除）或无 output_path → 回退打开设置里的下载目录 default_download_dir
+  // 3) 仍失败 → toast 提示
+  const handleOpenFolder = async (item: DownloadTask) => {
+    // 先尝试在资源管理器中选中下载好的文件
+    if (item.outputPath) {
+      try {
+        await revealItemInDir(item.outputPath);
+        return;
+      } catch {
+        // 文件可能已被用户删除，静默回退到下载目录
+      }
+    }
+    // 回退：打开设置中的下载目录
+    const dir = settings.default_download_dir;
+    if (!dir) {
+      toast.error("无法获取下载目录，请在设置中配置下载路径");
+      return;
+    }
+    try {
+      await openPath(dir);
+    } catch (e) {
+      toast.error(`打开目录失败：${friendlyError(e)}`);
+    }
+  };
+
+  // 点击封面进入视频详情页：用 bvid/epId 重建 URL → 调 parse_video 拿完整 videoInfo → 跳转
+  const handleOpenDetail = async (item: DownloadTask) => {
+    const url = item.epId
+      ? `https://www.bilibili.com/bangumi/play/ep${item.epId}`
+      : item.bvid
+      ? `https://www.bilibili.com/video/${item.bvid}`
+      : null;
+    if (!url) {
+      toast.error("无法获取视频信息");
+      return;
+    }
+    setIsParsing(true);
+    try {
+      const videoInfo = await invoke<ParsedVideoInfo>("parse_video", { urlStr: url });
+      setSelectedItem({
+        id: `dl-${item.id}`,
+        url,
+        title: videoInfo.title,
+        status: "pending",
+        videoInfo,
+      });
+      setPreviousView("downloads");
+      setCurrentView("detail");
+    } catch (e) {
+      toast.error(`打开详情失败：${friendlyError(e)}`);
+    } finally {
+      setIsParsing(false);
+    }
+  };
+
   // 详情页返回逻辑：回到来源页，保留其 state（来源页组件未被卸载）
   // 返回时保持当前页码（修复：原先强制回到第 1 页，丢失用户的分页位置）
   const handleDetailBack = () => {
@@ -453,7 +511,9 @@ export default function App() {
   }
 
   // Downloads view
-  if (currentView === "downloads") {
+  // detail 状态下若来源是 downloads，仍渲染下载列表页（被详情覆盖层遮挡），
+  // 返回时分页与列表 state 不丢失。
+  if (currentView === "downloads" || (currentView === "detail" && previousView === "downloads")) {
     return (
       <>
         <div className="flex flex-col h-screen bg-base text-ink">
@@ -483,6 +543,8 @@ export default function App() {
               onResume={handleResume}
               onRetry={handleRetry}
               onSetPriority={handleSetPriority}
+              onOpenFolder={handleOpenFolder}
+              onOpenDetail={handleOpenDetail}
               currentPage={downloadPage}
               totalCount={downloadTotal}
               onPageChange={loadDownloadPage}

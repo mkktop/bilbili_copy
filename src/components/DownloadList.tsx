@@ -9,6 +9,7 @@ import {
   ChevronUp,
   RotateCw,
   Clock,
+  FolderOpen,
 } from "lucide-react";
 import type { DownloadTask } from "../types";
 import { cn } from "../lib/utils";
@@ -23,6 +24,8 @@ interface DownloadListProps {
   onResume: (item: DownloadTask) => void;
   onRetry: (item: DownloadTask) => void;
   onSetPriority: (id: string, priority: number) => void;
+  onOpenFolder: (item: DownloadTask) => void;
+  onOpenDetail: (item: DownloadTask) => void;
   currentPage: number;
   totalCount: number;
   onPageChange: (page: number) => void;
@@ -101,6 +104,8 @@ export function DownloadList({
   onResume,
   onRetry,
   onSetPriority,
+  onOpenFolder,
+  onOpenDetail,
   currentPage,
   totalCount,
   onPageChange,
@@ -128,15 +133,21 @@ export function DownloadList({
             key={item.id}
             className="flex items-start gap-3 px-4 py-3 bg-panel border border-line rounded-lg"
           >
-            {/* 封面缩略图（无封面时回退文件图标） */}
+            {/* 封面缩略图（无封面时回退文件图标）；点击进入视频详情页 */}
             {item.pic ? (
               <img
                 src={item.pic}
                 alt={item.title}
-                className="w-24 h-16 rounded object-cover shrink-0 bg-panel-2"
+                title="查看详情"
+                onClick={() => onOpenDetail(item)}
+                className="w-24 h-16 rounded object-cover shrink-0 bg-panel-2 cursor-pointer hover:ring-2 hover:ring-blue-400 transition-all"
               />
             ) : (
-              <div className="w-10 h-10 rounded bg-panel-2 flex items-center justify-center shrink-0">
+              <div
+                title="查看详情"
+                onClick={() => onOpenDetail(item)}
+                className="w-24 h-16 rounded bg-panel-2 flex items-center justify-center shrink-0 cursor-pointer hover:ring-2 hover:ring-blue-400 transition-all"
+              >
                 <Download size={18} className="text-ink-3" />
               </div>
             )}
@@ -240,9 +251,16 @@ export function DownloadList({
               )}
 
               {item.status === "done" && (
-                <IconButton onClick={() => onRemove(item.id)} title="删除" danger>
-                  <X size={14} />
-                </IconButton>
+                <>
+                  {item.outputPath && (
+                    <IconButton onClick={() => onOpenFolder(item)} title="打开所在目录">
+                      <FolderOpen size={14} />
+                    </IconButton>
+                  )}
+                  <IconButton onClick={() => onRemove(item.id)} title="删除" danger>
+                    <X size={14} />
+                  </IconButton>
+                </>
               )}
 
               {item.status === "error" && (

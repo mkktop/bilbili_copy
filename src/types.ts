@@ -105,6 +105,8 @@ export interface DownloadTask {
   /** 合集名（恢复时作为 video_title 传入以重建下载目录） */
   videoTitle?: string;
   duration?: number;
+  /** 下载完成后的文件绝对路径（done 状态才有；用于「打开所在目录」） */
+  outputPath?: string;
 }
 
 /**
@@ -198,6 +200,7 @@ export function dbToDownloadTask(entry: DownloadHistoryEntry): DownloadTask {
     epId: entry.ep_id,
     quality: entry.quality ?? null,
     videoTitle: entry.video_title ?? undefined,
+    outputPath: entry.output_path ?? undefined,
   };
 }
 
