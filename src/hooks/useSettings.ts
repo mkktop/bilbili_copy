@@ -19,6 +19,9 @@ export interface AppSettings {
   audio_format: string;              // 默认 "m4a"
   // 主题模式 "light" | "dark" | "system"
   theme: string;                     // 默认 "light"
+  // 关闭窗口时最小化到系统托盘（后台继续下载）
+  close_to_tray: boolean;            // 默认 true
+  tray_hint_shown: boolean;          // 首次托盘提示是否已展示（前端只读）
   // 防风控 - 设备指纹
   fingerprint_gpu_preset: string;
   fingerprint_resolution_preset: string;
@@ -65,6 +68,8 @@ export function useSettings() {
     max_download_speed_kbps: 0,
     audio_format: "m4a",
     theme: "light",
+    close_to_tray: true,
+    tray_hint_shown: false,
     fingerprint_gpu_preset: "",
     fingerprint_resolution_preset: "",
     dm_img_str: "",

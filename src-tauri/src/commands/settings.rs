@@ -51,6 +51,11 @@ fn default_theme() -> String {
     "light".to_string()
 }
 
+/// 关闭窗口时是否最小化到系统托盘（默认开启）
+fn default_close_to_tray() -> bool {
+    true
+}
+
 // ---- 弹幕渲染（用户可见配置）----
 
 fn default_dm_font_size() -> u32 {
@@ -139,6 +144,12 @@ pub struct AppSettings {
     // 主题模式 "light" | "dark" | "system"
     #[serde(default = "default_theme")]
     pub theme: String,
+    // 关闭窗口时最小化到系统托盘（后台继续下载）
+    #[serde(default = "default_close_to_tray")]
+    pub close_to_tray: bool,
+    // 首次最小化到托盘的提示是否已展示过（仅一次）
+    #[serde(default)]
+    pub tray_hint_shown: bool,
     // 防风控 - 设备指纹
     #[serde(default)]
     pub fingerprint_gpu_preset: String,
@@ -205,6 +216,8 @@ impl Default for AppSettings {
             max_download_speed_kbps: 0,
             audio_format: default_audio_format(),
             theme: default_theme(),
+            close_to_tray: default_close_to_tray(),
+            tray_hint_shown: false,
             fingerprint_gpu_preset: String::new(),
             fingerprint_resolution_preset: String::new(),
             dm_img_str: String::new(),
@@ -252,6 +265,8 @@ impl From<LegacySettings> for AppSettings {
             max_download_speed_kbps: 0,
             audio_format: default_audio_format(),
             theme: default_theme(),
+            close_to_tray: default_close_to_tray(),
+            tray_hint_shown: false,
             fingerprint_gpu_preset: String::new(),
             fingerprint_resolution_preset: String::new(),
             dm_img_str: String::new(),
@@ -308,29 +323,44 @@ fn settings_path() -> PathBuf {
     exe_dir.join("settings.json")
 }
 
-#[tauri::command]
-pub fn get_settings() -> Result<AppSettings, String> {
+/// 读取当前设置（供 lib.rs 的窗口关闭拦截复用，避免重复实现解析逻辑）。
+/// 文件不存在或解析失败时返回默认值。
+pub fn load_settings() -> AppSettings {
     let path = settings_path();
     if !path.exists() {
-        return Ok(AppSettings::default());
+        return AppSettings::default();
     }
-    let content = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
-
-    // 先尝试新格式，失败则用旧格式迁移
+    let content = match std::fs::read_to_string(&path) {
+        Ok(c) => c,
+        Err(_) => return AppSettings::default(),
+    };
     match serde_json::from_str::<AppSettings>(&content) {
-        Ok(settings) => Ok(settings),
+        Ok(s) => s,
         Err(_) => {
-            log::info!("[settings] 检测到旧格式设置，执行迁移");
-            let legacy: LegacySettings =
-                serde_json::from_str(&content).map_err(|e| format!("设置解析失败: {}", e))?;
-            let migrated = AppSettings::from(legacy);
-            // 自动保存迁移后的新格式
-            if let Ok(new_content) = serde_json::to_string_pretty(&migrated) {
-                let _ = std::fs::write(&path, new_content);
-            }
-            Ok(migrated)
+            // 旧格式迁移
+            serde_json::from_str::<LegacySettings>(&content)
+                .map(AppSettings::from)
+                .unwrap_or_default()
         }
     }
+}
+
+/// 原子写回设置（tmp + rename，与 save_settings 命令一致）。
+pub fn store_settings(settings: &AppSettings) -> Result<(), String> {
+    let path = settings_path();
+    let content = serde_json::to_string_pretty(settings).map_err(|e| e.to_string())?;
+    let tmp_path = path.with_extension("json.tmp");
+    std::fs::write(&tmp_path, &content).map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp_path, &path).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp_path);
+        e.to_string()
+    })?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn get_settings() -> Result<AppSettings, String> {
+    Ok(load_settings())
 }
 
 #[tauri::command]
