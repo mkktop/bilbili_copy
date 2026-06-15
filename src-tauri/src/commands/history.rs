@@ -113,6 +113,24 @@ pub fn update_download_status(
     let conn = db.0.lock().map_err(|e| format!("获取数据库锁失败: {}", e))?;
     // u64 → i64 以适配 SQLite 的 INTEGER（实际文件大小远小于 i64 上限，转换安全）
     let size_i64 = size.map(|s| s as i64);
+
+    // 完成态迁移判定：当前状态非 done、新状态为 done → 累加统计一次。
+    // 这样重试/重复完成同一 id 不会重复计数，暂停→恢复→完成也只计一次。
+    if status == "done" {
+        let prev = db::get_download_row_status(&conn, &id)
+            .map_err(|e| format!("查询下载记录失败: {}", e))?;
+        // 仅当记录存在且原状态不是 done 时累加
+        if let Some((prev_status, _prev_size, prev_duration)) = prev {
+            if prev_status != "done" {
+                // size 取本次参数（最终文件大小），duration 取已落库的列值（提交时写入）
+                let sz = size.unwrap_or(0);
+                let dur = prev_duration.map(|d| d.max(0) as u64).unwrap_or(0);
+                db::increment_download_stats(&conn, sz, dur)
+                    .map_err(|e| format!("更新下载统计失败: {}", e))?;
+            }
+        }
+    }
+
     db::update_download(
         &conn,
         &id,
