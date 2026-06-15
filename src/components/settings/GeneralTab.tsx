@@ -1,10 +1,10 @@
 import { open } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
-import { FolderOpen, Check, Trash2, Sun, Moon, Monitor } from "lucide-react";
+import { FolderOpen, Check, Trash2, Sun, Moon, Monitor, Minimize2 } from "lucide-react";
 import { useState } from "react";
 import { useToast } from "../Toast";
 import { friendlyError } from "../../lib/errors";
-import { SettingCard, SegmentedControl } from "./shared";
+import { SettingCard, SegmentedControl, ToggleSwitch } from "./shared";
 
 interface GeneralTabProps {
   dir: string;
@@ -16,6 +16,8 @@ interface GeneralTabProps {
   onClearDownload?: () => void;
   theme: string;
   onThemeChange: (t: "light" | "dark" | "system") => void;
+  closeToTray: boolean;
+  onCloseToTrayChange: (v: boolean) => void;
 }
 
 export function GeneralTab({
@@ -28,6 +30,8 @@ export function GeneralTab({
   onClearDownload,
   theme,
   onThemeChange,
+  closeToTray,
+  onCloseToTrayChange,
 }: GeneralTabProps) {
   const [clearing, setClearing] = useState<"parse" | "download" | null>(null);
   const toast = useToast();
@@ -92,6 +96,25 @@ export function GeneralTab({
             value={theme === "dark" ? "dark" : theme === "system" ? "system" : "light"}
             onChange={onThemeChange}
           />
+        </SettingCard>
+      </section>
+
+      {/* 窗口与托盘 */}
+      <section className="space-y-2">
+        <header className="space-y-1">
+          <h3 className="text-sm font-medium text-ink-2">窗口与托盘</h3>
+          <p className="text-xs text-ink-3">关闭窗口时的行为与后台运行</p>
+        </header>
+        <SettingCard
+          icon={Minimize2}
+          title="关闭时最小化到托盘"
+          description={
+            closeToTray
+              ? "关闭窗口将最小化到系统托盘，下载任务在后台继续运行"
+              : "关闭窗口将直接退出应用，进行中的下载会被中断"
+          }
+        >
+          <ToggleSwitch checked={closeToTray} onChange={onCloseToTrayChange} />
         </SettingCard>
       </section>
 

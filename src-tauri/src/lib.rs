@@ -3,14 +3,15 @@ mod bilibili;
 mod db;
 mod download_manager;
 
-use commands::settings::{get_settings, save_settings, get_gpu_presets, get_resolution_presets, generate_fingerprint_cmd, generate_random_fingerprint};
+use commands::settings::{get_settings, save_settings, get_gpu_presets, get_resolution_presets, generate_fingerprint_cmd, generate_random_fingerprint, load_settings, store_settings};
+use tauri::Manager;
 use commands::video::parse_video;
 use commands::download::{download_video, pause_download, cancel_download, set_download_priority};
 use commands::login::{login_generate_qrcode, login_poll_qrcode, login_check, login_logout};
 use commands::risk_control::{captcha_register, captcha_validate};
 use commands::history::{
     get_parse_history, save_parse_history, delete_parse_history, get_parse_count, clear_parse_history, touch_parse_history,
-    get_download_history, save_download_entry, update_download_status, delete_download_history, get_download_count, clear_download_history,
+    get_download_history, save_download_entry, update_download_status, delete_download_history, get_download_count, clear_download_history, get_download_stats,
 };
 use commands::favorite::{get_favorite_folders, get_favorite_videos};
 use commands::watch_later::get_watch_later;
@@ -119,6 +120,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(db_state)
         .setup(|app| {
@@ -128,6 +130,53 @@ pub fn run() {
             tauri::async_runtime::spawn(async move {
                 manager().run_dispatcher(app_handle).await;
             });
+
+            // ==================== 系统托盘 ====================
+            // 关闭窗口时拦截 → 隐藏到托盘（后台下载继续）。托盘菜单提供「显示主窗口」「退出」。
+            use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
+            use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+
+            let show_i = MenuItem::with_id(app, "tray_show", "显示主窗口", true, None::<&str>)?;
+            let sep_i = PredefinedMenuItem::separator(app)?;
+            let quit_i = MenuItem::with_id(app, "tray_quit", "退出", true, None::<&str>)?;
+            let menu = Menu::with_items(app, &[&show_i, &sep_i, &quit_i])?;
+
+            let _tray = TrayIconBuilder::with_id("main-tray")
+                .icon(app.default_window_icon().cloned().expect("缺少窗口图标"))
+                .tooltip("BilbliCopy")
+                .menu(&menu)
+                .show_menu_on_left_click(false)
+                .on_menu_event(|app, event| match event.id.as_ref() {
+                    "tray_show" => {
+                        if let Some(w) = app.get_webview_window("main") {
+                            let _ = w.show();
+                            let _ = w.set_focus();
+                        }
+                    }
+                    "tray_quit" => {
+                        // 绕过 CloseRequested 拦截，真正退出
+                        app.exit(0);
+                    }
+                    _ => {}
+                })
+                .on_tray_icon_event(|tray, event| {
+                    // 左键单击 / 双击 → 显示窗口
+                    if let TrayIconEvent::Click {
+                        button: MouseButton::Left,
+                        button_state: MouseButtonState::Up,
+                        ..
+                    } | TrayIconEvent::DoubleClick {
+                        button: MouseButton::Left,
+                        ..
+                    } = event
+                    {
+                        if let Some(w) = tray.app_handle().get_webview_window("main") {
+                            let _ = w.show();
+                            let _ = w.set_focus();
+                        }
+                    }
+                })
+                .build(app)?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -154,9 +203,10 @@ pub fn run() {
             delete_parse_history,
             clear_parse_history,
             touch_parse_history,
-            get_download_history,
-            get_download_count,
-            save_download_entry,
+    get_download_history,
+    get_download_count,
+    get_download_stats,
+    save_download_entry,
             update_download_status,
             delete_download_history,
             clear_download_history,
@@ -180,6 +230,35 @@ pub fn run() {
             coin_video,
             favorite_video,
         ])
+        .on_window_event(|window, event| {
+            // 拦截主窗口关闭：根据设置决定是「最小化到托盘」还是「正常退出」。
+            // 下载调度器是独立后台任务，窗口隐藏后下载照常进行；
+            // 只有这里放行（不调 prevent_close）或托盘「退出」才会真正退出进程。
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                if window.label() != "main" {
+                    return;
+                }
+                let settings = load_settings();
+                if settings.close_to_tray {
+                    api.prevent_close();
+                    let _ = window.hide();
+
+                    // 首次最小化时弹一次系统通知，告知后台继续运行（之后不再提示）
+                    if !settings.tray_hint_shown {
+                        use tauri_plugin_notification::NotificationExt;
+                        let _ = window.app_handle().notification()
+                            .builder()
+                            .title("BilbliCopy 已最小化到托盘")
+                            .body("程序在后台继续运行，下载任务不会中断。点击托盘图标可恢复窗口。")
+                            .show();
+                        let mut s = settings;
+                        s.tray_hint_shown = true;
+                        let _ = store_settings(&s);
+                    }
+                }
+                // close_to_tray == false 时不阻止，窗口正常关闭 → 进程退出
+            }
+        })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
