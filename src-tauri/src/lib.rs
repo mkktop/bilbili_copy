@@ -10,7 +10,7 @@ use commands::login::{login_generate_qrcode, login_poll_qrcode, login_check, log
 use commands::risk_control::{captcha_register, captcha_validate};
 use commands::history::{
     get_parse_history, save_parse_history, delete_parse_history, get_parse_count, clear_parse_history, touch_parse_history,
-    get_download_history, save_download_entry, update_download_status, delete_download_history, get_download_count, clear_download_history,
+    get_download_history, save_download_entry, update_download_status, delete_download_history, get_download_count, clear_download_history, get_download_stats,
 };
 use commands::favorite::{get_favorite_folders, get_favorite_videos};
 use commands::watch_later::get_watch_later;
@@ -156,6 +156,7 @@ pub fn run() {
             touch_parse_history,
             get_download_history,
             get_download_count,
+            get_download_stats,
             save_download_entry,
             update_download_status,
             delete_download_history,
