@@ -1,14 +1,25 @@
-## v0.7.4 更新内容
+## v0.7.5 更新内容
 
-### 🐛 修复
+### ✨ 新功能
 
-- **视频详情页收藏操作失败**：在视频详情页对视频进行收藏时，提示"操作失败: 请求错误"。
-  - 根因：`bilibili/interaction.rs` 中 `favorite_video` 调用 `POST https://api.bilibili.com/x/v3/fav/resource/deal` 时，把表单字段名写成了 `oid` / `tid`（旧版/其它接口的字段名），但当前接口要求的字段是 `rid`（资源 ID）和 `add_media_ids`（要加入的收藏夹 media_id），服务端因缺少必填参数拒绝请求。
-  - 修复：将表单字段名修正为 `rid` 和 `add_media_ids`，同步更新函数注释。`like_video` / `coin_video` 的参数名本来正确，不受影响。
-  - 影响范围：仅视频详情页 `InteractionBar` 的「收藏」按钮。点赞、投币功能未受影响。
+- **下载统计面板**：顶部导航新增 📊 统计入口，进入独立「下载统计」视图，展示：
+  - **累计下载视频数**（已完成数量 + 全部记录数）
+  - **总大小**（已完成下载的总字节数，自动换算 B/KB/MB/GB）
+  - **总时长**（已完成下载的总时长，自动换算为 `Xh Ym` 形式）
+
+- **统计口径采用累加器**：下载完成时直接累加到独立的 `download_stats` 表，与下载历史解耦。
+  - **删除/清空下载列表中的视频，累计统计不会回退**——记录的是"曾经下载过多少"。
+  - 重试/重复完成同一视频只计一次（仅在状态从非 done 转为 done 时累加）。
+
+### 🗄️ 数据库变更
+
+- **v4 schema 迁移**：`download_history` 表新增 `size`（最终文件字节数）、`duration`（视频时长秒）两列。
+  - 下载完成时由 `std::fs::metadata` 计算最终文件大小落库；时长在提交下载时写入。
+- **v5 schema 迁移**：新建 `download_stats` 累加器表（单行）。
+  - 升级时自动把已有 `status='done'` 记录回填进累加器，历史数据不丢失。
+- 两步迁移均幂等（`column_exists` / `CREATE TABLE IF NOT EXISTS` 保护），老用户平滑升级。
 
 ### 📝 说明
 
-- 本次未改动数据库 schema，升级无数据迁移
-- 仅 Rust 后端一处文件改动（`src-tauri/src/bilibili/interaction.rs`），前端无变更
-- Windows: 下载 `.msi` 或 `.exe` 安装包覆盖安装，应用内自动更新将在后台推送
+- 影响：后端 `db.rs` / `commands/history.rs` / `bilibili/download.rs` / `download_manager.rs` / `lib.rs`；前端 `App.tsx` / `types.ts` / `lib/utils.ts` 及新组件 `StatsPanel.tsx`。
+- Windows: 下载 `.msi` 或 `.exe` 安装包覆盖安装，应用内自动更新将在后台推送。
