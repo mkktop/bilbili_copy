@@ -95,8 +95,8 @@ pub async fn coin_video(
 /// 收藏视频到指定收藏夹
 /// API: POST https://api.bilibili.com/x/v3/fav/resource/deal
 ///   type=2: 资源类型为视频
-///   oid: 视频 aid
-///   tid: 目标收藏夹 id（来自 get_user_favorite_folders）
+///   rid: 资源 id（视频 aid）
+///   add_media_ids: 目标收藏夹 media_id（来自 get_user_favorite_folders）
 pub async fn favorite_video(
     credential: &Credential,
     aid: i64,
@@ -106,8 +106,8 @@ pub async fn favorite_video(
         "https://api.bilibili.com/x/v3/fav/resource/deal",
         vec![
             ("type", "2".to_string()),
-            ("oid", aid.to_string()),
-            ("tid", folder_id.to_string()),
+            ("rid", aid.to_string()),
+            ("add_media_ids", folder_id.to_string()),
         ],
         credential,
     )
