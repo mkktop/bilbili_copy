@@ -15,11 +15,12 @@ import { ExplorePage } from "./components/ExplorePage";
 import { RankingPage } from "./components/RankingPage";
 import { RecommendPage } from "./components/RecommendPage";
 import { RegionPage } from "./components/RegionPage";
+import { StatsPanel } from "./components/StatsPanel";
 import { useToast } from "./components/Toast";
 import { useUpdate } from "./contexts/UpdateContext";
 import { useSettings } from "./hooks/useSettings";
 import { useLogin } from "./hooks/useLogin";
-import { Settings, Download, Search, Trophy, Sparkles, LayoutGrid, Sun, Moon } from "lucide-react";
+import { Settings, Download, Search, Trophy, Sparkles, LayoutGrid, Sun, Moon, BarChart3 } from "lucide-react";
 import type { AppSettings } from "./hooks/useSettings";
 import { useThemeApplier, type ThemeMode } from "./hooks/useTheme";
 import type { ParsedItem, DownloadTask, ParsedVideoInfo, ParseHistoryEntry, DownloadHistoryEntry, VideoMeta } from "./types";
@@ -27,7 +28,7 @@ import { dbToParsedItem, dbToDownloadTask } from "./types";
 import { friendlyError } from "./lib/errors";
 import { DOWNLOAD_PROGRESS_THROTTLE_MS } from "./lib/constants";
 
-type View = "main" | "settings" | "detail" | "downloads" | "profile" | "explore" | "ranking" | "recommend" | "region";
+type View = "main" | "settings" | "detail" | "downloads" | "stats" | "profile" | "explore" | "ranking" | "recommend" | "region";
 
 interface DownloadProgress {
   id: string;
@@ -40,6 +41,8 @@ interface DownloadProgress {
 interface DownloadComplete {
   id: string;
   output_path: string;
+  /** 最终文件字节数（统计用，后端在 finalize_outcome 中由 std::fs::metadata 计算） */
+  size: number;
 }
 
 interface DownloadError {
@@ -149,7 +152,7 @@ export default function App() {
         }),
         listen<DownloadComplete>("download://complete", (event) => {
           if (cancelled) return;
-          const { id, output_path } = event.payload;
+          const { id, output_path, size } = event.payload;
           downloadingIds.current.delete(id);
           lastProgressWrite.current.delete(id);
           setDownloads((prev) =>
@@ -157,7 +160,7 @@ export default function App() {
               d.id === id ? { ...d, status: "done" as const, progress: 100, outputPath: output_path } : d
             )
           );
-          invoke("update_download_status", { id, status: "done", progress: 100, phase: null, errorMsg: null, outputPath: output_path }).catch(() => {});
+          invoke("update_download_status", { id, status: "done", progress: 100, phase: null, errorMsg: null, outputPath: output_path, size }).catch(() => {});
         }),
         listen<DownloadError>("download://error", (event) => {
           if (cancelled) return;
@@ -310,6 +313,7 @@ export default function App() {
         error_msg: null, output_path: null,
         pic: pic ?? null, created_at: new Date().toISOString(),
         quality: null, video_title: videoTitle || null,
+        duration: duration ?? null,
       }
     }).catch(() => {});
 
@@ -556,6 +560,16 @@ export default function App() {
     );
   }
 
+  // Stats view
+  // detail 状态下若来源是 stats，仍渲染统计页（被详情覆盖层遮挡），返回时 state 不丢失。
+  if (currentView === "stats" || (currentView === "detail" && previousView === "stats")) {
+    return (
+      <>
+        <StatsPanel onBack={() => setCurrentView("main")} />
+        {detailOverlay}
+      </>
+    );
+  }
   // 注意：detail 视图不再独占渲染，而是作为覆盖层叠加在来源页之上，
   // 这样来源页（main/explore/profile）组件不会被卸载，返回时其 state（搜索结果、
   // UP 主投稿列表、收藏夹视频等）得以保留。详情覆盖层在最末尾渲染。
@@ -810,6 +824,15 @@ export default function App() {
               </span>
             )}
           </div>
+
+          {/* 统计入口 */}
+          <button
+            onClick={() => setCurrentView("stats")}
+            title="下载统计"
+            className="p-1 rounded-md text-ink-3 hover:text-ink-2 hover:bg-panel-2 transition-colors"
+          >
+            <BarChart3 size={16} />
+          </button>
 
           {/* 登录按钮 / 头像（最右边） */}
           {userInfo ? (

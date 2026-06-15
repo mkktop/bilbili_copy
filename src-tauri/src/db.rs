@@ -82,8 +82,23 @@ fn migrate_schema(conn: &Connection) -> anyhow::Result<()> {
         version = 3;
     }
 
-    if version > 3 {
-        log::warn!("[db] schema_version={} 高于当前代码已知的最新版本(3)", version);
+    // v4: download_history 增加 size（最终文件字节数）与 duration（视频时长秒）两列，
+    //     用于下载统计面板（累计下载视频数 / 总大小 / 总时长）。
+    if version < 4 {
+        if !column_exists(conn, "download_history", "size")? {
+            conn.execute("ALTER TABLE download_history ADD COLUMN size INTEGER", [])?;
+            log::info!("[db] 迁移 v4: 已为 download_history 添加 size 列");
+        }
+        if !column_exists(conn, "download_history", "duration")? {
+            conn.execute("ALTER TABLE download_history ADD COLUMN duration INTEGER", [])?;
+            log::info!("[db] 迁移 v4: 已为 download_history 添加 duration 列");
+        }
+        set_schema_version(conn, 4)?;
+        version = 4;
+    }
+
+    if version > 4 {
+        log::warn!("[db] schema_version={} 高于当前代码已知的最新版本(4)", version);
     }
     Ok(())
 }
@@ -133,6 +148,12 @@ pub struct DownloadHistoryEntry {
     /// 合集名/视频名（v3 schema 新增）：用于恢复时重建下载目录路径。旧记录为 None。
     #[serde(default)]
     pub video_title: Option<String>,
+    /// 最终文件字节数（v4 schema 新增）：下载完成时落库，用于统计总大小。旧记录/未完成为 None。
+    #[serde(default)]
+    pub size: Option<i64>,
+    /// 视频时长（秒，v4 schema 新增）：提交下载时写入，用于统计总时长。旧记录/未知为 None。
+    #[serde(default)]
+    pub duration: Option<i64>,
 }
 
 // ==================== CRUD ====================
@@ -204,8 +225,8 @@ pub fn clear_all_parses(conn: &Connection) -> anyhow::Result<()> {
 
 pub fn insert_download(conn: &Connection, entry: &DownloadHistoryEntry) -> anyhow::Result<()> {
     conn.execute(
-        "INSERT OR REPLACE INTO download_history (id, title, bvid, cid, ep_id, status, progress, phase, error_msg, output_path, pic, quality, video_title) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
-        params![entry.id, entry.title, entry.bvid, entry.cid, entry.ep_id, entry.status, entry.progress, entry.phase, entry.error_msg, entry.output_path, entry.pic, entry.quality, entry.video_title],
+        "INSERT OR REPLACE INTO download_history (id, title, bvid, cid, ep_id, status, progress, phase, error_msg, output_path, pic, quality, video_title, size, duration) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+        params![entry.id, entry.title, entry.bvid, entry.cid, entry.ep_id, entry.status, entry.progress, entry.phase, entry.error_msg, entry.output_path, entry.pic, entry.quality, entry.video_title, entry.size, entry.duration],
     )?;
     Ok(())
 }
@@ -218,17 +239,18 @@ pub fn update_download(
     phase: Option<&str>,
     error_msg: Option<&str>,
     output_path: Option<&str>,
+    size: Option<i64>,
 ) -> anyhow::Result<()> {
     conn.execute(
-        "UPDATE download_history SET status = ?1, progress = COALESCE(?2, progress), phase = COALESCE(?3, phase), error_msg = COALESCE(?4, error_msg), output_path = COALESCE(?5, output_path) WHERE id = ?6",
-        params![status, progress, phase, error_msg, output_path, id],
+        "UPDATE download_history SET status = ?1, progress = COALESCE(?2, progress), phase = COALESCE(?3, phase), error_msg = COALESCE(?4, error_msg), output_path = COALESCE(?5, output_path), size = COALESCE(?6, size) WHERE id = ?7",
+        params![status, progress, phase, error_msg, output_path, size, id],
     )?;
     Ok(())
 }
 
 pub fn get_all_downloads(conn: &Connection, limit: u32, offset: u32) -> anyhow::Result<Vec<DownloadHistoryEntry>> {
     let mut stmt = conn.prepare(
-        "SELECT id, title, bvid, cid, ep_id, status, progress, phase, error_msg, output_path, pic, created_at, quality, video_title FROM download_history ORDER BY created_at DESC LIMIT ?1 OFFSET ?2",
+        "SELECT id, title, bvid, cid, ep_id, status, progress, phase, error_msg, output_path, pic, created_at, quality, video_title, size, duration FROM download_history ORDER BY created_at DESC LIMIT ?1 OFFSET ?2",
     )?;
     let rows = stmt.query_map(params![limit, offset], |row| {
         Ok(DownloadHistoryEntry {
@@ -246,6 +268,8 @@ pub fn get_all_downloads(conn: &Connection, limit: u32, offset: u32) -> anyhow::
             created_at: row.get(11)?,
             quality: row.get(12)?,
             video_title: row.get(13)?,
+            size: row.get(14)?,
+            duration: row.get(15)?,
         })
     })?;
     Ok(rows.filter_map(|r| r.ok()).collect())
@@ -254,6 +278,39 @@ pub fn get_all_downloads(conn: &Connection, limit: u32, offset: u32) -> anyhow::
 pub fn count_downloads(conn: &Connection) -> anyhow::Result<u32> {
     let count: u32 = conn.query_row("SELECT COUNT(*) FROM download_history", [], |r| r.get(0))?;
     Ok(count)
+}
+
+/// 下载统计聚合（供统计面板使用）。
+/// 大小/时长仅累加 status='done' 的记录；total_count 为全部记录数。
+#[derive(Debug, Clone, Serialize)]
+pub struct DownloadStats {
+    /// 全部下载记录数
+    pub total_count: u32,
+    /// 已完成（status='done'）的记录数
+    pub done_count: u32,
+    /// 已完成记录的总字节数
+    pub done_size: u64,
+    /// 已完成记录的总时长（秒）
+    pub done_duration: u64,
+}
+
+pub fn download_stats(conn: &Connection) -> anyhow::Result<DownloadStats> {
+    // 总数（含未完成）
+    let total_count: u32 =
+        conn.query_row("SELECT COUNT(*) FROM download_history", [], |r| r.get(0))?;
+    // 仅聚合已完成项：NULL 的 size/duration 视为 0
+    let (done_count, done_size, done_duration): (u32, u64, u64) = conn.query_row(
+        "SELECT COUNT(*), COALESCE(SUM(size), 0), COALESCE(SUM(duration), 0) \
+         FROM download_history WHERE status = 'done'",
+        [],
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+    )?;
+    Ok(DownloadStats {
+        total_count,
+        done_count,
+        done_size,
+        done_duration,
+    })
 }
 
 pub fn delete_download(conn: &Connection, id: &str) -> anyhow::Result<()> {
@@ -296,7 +353,9 @@ CREATE TABLE IF NOT EXISTS download_history (
     pic TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     quality INTEGER,
-    video_title TEXT
+    video_title TEXT,
+    size INTEGER,
+    duration INTEGER
 );
 
 CREATE INDEX IF NOT EXISTS idx_download_created ON download_history(created_at DESC);
@@ -444,6 +503,8 @@ mod tests {
             created_at: "2026-06-14T00:00:00Z".into(),
             quality: Some(80),
             video_title: Some("合集名".into()),
+            size: None,
+            duration: Some(360),
         }
     }
 }
