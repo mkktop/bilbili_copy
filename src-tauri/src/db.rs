@@ -97,8 +97,27 @@ fn migrate_schema(conn: &Connection) -> anyhow::Result<()> {
         version = 4;
     }
 
-    if version > 4 {
-        log::warn!("[db] schema_version={} 高于当前代码已知的最新版本(4)", version);
+    // v5: 新建 download_stats 累加器表（单行，id=1）。
+    //     统计独立于 download_history，删除/清空下载历史不影响累计值。
+    //     迁移时把已有 status='done' 记录回填进累加器，避免历史数据丢失。
+    if version < 5 {
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS download_stats (
+                id INTEGER PRIMARY KEY,
+                done_count INTEGER NOT NULL DEFAULT 0,
+                done_size INTEGER NOT NULL DEFAULT 0,
+                done_duration INTEGER NOT NULL DEFAULT 0
+            )",
+            [],
+        )?;
+        backfill_download_stats(conn)?;
+        log::info!("[db] 迁移 v5: 已创建 download_stats 累加器表并回填");
+        set_schema_version(conn, 5)?;
+        version = 5;
+    }
+
+    if version > 5 {
+        log::warn!("[db] schema_version={} 高于当前代码已知的最新版本(5)", version);
     }
     Ok(())
 }
@@ -248,6 +267,24 @@ pub fn update_download(
     Ok(())
 }
 
+/// 读取一行下载记录的 status / size / duration（完成判定与累加统计用）。
+/// 行不存在时返回 None。
+pub fn get_download_row_status(
+    conn: &Connection,
+    id: &str,
+) -> anyhow::Result<Option<(String, Option<i64>, Option<i64>)>> {
+    let row = conn.query_row(
+        "SELECT status, size, duration FROM download_history WHERE id = ?1",
+        params![id],
+        |r| Ok((r.get::<_, String>(0)?, r.get::<_, Option<i64>>(1)?, r.get::<_, Option<i64>>(2)?)),
+    );
+    match row {
+        Ok(v) => Ok(Some(v)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) => Err(e.into()),
+    }
+}
+
 pub fn get_all_downloads(conn: &Connection, limit: u32, offset: u32) -> anyhow::Result<Vec<DownloadHistoryEntry>> {
     let mut stmt = conn.prepare(
         "SELECT id, title, bvid, cid, ep_id, status, progress, phase, error_msg, output_path, pic, created_at, quality, video_title, size, duration FROM download_history ORDER BY created_at DESC LIMIT ?1 OFFSET ?2",
@@ -281,36 +318,79 @@ pub fn count_downloads(conn: &Connection) -> anyhow::Result<u32> {
 }
 
 /// 下载统计聚合（供统计面板使用）。
-/// 大小/时长仅累加 status='done' 的记录；total_count 为全部记录数。
+/// done_count/done_size/done_duration 来自 download_stats 累加器（单行 id=1），
+/// 与 download_history 解耦——删除/清空下载历史不影响累计值。
+/// total_count 为当前 download_history 记录数（与下载列表分页计数一致）。
 #[derive(Debug, Clone, Serialize)]
 pub struct DownloadStats {
-    /// 全部下载记录数
+    /// 当前下载记录数（含未完成，对应列表总数）
     pub total_count: u32,
-    /// 已完成（status='done'）的记录数
+    /// 累计已完成下载次数（累加器，删除列表项不回退）
     pub done_count: u32,
-    /// 已完成记录的总字节数
+    /// 累计已完成下载总字节数（累加器）
     pub done_size: u64,
-    /// 已完成记录的总时长（秒）
+    /// 累计已完成下载总时长（秒，累加器）
     pub done_duration: u64,
 }
 
+/// 读取统计：total_count 取实时记录数，done_* 取累加器。
+/// 累加器行不存在时（理论上不会发生，迁移已创建）返回 0。
 pub fn download_stats(conn: &Connection) -> anyhow::Result<DownloadStats> {
-    // 总数（含未完成）
     let total_count: u32 =
         conn.query_row("SELECT COUNT(*) FROM download_history", [], |r| r.get(0))?;
-    // 仅聚合已完成项：NULL 的 size/duration 视为 0
-    let (done_count, done_size, done_duration): (u32, u64, u64) = conn.query_row(
-        "SELECT COUNT(*), COALESCE(SUM(size), 0), COALESCE(SUM(duration), 0) \
-         FROM download_history WHERE status = 'done'",
-        [],
-        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
-    )?;
+    let (done_count, done_size, done_duration): (u32, u64, u64) = conn
+        .query_row(
+            "SELECT done_count, done_size, done_duration FROM download_stats WHERE id = 1",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .unwrap_or((0, 0, 0));
     Ok(DownloadStats {
         total_count,
         done_count,
         done_size,
         done_duration,
     })
+}
+
+/// 下载完成时累加统计（done_count += 1，size/duration 累加）。
+/// 幂等前提：仅在状态真正转为 done 时由上层调用一次，不在此处去重。
+pub fn increment_download_stats(
+    conn: &Connection,
+    size: u64,
+    duration: u64,
+) -> anyhow::Result<()> {
+    conn.execute(
+        "INSERT INTO download_stats (id, done_count, done_size, done_duration) VALUES (1, 1, ?1, ?2) \
+         ON CONFLICT(id) DO UPDATE SET \
+            done_count = done_count + 1, \
+            done_size = done_size + ?1, \
+            done_duration = done_duration + ?2",
+        params![size, duration],
+    )?;
+    Ok(())
+}
+
+/// 一次性回填：把 download_history 中已有 status='done' 的记录汇总写入累加器。
+/// 仅在 v5 迁移时调用，保证历史已完成下载不丢失统计。
+fn backfill_download_stats(conn: &Connection) -> anyhow::Result<()> {
+    let (done_count, done_size, done_duration): (u32, u64, u64) = conn
+        .query_row(
+            "SELECT COUNT(*), COALESCE(SUM(size), 0), COALESCE(SUM(duration), 0) \
+             FROM download_history WHERE status = 'done'",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .unwrap_or((0, 0, 0));
+    conn.execute(
+        "INSERT INTO download_stats (id, done_count, done_size, done_duration) VALUES (1, ?1, ?2, ?3) \
+         ON CONFLICT(id) DO UPDATE SET \
+            done_count = excluded.done_count, \
+            done_size = excluded.done_size, \
+            done_duration = excluded.done_duration",
+        params![done_count, done_size, done_duration],
+    )?;
+    Ok(())
 }
 
 pub fn delete_download(conn: &Connection, id: &str) -> anyhow::Result<()> {
@@ -356,6 +436,13 @@ CREATE TABLE IF NOT EXISTS download_history (
     video_title TEXT,
     size INTEGER,
     duration INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS download_stats (
+    id INTEGER PRIMARY KEY,
+    done_count INTEGER NOT NULL DEFAULT 0,
+    done_size INTEGER NOT NULL DEFAULT 0,
+    done_duration INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS idx_download_created ON download_history(created_at DESC);
