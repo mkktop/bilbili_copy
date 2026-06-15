@@ -104,6 +104,9 @@ pub struct DownloadParams {
     /// 字幕库模式：跳过视频下载，仅下载字幕（可选附加弹幕）。
     /// 单任务选项，不持久化到 DB（恢复/重试按普通视频下载处理）。
     pub subtitle_only: bool,
+    /// 仅音频模式：跳过视频下载，只下载音频流并封装为 .m4a/.mp3。
+    /// 单任务选项，不持久化到 DB。与 subtitle_only 互斥（subtitle_only 优先）。
+    pub audio_only: bool,
     /// NFO 元数据快照（前端透传，用于生成 .nfo 和下载封面）。None = 不生成 NFO。
     pub video_meta: Option<VideoMeta>,
 }

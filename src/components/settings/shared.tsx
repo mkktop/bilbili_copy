@@ -112,3 +112,59 @@ export function ToggleSwitch({
     </button>
   );
 }
+
+/// 数字输入控件：带单位后缀 + 「无限制」开关。
+/// 无限制开关开启时 value=0 且输入框禁用；关闭时启用输入框。
+export function NumberInput({
+  value,
+  onChange,
+  unit,
+  min = 0,
+  step = 1,
+  placeholder,
+  unlimitedLabel = "无限制",
+}: {
+  value: number;
+  onChange: (v: number) => void;
+  unit?: string;
+  min?: number;
+  step?: number;
+  placeholder?: string;
+  unlimitedLabel?: string;
+}) {
+  const unlimited = value === 0;
+  return (
+    <div className="inline-flex items-center gap-2">
+      <input
+        type="number"
+        value={unlimited ? "" : value}
+        onChange={(e) => {
+          const n = Number(e.target.value);
+          onChange(Number.isFinite(n) && n > 0 ? Math.floor(n) : 0);
+        }}
+        disabled={unlimited}
+        min={min}
+        step={step}
+        placeholder={placeholder}
+        className={cn(
+          "w-24 px-2.5 py-1.5 text-xs rounded-md border bg-white text-gray-700 transition-colors",
+          unlimited
+            ? "border-gray-200 text-gray-300 cursor-not-allowed bg-gray-50"
+            : "border-gray-200 focus:border-blue-300 focus:ring-1 focus:ring-blue-300 outline-none"
+        )}
+      />
+      {unit && <span className="text-xs text-gray-400">{unit}</span>}
+      <button
+        onClick={() => onChange(unlimited ? (min > 0 ? min : 1) : 0)}
+        className={cn(
+          "px-2 py-1 text-xs rounded-md border transition-colors",
+          unlimited
+            ? "bg-blue-50 border-blue-300 text-blue-600"
+            : "bg-white border-gray-200 text-gray-500 hover:bg-gray-50"
+        )}
+      >
+        {unlimitedLabel}
+      </button>
+    </div>
+  );
+}

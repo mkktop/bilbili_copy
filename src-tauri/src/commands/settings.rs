@@ -37,6 +37,11 @@ fn default_parallel_threads() -> usize {
     4
 }
 
+/// 仅音频下载的默认输出格式（m4a = 无损封装，mp3 = 转码）
+fn default_audio_format() -> String {
+    "m4a".to_string()
+}
+
 fn default_request_delay_ms() -> u64 {
     0
 }
@@ -120,6 +125,12 @@ pub struct AppSettings {
     pub max_pages_per_video: usize,
     #[serde(default = "default_parallel_threads")]
     pub parallel_threads: usize,
+    // 下载限速（KB/s，0 = 无限制）
+    #[serde(default)]
+    pub max_download_speed_kbps: u64,
+    // 仅音频下载输出格式 "m4a" | "mp3"
+    #[serde(default = "default_audio_format")]
+    pub audio_format: String,
     // 防风控 - 设备指纹
     #[serde(default)]
     pub fingerprint_gpu_preset: String,
@@ -183,6 +194,8 @@ impl Default for AppSettings {
             max_concurrent_downloads: default_max_concurrent_downloads(),
             max_pages_per_video: default_max_pages_per_video(),
             parallel_threads: default_parallel_threads(),
+            max_download_speed_kbps: 0,
+            audio_format: default_audio_format(),
             fingerprint_gpu_preset: String::new(),
             fingerprint_resolution_preset: String::new(),
             dm_img_str: String::new(),
@@ -227,6 +240,8 @@ impl From<LegacySettings> for AppSettings {
             max_concurrent_downloads: default_max_concurrent_downloads(),
             max_pages_per_video: default_max_pages_per_video(),
             parallel_threads: default_parallel_threads(),
+            max_download_speed_kbps: 0,
+            audio_format: default_audio_format(),
             fingerprint_gpu_preset: String::new(),
             fingerprint_resolution_preset: String::new(),
             dm_img_str: String::new(),

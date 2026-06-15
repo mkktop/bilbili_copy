@@ -22,6 +22,7 @@ interface VideoDetailProps {
     duration?: number,
     pic?: string,
     subtitleOnly?: boolean,
+    audioOnly?: boolean,
     videoMeta?: VideoMeta
   ) => void;
 }
@@ -33,6 +34,7 @@ export function VideoDetail({ entry, onBack, onDownload }: VideoDetailProps) {
   const [episodeTab, setEpisodeTab] = useState<EpisodeTab>("main");
   const [sortAsc, setSortAsc] = useState(true);
   const [subtitleOnly, setSubtitleOnly] = useState(false);
+  const [audioOnly, setAudioOnly] = useState(false);
 
   if (!info) {
     return (
@@ -98,7 +100,7 @@ export function VideoDetail({ entry, onBack, onDownload }: VideoDetailProps) {
       const p = info.pages[0];
       const pageBvid = p.bvid || info.bvid;
       const pageEpId = p.ep_id || info.ep_id;
-      onDownload(entry.id, pageBvid, p.cid, info.title, folderName, pageEpId, p.duration, info.pic, subtitleOnly, buildMeta(info.title, p.duration));
+      onDownload(entry.id, pageBvid, p.cid, info.title, folderName, pageEpId, p.duration, info.pic, subtitleOnly, audioOnly, buildMeta(info.title, p.duration));
       ids.push(entry.id);
     } else {
       selectedPages.forEach((page) => {
@@ -108,7 +110,7 @@ export function VideoDetail({ entry, onBack, onDownload }: VideoDetailProps) {
           const pageEpId = p.ep_id || info.ep_id;
           const title = `P${p.page} ${p.part}`;
           const id = `${entry.id}_P${p.page}`;
-          onDownload(id, pageBvid, p.cid, title, folderName, pageEpId, p.duration, info.pic, subtitleOnly, buildMeta(title, p.duration));
+          onDownload(id, pageBvid, p.cid, title, folderName, pageEpId, p.duration, info.pic, subtitleOnly, audioOnly, buildMeta(title, p.duration));
           ids.push(id);
         }
       });
@@ -324,18 +326,27 @@ export function VideoDetail({ entry, onBack, onDownload }: VideoDetailProps) {
 
       {/* 底部固定下载按钮 */}
       <div className="px-6 py-3 bg-white border-t border-gray-200 space-y-2">
-        {/* 字幕库模式勾选框：跳过视频下载，仅下载字幕（可选附加弹幕） */}
-        <label className="flex items-center gap-2 cursor-pointer select-none py-1">
-          <input
-            type="checkbox"
-            checked={subtitleOnly}
-            onChange={(e) => setSubtitleOnly(e.target.checked)}
-            className="h-4 w-4 rounded border-gray-300 text-blue-500 focus:ring-blue-300 cursor-pointer"
-          />
-          <span className="text-xs text-gray-600">
-            仅下载字幕（字幕库模式，不下视频）
-          </span>
-        </label>
+        {/* 模式选择：仅字幕 / 仅音频（互斥） */}
+        <div className="flex items-center gap-4 py-1">
+          <label className="flex items-center gap-2 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={subtitleOnly}
+              onChange={(e) => { setSubtitleOnly(e.target.checked); if (e.target.checked) setAudioOnly(false); }}
+              className="h-4 w-4 rounded border-gray-300 text-blue-500 focus:ring-blue-300 cursor-pointer"
+            />
+            <span className="text-xs text-gray-600">仅下载字幕</span>
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={audioOnly}
+              onChange={(e) => { setAudioOnly(e.target.checked); if (e.target.checked) setSubtitleOnly(false); }}
+              className="h-4 w-4 rounded border-gray-300 text-blue-500 focus:ring-blue-300 cursor-pointer"
+            />
+            <span className="text-xs text-gray-600">仅下载音频</span>
+          </label>
+        </div>
         <button
           onClick={handleDownload}
           disabled={!hasSelection || isSingleDownloaded || isAllDownloaded}
@@ -353,9 +364,13 @@ export function VideoDetail({ entry, onBack, onDownload }: VideoDetailProps) {
               ? isMultiPage
                 ? `仅下载字幕 (${selectedPages.size}P)`
                 : "仅下载字幕"
-              : isMultiPage
-                ? `下载选中 (${selectedPages.size}P)`
-                : "开始下载"}
+              : audioOnly
+                ? isMultiPage
+                  ? `仅下载音频 (${selectedPages.size}P)`
+                  : "仅下载音频"
+                : isMultiPage
+                  ? `下载选中 (${selectedPages.size}P)`
+                  : "开始下载"}
         </button>
       </div>
     </div>

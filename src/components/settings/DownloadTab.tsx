@@ -1,5 +1,5 @@
-import { Download, Zap, Layers, Server, FileText, Sliders } from "lucide-react";
-import { SettingCard, SegmentedControl, ToggleRow, ToggleSwitch } from "./shared";
+import { Download, Zap, Layers, Server, FileText, Sliders, GaugeCircle, Music } from "lucide-react";
+import { SettingCard, SegmentedControl, ToggleRow, ToggleSwitch, NumberInput } from "./shared";
 
 interface DownloadTabProps {
   maxConcurrentDownloads: number;
@@ -8,6 +8,12 @@ interface DownloadTabProps {
   onMaxPagesPerVideoChange: (v: number) => void;
   parallelThreads: number;
   onParallelThreadsChange: (v: number) => void;
+  // 下载限速（KB/s，0 = 无限制）
+  maxDownloadSpeedKbps: number;
+  onMaxDownloadSpeedKbpsChange: (v: number) => void;
+  // 仅音频输出格式
+  audioFormat: string;
+  onAudioFormatChange: (v: string) => void;
   // NFO 元数据刮削
   downloadNfo: boolean;
   onDownloadNfoChange: (v: boolean) => void;
@@ -32,6 +38,10 @@ export function DownloadTab({
   onMaxPagesPerVideoChange,
   parallelThreads,
   onParallelThreadsChange,
+  maxDownloadSpeedKbps,
+  onMaxDownloadSpeedKbpsChange,
+  audioFormat,
+  onAudioFormatChange,
   downloadNfo,
   onDownloadNfoChange,
   nfoIncludeGenre,
@@ -86,6 +96,21 @@ export function DownloadTab({
       </SettingCard>
 
       <SettingCard
+        icon={GaugeCircle}
+        title="下载限速"
+        description="所有下载任务合计的速度上限，避免占满家庭带宽。设为「无限制」则不限速。"
+      >
+        <NumberInput
+          value={maxDownloadSpeedKbps}
+          onChange={onMaxDownloadSpeedKbpsChange}
+          unit="KB/s"
+          min={100}
+          step={100}
+          placeholder="如 1024"
+        />
+      </SettingCard>
+
+      <SettingCard
         icon={Server}
         title="自动优化"
         description={
@@ -99,6 +124,22 @@ export function DownloadTab({
         <span className="text-xs text-green-600 font-medium">
           ✓ 已默认开启，无需手动配置
         </span>
+      </SettingCard>
+
+      {/* 仅音频下载 - 输出格式 */}
+      <SettingCard
+        icon={Music}
+        title="仅音频输出格式"
+        description="详情页勾选「仅下载音频」时的输出格式。m4a 为无损封装（保留原始 AAC），mp3 为转码（兼容老旧设备，有轻微音质损失）。"
+      >
+        <SegmentedControl
+          options={[
+            { value: "m4a", label: "M4A（无损）" },
+            { value: "mp3", label: "MP3（转码）" },
+          ]}
+          value={audioFormat}
+          onChange={onAudioFormatChange}
+        />
       </SettingCard>
 
       {/* NFO 元数据刮削区块标题 */}

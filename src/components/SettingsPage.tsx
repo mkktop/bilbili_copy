@@ -30,6 +30,8 @@ export function SettingsPage({ settings, onSave, onBack, onClearParse, onClearDo
   const [maxConcurrentDownloads, setMaxConcurrentDownloads] = useState(settings.max_concurrent_downloads);
   const [maxPagesPerVideo, setMaxPagesPerVideo] = useState(settings.max_pages_per_video);
   const [parallelThreads, setParallelThreads] = useState(settings.parallel_threads);
+  const [maxDownloadSpeedKbps, setMaxDownloadSpeedKbps] = useState(settings.max_download_speed_kbps);
+  const [audioFormat, setAudioFormat] = useState(settings.audio_format);
   // 防风控
   const [gpuPreset, setGpuPreset] = useState(settings.fingerprint_gpu_preset);
   const [resolutionPreset, setResolutionPreset] = useState(settings.fingerprint_resolution_preset);
@@ -67,6 +69,8 @@ export function SettingsPage({ settings, onSave, onBack, onClearParse, onClearDo
     setMaxConcurrentDownloads(settings.max_concurrent_downloads);
     setMaxPagesPerVideo(settings.max_pages_per_video);
     setParallelThreads(settings.parallel_threads);
+    setMaxDownloadSpeedKbps(settings.max_download_speed_kbps);
+    setAudioFormat(settings.audio_format);
     setGpuPreset(settings.fingerprint_gpu_preset);
     setResolutionPreset(settings.fingerprint_resolution_preset);
     setDmImgStr(settings.dm_img_str);
@@ -102,6 +106,8 @@ export function SettingsPage({ settings, onSave, onBack, onClearParse, onClearDo
         max_concurrent_downloads: maxConcurrentDownloads,
         max_pages_per_video: maxPagesPerVideo,
         parallel_threads: parallelThreads,
+        max_download_speed_kbps: maxDownloadSpeedKbps,
+        audio_format: audioFormat,
         fingerprint_gpu_preset: gpuPreset,
         fingerprint_resolution_preset: resolutionPreset,
         dm_img_str: dmImgStr,
@@ -207,6 +213,10 @@ export function SettingsPage({ settings, onSave, onBack, onClearParse, onClearDo
             onMaxPagesPerVideoChange={(v) => { setMaxPagesPerVideo(v); setSaved(false); }}
             parallelThreads={parallelThreads}
             onParallelThreadsChange={(v) => { setParallelThreads(v); setSaved(false); }}
+            maxDownloadSpeedKbps={maxDownloadSpeedKbps}
+            onMaxDownloadSpeedKbpsChange={(v) => { setMaxDownloadSpeedKbps(v); setSaved(false); }}
+            audioFormat={audioFormat}
+            onAudioFormatChange={(v) => { setAudioFormat(v); setSaved(false); }}
             downloadNfo={downloadNfo}
             onDownloadNfoChange={(v) => { setDownloadNfo(v); setSaved(false); }}
             nfoIncludeGenre={nfoIncludeGenre}

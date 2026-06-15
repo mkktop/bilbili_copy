@@ -1,5 +1,6 @@
 use tauri::Emitter;
 use crate::bilibili::credential::Credential;
+use crate::bilibili::throttle;
 use crate::bilibili::{USER_AGENT, REFERER};
 use anyhow::{Context, Result};
 use once_cell::sync::Lazy;
@@ -372,6 +373,7 @@ pub async fn download_stream(
     stream_label: &str,
     parallel_threads: usize,
     fingerprint: &str,
+    max_bps: u64,
     cancel: &CancellationToken,
 ) -> Result<PathBuf> {
     let client = download_client()?;
@@ -433,6 +435,7 @@ pub async fn download_stream(
                 existing_size,
                 effective_threads,
                 fingerprint,
+                max_bps,
                 parallel_resume.clone(),
                 cancel,
             )
@@ -506,6 +509,7 @@ async fn download_file(
     existing_size: u64,
     parallel_threads: usize,
     fingerprint: &str,
+    max_bps: u64,
     parallel_resume: Option<ParallelResume>,
     cancel: &CancellationToken,
 ) -> Result<()> {
@@ -560,7 +564,7 @@ async fn download_file(
 
         match download_parallel(
             client, app, url, credential, temp_path, download_id, stream_label,
-            total_size, parallel_threads, fingerprint, pr, cancel,
+            total_size, parallel_threads, fingerprint, max_bps, pr, cancel,
         ).await {
             Ok(()) => return Ok(()),
             Err(e) => {
@@ -581,7 +585,7 @@ async fn download_file(
     if !temp_path.with_extension("meta").exists() {
         write_meta_single(temp_path, fingerprint);
     }
-    download_single(client, app, download_id, url, credential, temp_path, stream_label, resume_from, cancel).await
+    download_single(client, app, download_id, url, credential, temp_path, stream_label, resume_from, max_bps, cancel).await
 }
 
 /// 探测 Range 支持和文件大小
@@ -662,6 +666,7 @@ async fn download_parallel(
     total_size: u64,
     threads: usize,
     fingerprint: &str,
+    max_bps: u64,
     parallel_resume: Option<ParallelResume>,
     cancel: &CancellationToken,
 ) -> Result<()> {
@@ -773,7 +778,7 @@ async fn download_parallel(
                 let bytes = download_range_segment(
                     &client, &url, &cookie, &temp_path, start, end, seg_idx,
                     &download_id, &stream_label, &downloaded_counter, &last_report,
-                    total_for_progress, &app, &cancel,
+                    total_for_progress, &app, max_bps, &cancel,
                 )
                 .await?;
 
@@ -826,6 +831,7 @@ async fn download_range_segment(
     last_report: &Arc<std::sync::atomic::AtomicU64>,
     total_size: u64,
     app: &AppHandle,
+    max_bps: u64,
     cancel: &CancellationToken,
 ) -> Result<u64> {
     let range_header = format!("bytes={}-{}", start, end);
@@ -863,6 +869,8 @@ async fn download_range_segment(
         // 取消检查：每读一个 chunk 检查一次（开销仅一次原子读）
         check_cancel(cancel, "download_range_segment chunk")?;
         let chunk = chunk.context(format!("分片#{} 读取失败", seg_idx))?;
+        // 全局限速：写入前申请字节额度（max_bps=0 时零开销直接返回）
+        throttle::global_limiter().acquire(chunk.len() as u64, max_bps).await;
         file.write_all(&chunk).await?;
         segment_downloaded += chunk.len() as u64;
 
@@ -908,6 +916,7 @@ async fn download_single(
     temp_path: &Path,
     stream_label: &str,
     resume_from: u64, // Feature 5: 断点续传起始位置
+    max_bps: u64,
     cancel: &CancellationToken,
 ) -> Result<()> {
     let url_host = url.split('/').nth(2).unwrap_or("unknown");
@@ -976,6 +985,8 @@ async fn download_single(
         // 取消检查：每读一个 chunk 检查一次（开销仅一次原子读）
         check_cancel(cancel, "download_single chunk")?;
         let chunk = chunk.context("读取流数据失败")?;
+        // 全局限速：写入前申请字节额度（max_bps=0 时零开销直接返回）
+        throttle::global_limiter().acquire(chunk.len() as u64, max_bps).await;
         file.write_all(&chunk).await.context("写入临时文件失败")?;
         downloaded += chunk.len() as u64;
 
@@ -1085,6 +1096,64 @@ pub async fn remux_to_mp4(
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         anyhow::bail!("ffmpeg转封装失败: {}", stderr);
+    }
+
+    Ok(())
+}
+
+/// 仅音频下载：用 ffmpeg 将 B站 DASH 音频流（m4s/fMP4）封装为 .m4a 或转码为 .mp3。
+///
+/// @param format "m4a" = 无损封装（-c copy，保留原始 AAC）；"mp3" = 转码（libmp3lame VBR ~190kbps）
+pub async fn remux_audio(
+    input_path: &Path,
+    output_path: &Path,
+    format: &str,
+) -> Result<()> {
+    validate_temp_file(input_path, "音频").await?;
+
+    let ffmpeg = resolve_ffmpeg_path();
+
+    if let Some(parent) = output_path.parent() {
+        tokio::fs::create_dir_all(parent)
+            .await
+            .context("创建输出目录失败")?;
+    }
+
+    let metadata_title = format!("BilbliCopy {}", chrono::Local::now().format("%Y-%m-%d %H:%M:%S"));
+
+    let output = if format == "mp3" {
+        // MP3 转码：AAC → MP3（有损，VBR ~190kbps，兼容老旧设备）
+        create_ffmpeg_command(&ffmpeg)
+            .args([
+                "-i", input_path.to_str().unwrap_or(""),
+                "-vn",                          // 丢弃可能存在的视频轨（防御）
+                "-c:a", "libmp3lame",
+                "-q:a", "2",                    // VBR 质量（2 ≈ 190kbps）
+                "-metadata", &format!("title={}", metadata_title),
+                "-y",
+                output_path.to_str().unwrap_or(""),
+            ])
+            .output()
+            .await
+    } else {
+        // M4A 无损封装：fMP4 音频段直接封装为 .m4a（-c copy，零转码）
+        create_ffmpeg_command(&ffmpeg)
+            .args([
+                "-i", input_path.to_str().unwrap_or(""),
+                "-vn",
+                "-c", "copy",
+                "-metadata", &format!("title={}", metadata_title),
+                "-y",
+                output_path.to_str().unwrap_or(""),
+            ])
+            .output()
+            .await
+    }
+    .context(format!("执行ffmpeg音频封装失败，内置ffmpeg可能缺失。当前路径: {}", ffmpeg))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!("ffmpeg音频封装失败: {}", stderr);
     }
 
     Ok(())

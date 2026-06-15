@@ -24,6 +24,7 @@ pub mod recommend;
 pub mod region;
 pub mod comment;
 pub mod interaction;
+pub mod throttle;
 
 // ==================== 共享常量 ====================
 

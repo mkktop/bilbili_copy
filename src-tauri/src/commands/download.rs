@@ -7,7 +7,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::bilibili::credential::Credential;
 use crate::bilibili::download::{
-    cleanup_temp_files, download_stream, is_interrupted, merge_streams, remux_to_mp4,
+    cleanup_temp_files, download_stream, is_interrupted, merge_streams, remux_audio, remux_to_mp4,
     sanitize_filename, stream_fingerprint,
 };
 use crate::bilibili::playurl::get_playurl;
@@ -144,6 +144,7 @@ pub async fn download_video(
     ep_id: Option<u64>,
     duration: Option<u64>,
     subtitle_only: Option<bool>,
+    audio_only: Option<bool>,
     video_meta: Option<VideoMeta>,
 ) -> Result<(), String> {
     let download_id = sanitize_download_id(&id)?;
@@ -171,6 +172,7 @@ pub async fn download_video(
         ep_id,
         duration,
         subtitle_only: subtitle_only.unwrap_or(false),
+        audio_only: audio_only.unwrap_or(false),
         video_meta,
     };
 
@@ -221,6 +223,7 @@ pub async fn execute_download(
         ep_id,
         duration,
         subtitle_only,
+        audio_only,
         video_meta,
     } = params;
     let download_id = match sanitize_download_id(&id) {
@@ -289,8 +292,17 @@ pub async fn execute_download(
     if let Err(e) = std::fs::create_dir_all(&video_folder) {
         return ExecOutcome::Failed(format!("创建视频目录失败: {}", e));
     }
-    let filename = format!("{}.mp4", sanitize_filename(&title));
+    // 仅音频模式：输出 .m4a/.mp3（按设置）；其余 .mp4
+    let ext = if audio_only && !subtitle_only {
+        if settings.audio_format == "mp3" { "mp3" } else { "m4a" }
+    } else {
+        "mp4"
+    };
+    let filename = format!("{}.{}", sanitize_filename(&title), ext);
     let output_path = video_folder.join(&filename);
+
+    // 全局限速：KB/s → B/s（0 = 无限制）
+    let max_bps = settings.max_download_speed_kbps.saturating_mul(1024) / 8;
 
     // 字幕库模式：跳过视频下载，只取字幕（可选附加弹幕，按全局开关）。
     // 单任务选项优先于全局 download_subtitle（勾选即强制下载字幕）。
@@ -319,7 +331,7 @@ pub async fn execute_download(
         app, &download_id, &bvid, cid,
         video_max_qn, video_min_qn, audio_max_qn, audio_min_qn,
         &codec_priority, &credential, &download_dir, &output_path,
-        settings.parallel_threads, ep_id,
+        settings.parallel_threads, max_bps, audio_only, &settings.audio_format, ep_id,
         &dm_img_str, &dm_cover_img_str, &dm_img_list, &dm_img_inter,
         request_delay_ms, cancel,
     ).await;
@@ -344,7 +356,7 @@ pub async fn execute_download(
                     app, &download_id, &bvid, cid,
                     video_max_qn, video_min_qn, audio_max_qn, audio_min_qn,
                     &codec_priority, &credential, &download_dir, &output_path,
-                    settings.parallel_threads, ep_id,
+                    settings.parallel_threads, max_bps, audio_only, &settings.audio_format, ep_id,
                     &dm_img_str, &dm_cover_img_str, &dm_img_list, &dm_img_inter,
                     request_delay_ms, cancel,
                 ).await
@@ -453,6 +465,9 @@ async fn run_download(
     temp_dir: &std::path::Path,
     output_path: &std::path::Path,
     parallel_threads: usize,
+    max_bps: u64,
+    audio_only: bool,
+    audio_format: &str,
     ep_id: Option<u64>,
     dm_img_str: &str,
     dm_cover_img_str: &str,
@@ -487,17 +502,26 @@ async fn run_download(
 
     // 用闭包封装实际逻辑；取消中断时不清理 .tmp（保留续传），其它失败清理。
     let result = async {
-        if streams.is_legacy_format {
+        // 仅音频模式：跳过视频流，只下载音频流并封装为 .m4a/.mp3。
+        // 要求 DASH 格式且有独立音频流（legacy durl 是音视频合一，无法分离）。
+        if audio_only && streams.has_audio() {
+            let audio_temp = download_stream(
+                app, download_id, &streams.audio_urls, credential, temp_dir,
+                "audio", parallel_threads, &audio_fp, max_bps, cancel,
+            ).await?;
+            temp_files.push(audio_temp.clone());
+            remux_audio(&audio_temp, output_path, audio_format).await?;
+        } else if streams.is_legacy_format {
             let video_temp = download_stream(
                 app, download_id, &streams.video_urls, credential, temp_dir,
-                "video", parallel_threads, &video_fp, cancel,
+                "video", parallel_threads, &video_fp, max_bps, cancel,
             ).await?;
             temp_files.push(video_temp.clone());
             remux_to_mp4(&video_temp, output_path).await?;
         } else if streams.has_audio() {
             let video_temp = download_stream(
                 app, download_id, &streams.video_urls, credential, temp_dir,
-                "video", parallel_threads, &video_fp, cancel,
+                "video", parallel_threads, &video_fp, max_bps, cancel,
             ).await?;
             temp_files.push(video_temp.clone());
             // 流切换前检查取消
@@ -506,14 +530,14 @@ async fn run_download(
             }
             let audio_temp = download_stream(
                 app, download_id, &streams.audio_urls, credential, temp_dir,
-                "audio", parallel_threads, &audio_fp, cancel,
+                "audio", parallel_threads, &audio_fp, max_bps, cancel,
             ).await?;
             temp_files.push(audio_temp.clone());
             merge_streams(&video_temp, &audio_temp, output_path).await?;
         } else {
             let video_temp = download_stream(
                 app, download_id, &streams.video_urls, credential, temp_dir,
-                "video", parallel_threads, &video_fp, cancel,
+                "video", parallel_threads, &video_fp, max_bps, cancel,
             ).await?;
             temp_files.push(video_temp.clone());
             tokio::fs::rename(&video_temp, output_path).await?;

@@ -13,6 +13,10 @@ export interface AppSettings {
   max_concurrent_downloads: number;  // 默认 1
   max_pages_per_video: number;       // 默认 2
   parallel_threads: number;          // 默认 4
+  // 下载限速（KB/s，0 = 无限制）
+  max_download_speed_kbps: number;   // 默认 0
+  // 仅音频下载输出格式 "m4a" | "mp3"
+  audio_format: string;              // 默认 "m4a"
   // 防风控 - 设备指纹
   fingerprint_gpu_preset: string;
   fingerprint_resolution_preset: string;
@@ -56,6 +60,8 @@ export function useSettings() {
     max_concurrent_downloads: 1,
     max_pages_per_video: 2,
     parallel_threads: 4,
+    max_download_speed_kbps: 0,
+    audio_format: "m4a",
     fingerprint_gpu_preset: "",
     fingerprint_resolution_preset: "",
     dm_img_str: "",
