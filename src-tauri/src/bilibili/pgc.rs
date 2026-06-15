@@ -1,7 +1,6 @@
 use crate::bilibili::credential::Credential;
-use crate::bilibili::{REFERER, USER_AGENT, http_to_https};
+use crate::bilibili::{REFERER, api_client, http_to_https};
 use anyhow::{Context, Result};
-use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -33,14 +32,6 @@ pub struct PgcRankItem {
     pub danmaku: i64,
 }
 
-fn bilibili_client() -> Result<Client> {
-    Client::builder()
-        .user_agent(USER_AGENT)
-        .cookie_store(false)
-        .build()
-        .context("创建 HTTP 客户端失败")
-}
-
 /// 获取 PGC 排行榜（番剧/国创/电影/电视剧/纪录片/综艺）
 /// API: GET https://api.bilibili.com/pgc/season/rank/web/list
 ///   season_type: 1=番剧 2=电影 3=纪录片 4=国创 5=电视剧 7=综艺
@@ -52,7 +43,9 @@ pub async fn get_pgc_rank(
     season_type: u8,
     credential: Option<&Credential>,
 ) -> Result<Vec<PgcRankItem>> {
-    let client = bilibili_client()?;
+    // 共享 api_client()：内置 UA + cookie_store(false) + API_TIMEOUT，
+    // 避免某个挂起的连接永久阻塞异步任务。
+    let client = api_client();
 
     let st_s = season_type.to_string();
     let mut req = client

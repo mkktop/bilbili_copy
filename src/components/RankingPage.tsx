@@ -455,7 +455,8 @@ function PgcRankCard({
       <img
         src={item.cover}
         alt={item.title}
-        className="w-32 h-18 rounded object-cover bg-gray-100 shrink-0"
+        // h-18 非 Tailwind 默认尺寸类，不生效；尺寸由 w-32 + aspectRatio 撑出
+        className="w-32 rounded object-cover bg-gray-100 shrink-0"
         style={{ aspectRatio: "16/9" }}
       />
 

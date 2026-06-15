@@ -20,6 +20,10 @@ pub mod nfo;
 pub mod history;
 pub mod ranking;
 pub mod pgc;
+pub mod recommend;
+pub mod region;
+pub mod comment;
+pub mod interaction;
 
 // ==================== 共享常量 ====================
 

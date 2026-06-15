@@ -12,18 +12,20 @@ import { CaptchaDialog } from "./components/CaptchaDialog";
 import { UserProfilePage } from "./components/UserProfilePage";
 import { ExplorePage } from "./components/ExplorePage";
 import { RankingPage } from "./components/RankingPage";
+import { RecommendPage } from "./components/RecommendPage";
+import { RegionPage } from "./components/RegionPage";
 import { useToast } from "./components/Toast";
 import { useUpdate } from "./contexts/UpdateContext";
 import { useSettings } from "./hooks/useSettings";
 import { useLogin } from "./hooks/useLogin";
-import { Settings, Download, Search, Trophy } from "lucide-react";
+import { Settings, Download, Search, Trophy, Sparkles, LayoutGrid } from "lucide-react";
 import type { AppSettings } from "./hooks/useSettings";
 import type { ParsedItem, DownloadTask, ParsedVideoInfo, ParseHistoryEntry, DownloadHistoryEntry, VideoMeta } from "./types";
 import { dbToParsedItem, dbToDownloadTask } from "./types";
 import { friendlyError } from "./lib/errors";
 import { DOWNLOAD_PROGRESS_THROTTLE_MS } from "./lib/constants";
 
-type View = "main" | "settings" | "detail" | "downloads" | "profile" | "explore" | "ranking";
+type View = "main" | "settings" | "detail" | "downloads" | "profile" | "explore" | "ranking" | "recommend" | "region";
 
 interface DownloadProgress {
   id: string;
@@ -589,6 +591,72 @@ export default function App() {
     );
   }
 
+  // Recommend view
+  // detail 状态下若来源是 recommend，仍渲染 RecommendPage（被详情覆盖层遮挡），
+  // 保证返回时 RecommendPage 的 state（推荐列表与 fresh_idx）不丢失。
+  if (currentView === "recommend" || (currentView === "detail" && previousView === "recommend")) {
+    return (
+      <>
+        <RecommendPage
+          userInfo={userInfo}
+          onLogin={() => setLoginDialogOpen(true)}
+          onBack={() => setCurrentView("main")}
+          onParseVideo={handleParse}
+          onSelectItem={(videoInfo: ParsedVideoInfo) => {
+            const item: ParsedItem = {
+              id: `recommend-${videoInfo.bvid}`,
+              url: videoInfo.bvid
+                ? `https://www.bilibili.com/video/${videoInfo.bvid}`
+                : "",
+              title: videoInfo.title,
+              status: "pending",
+              videoInfo,
+            };
+            if (videoInfo.bvid) {
+              invoke("touch_parse_history", { bvid: videoInfo.bvid }).catch(() => {});
+            }
+            setSelectedItem(item);
+            setPreviousView("recommend");
+            setCurrentView("detail");
+          }}
+        />
+        {detailOverlay}
+      </>
+    );
+  }
+
+  // Region view
+  // detail 状态下若来源是 region，仍渲染 RegionPage（被详情覆盖层遮挡），
+  // 保证返回时 RegionPage 的 state（分区筛选与列表）不丢失。
+  if (currentView === "region" || (currentView === "detail" && previousView === "region")) {
+    return (
+      <>
+        <RegionPage
+          onBack={() => setCurrentView("main")}
+          onParseVideo={handleParse}
+          onSelectItem={(videoInfo: ParsedVideoInfo) => {
+            const item: ParsedItem = {
+              id: `region-${videoInfo.bvid}`,
+              url: videoInfo.bvid
+                ? `https://www.bilibili.com/video/${videoInfo.bvid}`
+                : "",
+              title: videoInfo.title,
+              status: "pending",
+              videoInfo,
+            };
+            if (videoInfo.bvid) {
+              invoke("touch_parse_history", { bvid: videoInfo.bvid }).catch(() => {});
+            }
+            setSelectedItem(item);
+            setPreviousView("region");
+            setCurrentView("detail");
+          }}
+        />
+        {detailOverlay}
+      </>
+    );
+  }
+
   // Main view
   return (
     <div className="flex flex-col h-screen bg-gray-50 text-gray-900">
@@ -630,6 +698,24 @@ export default function App() {
             className="p-1 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
           >
             <Trophy size={16} />
+          </button>
+
+          {/* 推荐视频入口 */}
+          <button
+            onClick={() => setCurrentView("recommend")}
+            title="推荐视频"
+            className="p-1 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+          >
+            <Sparkles size={16} />
+          </button>
+
+          {/* 分区浏览入口 */}
+          <button
+            onClick={() => setCurrentView("region")}
+            title="分区浏览"
+            className="p-1 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+          >
+            <LayoutGrid size={16} />
           </button>
 
           {/* 下载列表入口 */}

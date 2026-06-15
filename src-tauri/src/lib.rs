@@ -21,6 +21,10 @@ use commands::following::get_followings;
 use commands::history_cmd::get_watch_history;
 use commands::ranking::get_ranking;
 use commands::pgc::get_pgc_rank;
+use commands::recommend::get_recommend;
+use commands::region::get_region;
+use commands::comment::get_video_comments;
+use commands::interaction::{like_video, coin_video, favorite_video};
 use download_manager::manager;
 
 /// Read Windows system proxy settings and set HTTPS_PROXY env var
@@ -169,6 +173,12 @@ pub fn run() {
             get_watch_history,
             get_ranking,
             get_pgc_rank,
+            get_recommend,
+            get_region,
+            get_video_comments,
+            like_video,
+            coin_video,
+            favorite_video,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

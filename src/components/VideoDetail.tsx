@@ -4,6 +4,8 @@ import type { ParsedItem, VideoPage, VideoMeta } from "../types";
 import { formatDuration } from "../types";
 import { cn } from "../lib/utils";
 import { formatCount } from "./VideoCard";
+import { CommentSection } from "./CommentSection";
+import { InteractionBar } from "./InteractionBar";
 
 type EpisodeTab = "main" | "extra";
 
@@ -199,6 +201,13 @@ export function VideoDetail({ entry, onBack, onDownload }: VideoDetailProps) {
             )}
           </div>
 
+          {/* 互动操作栏：点赞 / 投币 / 收藏（需登录） */}
+          <InteractionBar
+            bvid={info.bvid}
+            aid={info.aid}
+            likeCount={info.like_count}
+          />
+
           {/* 简介 */}
           {info.desc && (
             <p className="text-xs text-gray-400 leading-relaxed line-clamp-3 border-l-2 border-gray-200 pl-3">
@@ -308,6 +317,9 @@ export function VideoDetail({ entry, onBack, onDownload }: VideoDetailProps) {
             </div>
           )}
         </div>
+
+        {/* 评论区：详情页底部，与上方内容同滚动 */}
+        <CommentSection aid={info.aid} />
       </div>
 
       {/* 底部固定下载按钮 */}

@@ -13,3 +13,7 @@ pub mod following;
 pub mod history_cmd;
 pub mod ranking;
 pub mod pgc;
+pub mod recommend;
+pub mod region;
+pub mod comment;
+pub mod interaction;

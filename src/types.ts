@@ -242,6 +242,62 @@ export interface RankingItem {
   like: number;
 }
 
+/** 推荐视频条目（首页推荐流 data.item，需登录才有个性化） */
+export interface RecommendItem {
+  bvid: string;
+  title: string;
+  cover: string;
+  upper_name: string;
+  upper_mid: number;
+  duration: number;
+  play: number;
+  danmaku: number;
+  /** 发布时间（unix 秒），0 表示未知 */
+  pubdate: number;
+  like: number;
+  /** 推荐理由（如「关注」「赞过」），可能为空 */
+  rcmd_reason: string;
+}
+
+/** 分区视频条目（dynamic/region 最新视频流，公开接口） */
+export interface RegionItem {
+  bvid: string;
+  title: string;
+  cover: string;
+  upper_name: string;
+  upper_mid: number;
+  duration: number;
+  play: number;
+  danmaku: number;
+  /** 发布时间（unix 秒），0 表示未知 */
+  pubdate: number;
+  like: number;
+}
+
+/** 视频评论条目（x/v2/reply，公开接口） */
+export interface CommentItem {
+  /** 评论 rpid（唯一 id） */
+  rpid: number;
+  /** 评论内容（纯文本） */
+  content: string;
+  /** 评论者用户名 */
+  uname: string;
+  /** 评论者头像 URL */
+  avatar: string;
+  /** 评论者 mid */
+  mid: number;
+  /** 评论者等级 */
+  level: number;
+  /** 点赞数 */
+  like: number;
+  /** 回复数（楼中楼） */
+  reply_count: number;
+  /** 发布时间（unix 秒） */
+  ctime: number;
+  /** 楼层 */
+  floor: number;
+}
+
 /** PGC 排行榜条目（番剧/国创/电影等维度，非单视频） */
 export interface PgcRankItem {
   /** 名次 1..100 */
