@@ -1,6 +1,6 @@
 import { open } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
-import { FolderOpen, Check, Trash2, Sun, Moon, Monitor, Minimize2 } from "lucide-react";
+import { FolderOpen, Check, Trash2, Sun, Moon, Monitor, Minimize2, Bell } from "lucide-react";
 import { useState } from "react";
 import { useToast } from "../Toast";
 import { friendlyError } from "../../lib/errors";
@@ -18,6 +18,8 @@ interface GeneralTabProps {
   onThemeChange: (t: "light" | "dark" | "system") => void;
   closeToTray: boolean;
   onCloseToTrayChange: (v: boolean) => void;
+  notifyOnComplete: boolean;
+  onNotifyOnCompleteChange: (v: boolean) => void;
 }
 
 export function GeneralTab({
@@ -32,6 +34,8 @@ export function GeneralTab({
   onThemeChange,
   closeToTray,
   onCloseToTrayChange,
+  notifyOnComplete,
+  onNotifyOnCompleteChange,
 }: GeneralTabProps) {
   const [clearing, setClearing] = useState<"parse" | "download" | null>(null);
   const toast = useToast();
@@ -116,6 +120,17 @@ export function GeneralTab({
         >
           <ToggleSwitch checked={closeToTray} onChange={onCloseToTrayChange} />
         </SettingCard>
+          <SettingCard
+            icon={Bell}
+            title="下载完成通知"
+            description={
+              notifyOnComplete
+                ? "视频下载完成时发送桌面系统通知"
+                : "下载完成时不发送通知"
+            }
+          >
+            <ToggleSwitch checked={notifyOnComplete} onChange={onNotifyOnCompleteChange} />
+          </SettingCard>
       </section>
 
       {/* 下载设置 */}

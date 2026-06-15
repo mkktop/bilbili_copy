@@ -22,6 +22,8 @@ export interface AppSettings {
   // 关闭窗口时最小化到系统托盘（后台继续下载）
   close_to_tray: boolean;            // 默认 true
   tray_hint_shown: boolean;          // 首次托盘提示是否已展示（前端只读）
+  notify_on_complete: boolean;       // 默认 true
+
   // 防风控 - 设备指纹
   fingerprint_gpu_preset: string;
   fingerprint_resolution_preset: string;
@@ -70,6 +72,7 @@ export function useSettings() {
     theme: "light",
     close_to_tray: true,
     tray_hint_shown: false,
+    notify_on_complete: true,
     fingerprint_gpu_preset: "",
     fingerprint_resolution_preset: "",
     dm_img_str: "",

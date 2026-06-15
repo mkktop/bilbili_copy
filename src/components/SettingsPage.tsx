@@ -33,6 +33,7 @@ export function SettingsPage({ settings, onSave, onBack, onClearParse, onClearDo
   const [maxDownloadSpeedKbps, setMaxDownloadSpeedKbps] = useState(settings.max_download_speed_kbps);
   const [audioFormat, setAudioFormat] = useState(settings.audio_format);
   const [closeToTray, setCloseToTray] = useState(settings.close_to_tray);
+  const [notifyOnComplete, setNotifyOnComplete] = useState(settings.notify_on_complete);
   // 防风控
   const [gpuPreset, setGpuPreset] = useState(settings.fingerprint_gpu_preset);
   const [resolutionPreset, setResolutionPreset] = useState(settings.fingerprint_resolution_preset);
@@ -73,6 +74,7 @@ export function SettingsPage({ settings, onSave, onBack, onClearParse, onClearDo
     setMaxDownloadSpeedKbps(settings.max_download_speed_kbps);
     setAudioFormat(settings.audio_format);
     setCloseToTray(settings.close_to_tray);
+    setNotifyOnComplete(settings.notify_on_complete);
     setGpuPreset(settings.fingerprint_gpu_preset);
     setResolutionPreset(settings.fingerprint_resolution_preset);
     setDmImgStr(settings.dm_img_str);
@@ -102,6 +104,7 @@ export function SettingsPage({ settings, onSave, onBack, onClearParse, onClearDo
         auto_update: settings.auto_update,
         theme: settings.theme,
         close_to_tray: closeToTray,
+        notify_on_complete: notifyOnComplete,
         tray_hint_shown: settings.tray_hint_shown,
         video_max_quality: videoMaxQuality,
         video_min_quality: videoMinQuality,
@@ -195,6 +198,8 @@ export function SettingsPage({ settings, onSave, onBack, onClearParse, onClearDo
             onThemeChange={(t) => { onSave({ ...settings, theme: t }); }}
             closeToTray={closeToTray}
             onCloseToTrayChange={(v) => { setCloseToTray(v); setSaved(false); }}
+            notifyOnComplete={notifyOnComplete}
+            onNotifyOnCompleteChange={(v) => { setNotifyOnComplete(v); setSaved(false); }}
           />
         )}
         {activeTab === "quality" && (

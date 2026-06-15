@@ -382,6 +382,8 @@ impl DownloadManager {
             let task_id = task.id.clone();
             let task_cancel = task.cancel.clone();
             let app_clone = app.clone();
+            // 在 params 被 move 进 execute_download 之前克隆标题，供完成时发桌面通知
+            let task_title = task.params.title.clone();
 
             // spawn 执行；执行结束后清理 running 表
             tauri::async_runtime::spawn(async move {
@@ -402,7 +404,7 @@ impl DownloadManager {
                     t
                 };
 
-                finalize_outcome(&app_clone, &task_id, outcome, target).await;
+                finalize_outcome(&app_clone, &task_id, &task_title, outcome, target).await;
             });
         }
     }
@@ -416,6 +418,7 @@ impl DownloadManager {
 async fn finalize_outcome(
     app: &AppHandle,
     id: &str,
+    title: &str,
     outcome: ExecOutcome,
     target: TargetState,
 ) {
@@ -431,6 +434,18 @@ async fn finalize_outcome(
                     size,
                 },
             );
+
+            // 下载完成桌面通知：根据设置决定是否发送（窗口最小化到托盘时尤其有用）。
+            // 读 settings.json；失败时静默（不影响下载主流程）。
+            let notify = crate::commands::settings::load_settings().notify_on_complete;
+            if notify {
+                use tauri_plugin_notification::NotificationExt;
+                let _ = app.notification()
+                    .builder()
+                    .title("下载完成")
+                    .body(if title.is_empty() { "视频已下载完成".to_string() } else { format!("《{}》已下载完成", title) })
+                    .show();
+            }
         }
         (ExecOutcome::Failed(err), _) => {
             // 风控等非中断错误

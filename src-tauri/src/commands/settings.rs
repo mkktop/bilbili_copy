@@ -56,6 +56,11 @@ fn default_close_to_tray() -> bool {
     true
 }
 
+/// 下载完成时是否发送桌面通知（默认开启）
+fn default_notify_on_complete() -> bool {
+    true
+}
+
 // ---- 弹幕渲染（用户可见配置）----
 
 fn default_dm_font_size() -> u32 {
@@ -150,6 +155,9 @@ pub struct AppSettings {
     // 首次最小化到托盘的提示是否已展示过（仅一次）
     #[serde(default)]
     pub tray_hint_shown: bool,
+    // 下载完成时发送桌面通知
+    #[serde(default = "default_notify_on_complete")]
+    pub notify_on_complete: bool,
     // 防风控 - 设备指纹
     #[serde(default)]
     pub fingerprint_gpu_preset: String,
@@ -218,6 +226,7 @@ impl Default for AppSettings {
             theme: default_theme(),
             close_to_tray: default_close_to_tray(),
             tray_hint_shown: false,
+            notify_on_complete: default_notify_on_complete(),
             fingerprint_gpu_preset: String::new(),
             fingerprint_resolution_preset: String::new(),
             dm_img_str: String::new(),
@@ -267,6 +276,7 @@ impl From<LegacySettings> for AppSettings {
             theme: default_theme(),
             close_to_tray: default_close_to_tray(),
             tray_hint_shown: false,
+            notify_on_complete: default_notify_on_complete(),
             fingerprint_gpu_preset: String::new(),
             fingerprint_resolution_preset: String::new(),
             dm_img_str: String::new(),
