@@ -1,7 +1,7 @@
 use tauri::State;
 
 use crate::db::{
-    self, DownloadHistoryEntry, ParseHistoryEntry,
+    self, DownloadHistoryEntry, DownloadStats, ParseHistoryEntry,
 };
 
 const PAGE_SIZE: u32 = 20;
@@ -81,6 +81,13 @@ pub fn get_download_count(db: State<'_, db::DbState>) -> Result<u32, String> {
     db::count_downloads(&conn).map_err(|e| format!("查询下载总数失败: {}", e))
 }
 
+/// 获取下载统计（累计视频数 / 总大小 / 总时长，仅累加已完成项）
+#[tauri::command]
+pub fn get_download_stats(db: State<'_, db::DbState>) -> Result<DownloadStats, String> {
+    let conn = db.0.lock().map_err(|e| format!("获取数据库锁失败: {}", e))?;
+    db::download_stats(&conn).map_err(|e| format!("查询下载统计失败: {}", e))
+}
+
 /// 新增下载记录（开始下载时调用）
 #[tauri::command]
 pub fn save_download_entry(
@@ -101,8 +108,11 @@ pub fn update_download_status(
     phase: Option<String>,
     error_msg: Option<String>,
     output_path: Option<String>,
+    size: Option<u64>,
 ) -> Result<(), String> {
     let conn = db.0.lock().map_err(|e| format!("获取数据库锁失败: {}", e))?;
+    // u64 → i64 以适配 SQLite 的 INTEGER（实际文件大小远小于 i64 上限，转换安全）
+    let size_i64 = size.map(|s| s as i64);
     db::update_download(
         &conn,
         &id,
@@ -111,6 +121,7 @@ pub fn update_download_status(
         phase.as_deref(),
         error_msg.as_deref(),
         output_path.as_deref(),
+        size_i64,
     )
     .map_err(|e| format!("更新下载状态失败: {}", e))
 }

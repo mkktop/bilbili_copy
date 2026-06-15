@@ -171,6 +171,22 @@ export interface DownloadHistoryEntry {
   quality?: number | null;
   /** 合集名（v3 schema 新增，旧记录为 null） */
   video_title?: string | null;
+  /** 最终文件字节数（v4 schema 新增，旧记录/未完成为 null） */
+  size?: number | null;
+  /** 视频时长（秒，v4 schema 新增，旧记录/未知为 null） */
+  duration?: number | null;
+}
+
+/** 下载统计聚合（对应后端 DownloadStats，仅 done 项累加大小/时长） */
+export interface DownloadStats {
+  /** 全部下载记录数 */
+  total_count: number;
+  /** 已完成（status='done'）的记录数 */
+  done_count: number;
+  /** 已完成记录的总字节数 */
+  done_size: number;
+  /** 已完成记录的总时长（秒） */
+  done_duration: number;
 }
 
 /** DB 解析历史 → 前端 ParsedItem */
@@ -201,6 +217,7 @@ export function dbToDownloadTask(entry: DownloadHistoryEntry): DownloadTask {
     quality: entry.quality ?? null,
     videoTitle: entry.video_title ?? undefined,
     outputPath: entry.output_path ?? undefined,
+    duration: entry.duration ?? undefined,
   };
 }
 

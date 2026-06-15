@@ -421,11 +421,14 @@ async fn finalize_outcome(
 ) {
     match (outcome, target) {
         (ExecOutcome::Done(path), _) => {
+            // 完成时统计最终文件大小（统计面板用）。失败或文件不存在记 0。
+            let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
             let _ = app.emit(
                 "download://complete",
                 crate::bilibili::download::DownloadComplete {
                     id: id.to_string(),
                     output_path: path,
+                    size,
                 },
             );
         }

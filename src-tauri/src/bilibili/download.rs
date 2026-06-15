@@ -121,6 +121,8 @@ pub struct DownloadProgress {
 pub struct DownloadComplete {
     pub id: String,
     pub output_path: String,
+    /// 最终文件字节数（统计用）
+    pub size: u64,
 }
 
 /// 下载错误事件载荷
