@@ -1,3 +1,27 @@
+## v0.7.6 更新内容
+
+### ✨ 新增
+
+#### 下载完成桌面通知
+- **完成即通知**：视频下载完成时发送 Windows 系统桌面通知，标题「下载完成」，正文带视频标题（如「《xxx》已下载完成」）
+- **窗口最小化到托盘时尤其有用**：不盯着窗口也能第一时间知道下载完成
+- **设置开关**：设置 → 通用 → 窗口与托盘 → 新增「下载完成通知」开关，默认开启；关闭后下载完成不弹通知
+- 复用上次托盘功能已安装的 `tauri-plugin-notification`，**无需新增依赖**
+
+### 🔧 实现亮点
+
+- **后端触发**：在 `download_manager.rs::finalize_outcome` 的 `Done` 分支中读 `settings.json` → 根据 `notify_on_complete` 决定是否发通知。读设置失败时静默跳过，不影响下载主流程
+- **完成时已拿到 `title`**：`finalize_outcome` 新增 `title: &str` 参数（spawn 闭包内 `params` 被 move 之前先 `clone`），通知正文用真实视频标题
+- **设置 UI 沿用现有模式**：与「关闭时最小化到托盘」同一张 `SettingCard` 风格，复用 `ToggleSwitch` 组件
+
+### 📝 说明
+
+- 本次未改动数据库 schema，升级无数据迁移
+- `settings.json` 新增字段 `notify_on_complete`（默认 `true`），旧版本配置自动迁移，默认开启通知
+- Windows: 下载 `.msi` 或 `.exe` 安装包覆盖安装，应用内自动更新将在后台推送
+
+---
+
 ## v0.7.5 更新内容
 
 ### ✨ 新增
