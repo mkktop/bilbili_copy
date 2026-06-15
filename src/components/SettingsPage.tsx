@@ -98,6 +98,7 @@ export function SettingsPage({ settings, onSave, onBack, onClearParse, onClearDo
       await onSave({
         default_download_dir: dir,
         auto_update: settings.auto_update,
+        theme: settings.theme,
         video_max_quality: videoMaxQuality,
         video_min_quality: videoMinQuality,
         audio_max_quality: audioMaxQuality,
@@ -147,18 +148,18 @@ export function SettingsPage({ settings, onSave, onBack, onClearParse, onClearDo
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex items-center gap-3 px-6 py-4 border-b border-gray-200">
+      <div className="flex items-center gap-3 px-6 py-4 border-b border-line">
         <button
           onClick={onBack}
-          className="p-1.5 rounded-lg border border-gray-300 hover:bg-gray-50 transition-colors"
+          className="p-1.5 rounded-lg border border-line-2 hover:bg-panel-2 transition-colors"
         >
           <ArrowLeft size={16} />
         </button>
-        <h1 className="text-lg font-semibold text-gray-800">设置</h1>
+        <h1 className="text-lg font-semibold text-ink">设置</h1>
       </div>
 
       {/* Tab bar */}
-      <div className="flex border-b border-gray-200 px-4">
+      <div className="flex border-b border-line px-4">
         {(["general", "quality", "download", "subtitle", "antirisk", "about"] as Tab[]).map((tab) => (
           <button
             key={tab}
@@ -166,8 +167,8 @@ export function SettingsPage({ settings, onSave, onBack, onClearParse, onClearDo
             className={cn(
               "px-3 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px whitespace-nowrap",
               activeTab === tab
-                ? "border-blue-500 text-blue-600"
-                : "border-transparent text-gray-500 hover:text-gray-700"
+                ? "border-blue-500 text-accent"
+                : "border-transparent text-ink-3 hover:text-ink-2"
             )}
           >
             {tabLabels[tab]}
@@ -186,6 +187,8 @@ export function SettingsPage({ settings, onSave, onBack, onClearParse, onClearDo
             onSave={handleSave}
             onClearParse={onClearParse}
             onClearDownload={onClearDownload}
+            theme={settings.theme}
+            onThemeChange={(t) => { onSave({ ...settings, theme: t }); }}
           />
         )}
         {activeTab === "quality" && (

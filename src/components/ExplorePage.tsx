@@ -179,15 +179,15 @@ export function ExplorePage({ onBack, onParseVideo, onSelectItem }: Props) {
   // ===== UP 主主页视图 =====
   if (upperMid !== null) {
     return (
-      <div className="flex flex-col h-screen bg-gray-50 text-gray-900">
-        <header className="flex items-center gap-3 px-6 py-4 bg-white border-b border-gray-200">
+      <div className="flex flex-col h-screen bg-base text-ink">
+        <header className="flex items-center gap-3 px-6 py-4 bg-panel border-b border-line">
           <button
             onClick={() => setUpperMid(null)}
-            className="p-1.5 rounded-lg border border-gray-300 hover:bg-gray-50 transition-colors"
+            className="p-1.5 rounded-lg border border-line-2 hover:bg-panel-2 transition-colors"
           >
             <ArrowLeft size={16} />
           </button>
-          <h1 className="text-lg font-semibold text-gray-800">UP 主主页</h1>
+          <h1 className="text-lg font-semibold text-ink">UP 主主页</h1>
         </header>
         <div className="flex-1 overflow-auto px-6 py-4">
           <UpperView
@@ -202,15 +202,15 @@ export function ExplorePage({ onBack, onParseVideo, onSelectItem }: Props) {
 
   // ===== 搜索视图 =====
   return (
-    <div className="flex flex-col h-screen bg-gray-50 text-gray-900">
-      <header className="flex items-center gap-3 px-6 py-4 bg-white border-b border-gray-200">
+    <div className="flex flex-col h-screen bg-base text-ink">
+      <header className="flex items-center gap-3 px-6 py-4 bg-panel border-b border-line">
         <button
           onClick={onBack}
-          className="p-1.5 rounded-lg border border-gray-300 hover:bg-gray-50 transition-colors"
+          className="p-1.5 rounded-lg border border-line-2 hover:bg-panel-2 transition-colors"
         >
           <ArrowLeft size={16} />
         </button>
-        <h1 className="text-lg font-semibold text-gray-800">发现</h1>
+        <h1 className="text-lg font-semibold text-ink">发现</h1>
       </header>
 
       <div className="flex-1 overflow-auto px-6 py-4">
@@ -223,7 +223,7 @@ export function ExplorePage({ onBack, onParseVideo, onSelectItem }: Props) {
               if (e.key === "Enter") handleSearch();
             }}
             placeholder="搜索视频、UP主、番剧..."
-            className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-blue-400"
+            className="flex-1 px-3 py-2 text-sm border border-line-2 rounded-lg bg-panel text-ink-2 placeholder:text-ink-3 focus:outline-none focus:border-accent"
           />
           <button
             onClick={handleSearch}
@@ -247,8 +247,8 @@ export function ExplorePage({ onBack, onParseVideo, onSelectItem }: Props) {
               onClick={() => handleTypeChange(key)}
               className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border transition-colors ${
                 searchType === key
-                  ? "bg-blue-50 border-blue-300 text-blue-600"
-                  : "bg-white border-gray-200 text-gray-500 hover:bg-gray-50"
+                  ? "bg-accent-soft border-accent text-accent"
+                  : "bg-panel border-line text-ink-3 hover:bg-panel-2"
               }`}
             >
               <Icon size={14} />
@@ -291,17 +291,17 @@ export function ExplorePage({ onBack, onParseVideo, onSelectItem }: Props) {
 
         {/* 搜索结果 */}
         {searching && results.length === 0 ? (
-          <div className="flex items-center justify-center py-12 text-gray-400 gap-2">
+          <div className="flex items-center justify-center py-12 text-ink-3 gap-2">
             <Loader2 size={20} className="animate-spin" />
             <span className="text-sm">搜索中...</span>
           </div>
         ) : !searched ? (
-          <div className="flex flex-col items-center justify-center py-12 text-gray-400 gap-2">
+          <div className="flex flex-col items-center justify-center py-12 text-ink-3 gap-2">
             <Search size={40} strokeWidth={1.5} />
             <p className="text-sm">输入关键词开始搜索</p>
           </div>
         ) : results.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-12 text-gray-400 gap-2">
+          <div className="flex flex-col items-center justify-center py-12 text-ink-3 gap-2">
             <Search size={40} strokeWidth={1.5} />
             <p className="text-sm">没有找到相关结果</p>
           </div>
@@ -326,7 +326,7 @@ export function ExplorePage({ onBack, onParseVideo, onSelectItem }: Props) {
                 <button
                   onClick={() => doSearch(keyword, searchType, page + 1, true, order, duration, tids)}
                   disabled={searching}
-                  className="flex items-center gap-1.5 px-4 py-2 text-sm text-gray-500 border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50 transition-colors"
+                  className="flex items-center gap-1.5 px-4 py-2 text-sm text-ink-3 border border-line rounded-lg hover:bg-panel-2 disabled:opacity-50 transition-colors"
                 >
                   {searching ? (
                     <>
@@ -360,7 +360,7 @@ function FilterRow({
 }) {
   return (
     <div className="flex items-start gap-3">
-      <span className="text-xs text-gray-500 mt-1.5 w-8 shrink-0">{label}</span>
+      <span className="text-xs text-ink-3 mt-1.5 w-8 shrink-0">{label}</span>
       <div className="flex gap-1 flex-wrap">
         {options.map((opt) => (
           <button
@@ -368,8 +368,8 @@ function FilterRow({
             onClick={() => onChange(opt.value)}
             className={`px-2.5 py-1 text-xs rounded-md border transition-colors ${
               value === opt.value
-                ? "bg-blue-50 border-blue-300 text-blue-600"
-                : "bg-white border-gray-200 text-gray-500 hover:bg-gray-50"
+                ? "bg-accent-soft border-accent text-accent"
+                : "bg-panel border-line text-ink-3 hover:bg-panel-2"
             }`}
           >
             {opt.label}
@@ -391,7 +391,7 @@ function ResultCard({
   onClick: () => void;
 }) {
   const baseBtn =
-    "flex items-start gap-3 w-full px-4 py-3 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 hover:border-gray-300 transition-colors text-left disabled:opacity-70";
+    "flex items-start gap-3 w-full px-4 py-3 bg-panel border border-line rounded-lg hover:bg-panel-2 hover:border-line-2 transition-colors text-left disabled:opacity-70";
 
   if (result.type === "bili_user") {
     return (
@@ -399,20 +399,20 @@ function ResultCard({
         <img
           src={result.cover}
           alt={result.title}
-          className="w-12 h-12 rounded-full object-cover bg-gray-100 shrink-0"
+          className="w-12 h-12 rounded-full object-cover bg-panel-2 shrink-0"
         />
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium text-gray-700 truncate">
+          <p className="text-sm font-medium text-ink-2 truncate">
             {result.title}
           </p>
-          <div className="flex items-center gap-3 mt-1 text-xs text-gray-400">
+          <div className="flex items-center gap-3 mt-1 text-xs text-ink-3">
             <span className="flex items-center gap-0.5">
               <Users size={10} />
               {formatCount(result.follower ?? 0)} 粉丝
             </span>
           </div>
           {result.description && (
-            <p className="text-xs text-gray-400 mt-1 line-clamp-1">
+            <p className="text-xs text-ink-3 mt-1 line-clamp-1">
               {result.description}
             </p>
           )}
@@ -430,23 +430,23 @@ function ResultCard({
         <img
           src={result.cover}
           alt={result.title}
-          className="w-12 h-16 rounded object-cover bg-gray-100 shrink-0"
+          className="w-12 h-16 rounded object-cover bg-panel-2 shrink-0"
         />
         <div className="flex-1 min-w-0">
-          <p className="text-sm text-gray-700 line-clamp-2 leading-snug">
+          <p className="text-sm text-ink-2 line-clamp-2 leading-snug">
             {result.title}
           </p>
           {result.author && (
-            <p className="text-xs text-gray-400 mt-1 line-clamp-1">
+            <p className="text-xs text-ink-3 mt-1 line-clamp-1">
               {result.author}
             </p>
           )}
           {result.description && (
-            <p className="text-xs text-gray-400 mt-0.5 line-clamp-1">
+            <p className="text-xs text-ink-3 mt-0.5 line-clamp-1">
               {result.description}
             </p>
           )}
-          <span className="inline-block mt-1 px-1.5 py-0.5 rounded bg-gray-100 text-gray-400 text-[10px]">
+          <span className="inline-block mt-1 px-1.5 py-0.5 rounded bg-panel-2 text-ink-3 text-[10px]">
             {result.type === "media_bangumi" ? "番剧" : "影视"}
           </span>
         </div>
@@ -463,13 +463,13 @@ function ResultCard({
       <img
         src={result.cover}
         alt={result.title}
-        className="w-24 h-16 rounded object-cover bg-gray-100 shrink-0"
+        className="w-24 h-16 rounded object-cover bg-panel-2 shrink-0"
       />
       <div className="flex-1 min-w-0">
-        <p className="text-sm text-gray-700 line-clamp-2 leading-snug">
+        <p className="text-sm text-ink-2 line-clamp-2 leading-snug">
           {result.title}
         </p>
-        <div className="flex items-center gap-3 mt-1.5 text-xs text-gray-400 flex-wrap">
+        <div className="flex items-center gap-3 mt-1.5 text-xs text-ink-3 flex-wrap">
           <span className="flex items-center gap-0.5">
             <User size={10} />
             {result.author}

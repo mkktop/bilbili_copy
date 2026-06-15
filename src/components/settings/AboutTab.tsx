@@ -43,16 +43,16 @@ export function AboutTab({ settings, onSave }: AboutTabProps) {
   return (
     <div className="space-y-6">
       {/* 应用信息卡片 */}
-      <div className="rounded-xl border border-gray-200 bg-gradient-to-br from-white to-gray-50 p-6 space-y-5 shadow-sm">
+      <div className="rounded-xl border border-line bg-gradient-to-br from-panel to-panel-2 p-6 space-y-5 shadow-sm">
         {/* 应用名称和版本 */}
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 text-blue-500">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent-soft text-accent">
             <Video size={24} />
           </div>
           <div className="flex items-center gap-2">
-            <h2 className="text-lg font-bold text-gray-800">B站视频下载</h2>
+            <h2 className="text-lg font-bold text-ink">B站视频下载</h2>
             {version && (
-              <span className="px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 text-xs font-medium">
+              <span className="px-2 py-0.5 rounded-full bg-accent-soft text-accent text-xs font-medium">
                 v{version}
               </span>
             )}
@@ -63,7 +63,7 @@ export function AboutTab({ settings, onSave }: AboutTabProps) {
         <div className="flex items-center gap-2 flex-wrap">
           <button
             onClick={() => openUrl(GITHUB_URL)}
-            className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors text-xs"
+            className="flex items-center gap-1.5 px-3 py-1.5 border border-line-2 rounded-lg hover:bg-panel-2 transition-colors text-xs"
           >
             <ExternalLink size={14} />
             GitHub
@@ -76,7 +76,7 @@ export function AboutTab({ settings, onSave }: AboutTabProps) {
               "flex items-center gap-1.5 px-3 py-1.5 border rounded-lg transition-colors text-xs",
               hasUpdate
                 ? "border-green-300 bg-green-50 text-green-700 hover:bg-green-100"
-                : "border-gray-300 hover:bg-gray-50"
+                : "border-line-2 hover:bg-panel-2"
             )}
           >
             <RefreshCw size={14} className={isChecking ? "animate-spin" : ""} />
@@ -165,14 +165,14 @@ export function AboutTab({ settings, onSave }: AboutTabProps) {
       {/* 自动更新开关 */}
       <section className="space-y-2">
         <header className="space-y-1">
-          <h3 className="text-sm font-medium text-gray-700">更新偏好</h3>
-          <p className="text-xs text-gray-400">控制应用是否在启动时自动检查更新</p>
+          <h3 className="text-sm font-medium text-ink-2">更新偏好</h3>
+          <p className="text-xs text-ink-3">控制应用是否在启动时自动检查更新</p>
         </header>
 
-        <div className="flex items-center justify-between rounded-xl border border-gray-200 bg-white p-4">
+        <div className="flex items-center justify-between rounded-xl border border-line bg-panel p-4">
           <div className="space-y-1">
-            <p className="text-sm font-medium text-gray-700">启动时自动检查更新</p>
-            <p className="text-xs text-gray-400">关闭后需手动检查</p>
+            <p className="text-sm font-medium text-ink-2">启动时自动检查更新</p>
+            <p className="text-xs text-ink-3">关闭后需手动检查</p>
           </div>
           <button
             role="switch"
@@ -180,7 +180,7 @@ export function AboutTab({ settings, onSave }: AboutTabProps) {
             onClick={handleAutoUpdateToggle}
             className={cn(
               "relative inline-flex h-6 w-11 items-center rounded-full transition-colors shrink-0",
-              settings.auto_update ? "bg-blue-500" : "bg-gray-300"
+              settings.auto_update ? "bg-blue-500" : "bg-line-2"
             )}
           >
             <span
@@ -194,8 +194,8 @@ export function AboutTab({ settings, onSave }: AboutTabProps) {
       </section>
 
       {/* 底部版权信息 */}
-      <div className="pt-4 border-t border-gray-100 text-center">
-        <p className="text-xs text-gray-400">
+      <div className="pt-4 border-t border-line text-center">
+        <p className="text-xs text-ink-3">
           B站视频下载 · 快速下载Bilibili视频
         </p>
       </div>

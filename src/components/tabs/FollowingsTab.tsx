@@ -52,7 +52,7 @@ export function FollowingsTab({ onSelectUpper }: Props) {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-12 text-gray-400 gap-2">
+      <div className="flex items-center justify-center py-12 text-ink-3 gap-2">
         <Loader2 size={20} className="animate-spin" />
         <span className="text-sm">加载中...</span>
       </div>
@@ -61,7 +61,7 @@ export function FollowingsTab({ onSelectUpper }: Props) {
 
   if (error) {
     return (
-      <div className="flex flex-col items-center justify-center py-12 text-gray-400 gap-2">
+      <div className="flex flex-col items-center justify-center py-12 text-ink-3 gap-2">
         <AlertCircle size={20} />
         <p className="text-sm">{error}</p>
         <button
@@ -76,7 +76,7 @@ export function FollowingsTab({ onSelectUpper }: Props) {
 
   if (items.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-12 text-gray-400 gap-2">
+      <div className="flex flex-col items-center justify-center py-12 text-ink-3 gap-2">
         <Users size={40} strokeWidth={1.5} />
         <p className="text-sm">没有关注的 UP 主</p>
       </div>
@@ -85,24 +85,24 @@ export function FollowingsTab({ onSelectUpper }: Props) {
 
   return (
     <div>
-      <p className="text-xs text-gray-400 mb-3">共 {total} 个关注</p>
+      <p className="text-xs text-ink-3 mb-3">共 {total} 个关注</p>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {items.map((item) => (
           <button
             key={item.mid}
             onClick={() => onSelectUpper(item.mid)}
-            className="flex items-center gap-3 px-4 py-3 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 hover:border-gray-300 transition-colors text-left"
+            className="flex items-center gap-3 px-4 py-3 bg-panel border border-line rounded-lg hover:bg-panel-2 hover:border-line-2 transition-colors text-left"
           >
             <img
               src={item.face}
               alt={item.name}
-              className="w-12 h-12 rounded-full object-cover bg-gray-100 shrink-0"
+              className="w-12 h-12 rounded-full object-cover bg-panel-2 shrink-0"
             />
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-gray-700 truncate">
+              <p className="text-sm font-medium text-ink-2 truncate">
                 {item.name}
               </p>
-              <p className="text-xs text-gray-400 mt-0.5 line-clamp-1">
+              <p className="text-xs text-ink-3 mt-0.5 line-clamp-1">
                 {item.sign || "这个UP主很懒，什么都没写"}
               </p>
             </div>
@@ -115,7 +115,7 @@ export function FollowingsTab({ onSelectUpper }: Props) {
           <button
             onClick={() => load(page + 1, true)}
             disabled={loadingMore}
-            className="flex items-center gap-1.5 px-4 py-2 text-sm text-gray-500 border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50 transition-colors"
+            className="flex items-center gap-1.5 px-4 py-2 text-sm text-ink-3 border border-line rounded-lg hover:bg-panel-2 disabled:opacity-50 transition-colors"
           >
             {loadingMore ? (
               <>

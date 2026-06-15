@@ -23,7 +23,7 @@ export function DownloadInput({ onParse, isParsing }: DownloadInputProps) {
         type="text"
         placeholder="请输入B站视频链接..."
         disabled={isParsing}
-        className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded-lg bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400 disabled:opacity-50"
+        className="flex-1 px-3 py-2 text-sm border border-line-2 rounded-lg bg-panel text-ink-2 placeholder:text-ink-3 focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent disabled:opacity-50"
       />
       <button
         type="submit"

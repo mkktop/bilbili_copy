@@ -75,19 +75,19 @@ export function QualityTab({
       {/* 视频质量 */}
       <section className="space-y-2">
         <header className="space-y-1">
-          <h3 className="text-sm font-medium text-gray-700">视频质量</h3>
-          <p className="text-xs text-gray-400">设置视频流的画质范围</p>
+          <h3 className="text-sm font-medium text-ink-2">视频质量</h3>
+          <p className="text-xs text-ink-3">设置视频流的画质范围</p>
         </header>
 
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1.5">
+            <label className="block text-xs font-medium text-ink-2 mb-1.5">
               最高画质
             </label>
             <select
               value={videoMaxQuality}
               onChange={(e) => onVideoMaxQualityChange(Number(e.target.value))}
-              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-300"
+              className="w-full px-3 py-2 text-sm border border-line-2 rounded-lg bg-panel text-ink-2 focus:outline-none focus:ring-2 focus:ring-accent"
             >
               {VIDEO_QUALITY_OPTIONS.map((q) => (
                 <option key={q.value} value={q.value}>
@@ -98,13 +98,13 @@ export function QualityTab({
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1.5">
+            <label className="block text-xs font-medium text-ink-2 mb-1.5">
               最低画质
             </label>
             <select
               value={videoMinQuality}
               onChange={(e) => onVideoMinQualityChange(Number(e.target.value))}
-              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-300"
+              className="w-full px-3 py-2 text-sm border border-line-2 rounded-lg bg-panel text-ink-2 focus:outline-none focus:ring-2 focus:ring-accent"
             >
               <option value={0}>不限制</option>
               {VIDEO_QUALITY_OPTIONS.map((q) => (
@@ -115,7 +115,7 @@ export function QualityTab({
             </select>
           </div>
         </div>
-        <p className="text-xs text-gray-400">
+        <p className="text-xs text-ink-3">
           当最高画质不可用时，会自动降级，但不低于最低画质
         </p>
       </section>
@@ -123,19 +123,19 @@ export function QualityTab({
       {/* 音频质量 */}
       <section className="space-y-2">
         <header className="space-y-1">
-          <h3 className="text-sm font-medium text-gray-700">音频质量</h3>
-          <p className="text-xs text-gray-400">设置音频流的质量范围</p>
+          <h3 className="text-sm font-medium text-ink-2">音频质量</h3>
+          <p className="text-xs text-ink-3">设置音频流的质量范围</p>
         </header>
 
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1.5">
+            <label className="block text-xs font-medium text-ink-2 mb-1.5">
               最高音质
             </label>
             <select
               value={audioMaxQuality}
               onChange={(e) => onAudioMaxQualityChange(Number(e.target.value))}
-              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-300"
+              className="w-full px-3 py-2 text-sm border border-line-2 rounded-lg bg-panel text-ink-2 focus:outline-none focus:ring-2 focus:ring-accent"
             >
               {AUDIO_QUALITY_OPTIONS.map((q) => (
                 <option key={q.value} value={q.value}>
@@ -146,13 +146,13 @@ export function QualityTab({
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1.5">
+            <label className="block text-xs font-medium text-ink-2 mb-1.5">
               最低音质
             </label>
             <select
               value={audioMinQuality}
               onChange={(e) => onAudioMinQualityChange(Number(e.target.value))}
-              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-300"
+              className="w-full px-3 py-2 text-sm border border-line-2 rounded-lg bg-panel text-ink-2 focus:outline-none focus:ring-2 focus:ring-accent"
             >
               <option value={0}>不限制</option>
               {AUDIO_QUALITY_OPTIONS.map((q) => (
@@ -168,8 +168,8 @@ export function QualityTab({
       {/* 编解码器优先级 */}
       <section className="space-y-2">
         <header className="space-y-1">
-          <h3 className="text-sm font-medium text-gray-700">编解码器优先级</h3>
-          <p className="text-xs text-gray-400">同画质时优先选择排在前面的编解码器</p>
+          <h3 className="text-sm font-medium text-ink-2">编解码器优先级</h3>
+          <p className="text-xs text-ink-3">同画质时优先选择排在前面的编解码器</p>
         </header>
 
         <div className="space-y-1">
@@ -178,26 +178,26 @@ export function QualityTab({
             return (
               <div
                 key={codec}
-                className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-200 rounded-lg"
+                className="flex items-center gap-2 px-3 py-2 bg-panel border border-line rounded-lg"
               >
-                <span className="text-xs font-mono text-gray-400 w-5">
+                <span className="text-xs font-mono text-ink-3 w-5">
                   {index + 1}
                 </span>
                 <div className="flex-1">
-                  <span className="text-sm text-gray-700">{info?.label ?? codec}</span>
-                  <span className="text-xs text-gray-400 ml-2">{info?.desc}</span>
+                  <span className="text-sm text-ink-2">{info?.label ?? codec}</span>
+                  <span className="text-xs text-ink-3 ml-2">{info?.desc}</span>
                 </div>
                 <button
                   onClick={() => moveCodec(index, "up")}
                   disabled={index === 0}
-                  className="p-1 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 disabled:opacity-30 transition-colors"
+                  className="p-1 rounded text-ink-3 hover:text-ink-2 hover:bg-panel-2 disabled:opacity-30 transition-colors"
                 >
                   <ChevronUp size={14} />
                 </button>
                 <button
                   onClick={() => moveCodec(index, "down")}
                   disabled={index === codecPriority.length - 1}
-                  className="p-1 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 disabled:opacity-30 transition-colors"
+                  className="p-1 rounded text-ink-3 hover:text-ink-2 hover:bg-panel-2 disabled:opacity-30 transition-colors"
                 >
                   <ChevronDown size={14} />
                 </button>

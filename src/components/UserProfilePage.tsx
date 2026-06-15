@@ -171,9 +171,9 @@ export function UserProfilePage({
   };
 
   return (
-    <div className="flex flex-col h-screen bg-gray-50 text-gray-900">
+    <div className="flex flex-col h-screen bg-base text-ink">
       {/* 顶部标题栏 */}
-      <header className="flex items-center gap-3 px-6 py-4 bg-white border-b border-gray-200">
+      <header className="flex items-center gap-3 px-6 py-4 bg-panel border-b border-line">
         <button
           onClick={() => {
             if (selectedFolder) {
@@ -184,11 +184,11 @@ export function UserProfilePage({
               onBack();
             }
           }}
-          className="p-1.5 rounded-lg border border-gray-300 hover:bg-gray-50 transition-colors"
+          className="p-1.5 rounded-lg border border-line-2 hover:bg-base transition-colors"
         >
           <ArrowLeft size={16} />
         </button>
-        <h1 className="text-lg font-semibold text-gray-800">
+        <h1 className="text-lg font-semibold text-ink">
           {selectedFolder
             ? selectedFolder.title
             : selectedUpperMid !== null
@@ -196,7 +196,7 @@ export function UserProfilePage({
             : "个人主页"}
         </h1>
         {selectedFolder && (
-          <span className="text-xs text-gray-400">
+          <span className="text-xs text-ink-3">
             {mediaTotal} 个视频
           </span>
         )}
@@ -221,7 +221,7 @@ export function UserProfilePage({
                 className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border transition-colors ${
                   tab === key
                     ? "bg-blue-50 border-blue-300 text-blue-600"
-                    : "bg-white border-gray-200 text-gray-500 hover:bg-gray-50"
+                    : "bg-panel border-line text-ink-3 hover:bg-base"
                 }`}
               >
                 <Icon size={14} />
@@ -235,13 +235,13 @@ export function UserProfilePage({
         {!selectedFolder && tab === "favorites" && (
           <>
             {/* 用户信息卡片 */}
-            <div className="px-4 py-5 bg-white border border-gray-200 rounded-lg mb-4">
+            <div className="px-4 py-5 bg-panel border border-line rounded-lg mb-4">
               <div className="flex items-center gap-4">
                 <div className="relative">
                   <img
                     src={userInfo.face}
                     alt={userInfo.uname}
-                    className="w-16 h-16 rounded-full object-cover border border-gray-200"
+                    className="w-16 h-16 rounded-full object-cover border border-line"
                   />
                   {userInfo.vip && (
                     <div className="absolute -bottom-1 -right-1 bg-yellow-400 rounded-full p-0.5">
@@ -251,18 +251,18 @@ export function UserProfilePage({
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
-                    <p className="text-xl font-bold text-gray-800 truncate">
+                    <p className="text-xl font-bold text-ink truncate">
                       {userInfo.uname}
                     </p>
-                    <span className="text-xs text-gray-400">
+                    <span className="text-xs text-ink-3">
                       {userInfo.sex === "男" ? "♂" : userInfo.sex === "女" ? "♀" : ""}
                     </span>
                   </div>
-                  <p className="text-sm text-gray-400 mt-0.5">
+                  <p className="text-sm text-ink-3 mt-0.5">
                     UID: {userInfo.mid}
                   </p>
                   {userInfo.sign && (
-                    <p className="text-xs text-gray-400 mt-1 truncate">
+                    <p className="text-xs text-ink-3 mt-1 truncate">
                       {userInfo.sign}
                     </p>
                   )}
@@ -278,51 +278,51 @@ export function UserProfilePage({
               </div>
 
               {/* 用户统计信息 */}
-              <div className="grid grid-cols-4 gap-3 mt-4 pt-4 border-t border-gray-100">
+              <div className="grid grid-cols-4 gap-3 mt-4 pt-4 border-t border-line">
                 <div className="text-center">
                   <div className="flex items-center justify-center gap-1">
                     <Star size={12} className="text-yellow-500" />
-                    <span className="text-sm font-semibold text-gray-700">Lv.{userInfo.level}</span>
+                    <span className="text-sm font-semibold text-ink-2">Lv.{userInfo.level}</span>
                   </div>
-                  <p className="text-xs text-gray-400 mt-0.5">等级</p>
+                  <p className="text-xs text-ink-3 mt-0.5">等级</p>
                 </div>
                 <div className="text-center">
                   <div className="flex items-center justify-center gap-1">
                     <Coins size={12} className="text-orange-500" />
-                    <span className="text-sm font-semibold text-gray-700">{Math.floor(userInfo.coins)}</span>
+                    <span className="text-sm font-semibold text-ink-2">{Math.floor(userInfo.coins)}</span>
                   </div>
-                  <p className="text-xs text-gray-400 mt-0.5">硬币</p>
+                  <p className="text-xs text-ink-3 mt-0.5">硬币</p>
                 </div>
                 <div className="text-center">
                   <div className="flex items-center justify-center gap-1">
                     <Users size={12} className="text-blue-500" />
-                    <span className="text-sm font-semibold text-gray-700">{formatCount(userInfo.following)}</span>
+                    <span className="text-sm font-semibold text-ink-2">{formatCount(userInfo.following)}</span>
                   </div>
-                  <p className="text-xs text-gray-400 mt-0.5">关注</p>
+                  <p className="text-xs text-ink-3 mt-0.5">关注</p>
                 </div>
                 <div className="text-center">
                   <div className="flex items-center justify-center gap-1">
                     <Users size={12} className="text-pink-500" />
-                    <span className="text-sm font-semibold text-gray-700">{formatCount(userInfo.follower)}</span>
+                    <span className="text-sm font-semibold text-ink-2">{formatCount(userInfo.follower)}</span>
                   </div>
-                  <p className="text-xs text-gray-400 mt-0.5">粉丝</p>
+                  <p className="text-xs text-ink-3 mt-0.5">粉丝</p>
                 </div>
               </div>
             </div>
 
             {/* 收藏夹列表 */}
             <div className="flex items-center gap-2 mb-3">
-              <FolderOpen size={16} className="text-gray-500" />
-              <h2 className="text-sm font-semibold text-gray-700">我的收藏夹</h2>
+              <FolderOpen size={16} className="text-ink-3" />
+              <h2 className="text-sm font-semibold text-ink-2">我的收藏夹</h2>
             </div>
 
             {loadingFolders ? (
-              <div className="flex items-center justify-center py-12 text-gray-400 gap-2">
+              <div className="flex items-center justify-center py-12 text-ink-3 gap-2">
                 <Loader2 size={20} className="animate-spin" />
                 <span className="text-sm">加载中...</span>
               </div>
             ) : folderError ? (
-              <div className="flex flex-col items-center justify-center py-12 text-gray-400 gap-2">
+              <div className="flex flex-col items-center justify-center py-12 text-ink-3 gap-2">
                 <AlertCircle size={20} />
                 <p className="text-sm">{folderError}</p>
                 <button
@@ -333,7 +333,7 @@ export function UserProfilePage({
                 </button>
               </div>
             ) : folders.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-12 text-gray-400 gap-2">
+              <div className="flex flex-col items-center justify-center py-12 text-ink-3 gap-2">
                 <FolderOpen size={40} strokeWidth={1.5} />
                 <p className="text-sm">暂无收藏夹</p>
               </div>
@@ -343,23 +343,23 @@ export function UserProfilePage({
                   <button
                     key={folder.id}
                     onClick={() => handleSelectFolder(folder)}
-                    className="flex items-center gap-3 px-4 py-3 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 hover:border-gray-300 transition-colors text-left"
+                    className="flex items-center gap-3 px-4 py-3 bg-panel border border-line rounded-lg hover:bg-base hover:border-line-2 transition-colors text-left"
                   >
                     <FolderOpen
                       size={20}
                       className="text-yellow-500 shrink-0"
                     />
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-gray-700 truncate">
+                      <p className="text-sm font-medium text-ink-2 truncate">
                         {folder.title}
                       </p>
-                      <p className="text-xs text-gray-400">
+                      <p className="text-xs text-ink-3">
                         {folder.media_count} 个视频
                       </p>
                     </div>
                     <ChevronDown
                       size={14}
-                      className="text-gray-300 -rotate-90 shrink-0"
+                      className="text-ink-3 -rotate-90 shrink-0"
                     />
                   </button>
                 ))}
@@ -414,7 +414,7 @@ export function UserProfilePage({
         {selectedFolder && (
           <>
             {medias.length === 0 && !loadingMedias ? (
-              <div className="flex flex-col items-center justify-center py-12 text-gray-400 gap-2">
+              <div className="flex flex-col items-center justify-center py-12 text-ink-3 gap-2">
                 <FolderOpen size={40} strokeWidth={1.5} />
                 <p className="text-sm">收藏夹为空</p>
               </div>
@@ -425,21 +425,21 @@ export function UserProfilePage({
                     key={media.id}
                     onClick={() => handleSelectVideo(media)}
                     disabled={parsingBvid === media.bvid}
-                    className="flex items-start gap-3 w-full px-4 py-3 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 hover:border-gray-300 transition-colors text-left disabled:opacity-70"
+                    className="flex items-start gap-3 w-full px-4 py-3 bg-panel border border-line rounded-lg hover:bg-base hover:border-line-2 transition-colors text-left disabled:opacity-70"
                   >
                     {/* 封面 */}
                     <img
                       src={media.cover}
                       alt={media.title}
-                      className="w-24 h-16 rounded object-cover shrink-0 bg-gray-100"
+                      className="w-24 h-16 rounded object-cover shrink-0 bg-panel-2"
                     />
 
                     {/* 信息 */}
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm text-gray-700 line-clamp-2 leading-snug">
+                      <p className="text-sm text-ink-2 line-clamp-2 leading-snug">
                         {media.title}
                       </p>
-                      <div className="flex items-center gap-3 mt-1.5 text-xs text-gray-400">
+                      <div className="flex items-center gap-3 mt-1.5 text-xs text-ink-3">
                         <span className="flex items-center gap-0.5">
                           <User size={10} />
                           {media.upper_name}
@@ -483,7 +483,7 @@ export function UserProfilePage({
                         loadMedias(selectedFolder, mediaPage + 1, true)
                       }
                       disabled={loadingMedias}
-                      className="flex items-center gap-1.5 px-4 py-2 text-sm text-gray-500 border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50 transition-colors"
+                      className="flex items-center gap-1.5 px-4 py-2 text-sm text-ink-3 border border-line rounded-lg hover:bg-base disabled:opacity-50 transition-colors"
                     >
                       {loadingMedias ? (
                         <>
@@ -499,7 +499,7 @@ export function UserProfilePage({
 
                 {/* 加载指示 */}
                 {loadingMedias && medias.length === 0 && (
-                  <div className="flex items-center justify-center py-12 text-gray-400 gap-2">
+                  <div className="flex items-center justify-center py-12 text-ink-3 gap-2">
                     <Loader2 size={20} className="animate-spin" />
                     <span className="text-sm">加载中...</span>
                   </div>

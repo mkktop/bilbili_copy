@@ -150,17 +150,17 @@ export function RankingPage({ onBack, onParseVideo, onSelectItem }: Props) {
     filterOptions.find((o) => o.value === rid)?.label ?? "";
 
   return (
-    <div className="flex flex-col h-screen bg-gray-50 text-gray-900">
-      <header className="flex items-center gap-3 px-6 py-4 bg-white border-b border-gray-200">
+    <div className="flex flex-col h-screen bg-base text-ink">
+      <header className="flex items-center gap-3 px-6 py-4 bg-panel border-b border-line">
         <button
           onClick={onBack}
-          className="p-1.5 rounded-lg border border-gray-300 hover:bg-gray-50 transition-colors"
+          className="p-1.5 rounded-lg border border-line-2 hover:bg-base transition-colors"
         >
           <ArrowLeft size={16} />
         </button>
         <Trophy size={18} className="text-yellow-500" />
-        <h1 className="text-lg font-semibold text-gray-800">热门排行榜</h1>
-        <span className="text-xs text-gray-400">{currentLabel}</span>
+        <h1 className="text-lg font-semibold text-ink">热门排行榜</h1>
+        <span className="text-xs text-ink-3">{currentLabel}</span>
       </header>
 
       <div className="flex-1 overflow-auto px-6 py-4">
@@ -179,14 +179,14 @@ export function RankingPage({ onBack, onParseVideo, onSelectItem }: Props) {
 
         {/* 语义说明（仅 UGC 模式有歧义时显示） */}
         {contentType === "ugc" && (
-          <p className="text-[11px] text-gray-400 mt-1.5 ml-11">
+          <p className="text-[11px] text-ink-3 mt-1.5 ml-11">
             {rid === "0"
               ? "全站榜按全站综合热度排名（Top 100），各分区头部内容混合排序"
               : "分区榜按该分区内部数据排名，与全站榜内容不重合属正常"}
           </p>
         )}
         {contentType === "pgc" && (
-          <p className="text-[11px] text-gray-400 mt-1.5 ml-11">
+          <p className="text-[11px] text-ink-3 mt-1.5 ml-11">
             PGC 排行榜仅含番剧/国创/电影等专业内容；点击进入选集详情页
           </p>
         )}
@@ -209,13 +209,13 @@ export function RankingPage({ onBack, onParseVideo, onSelectItem }: Props) {
 
         {/* 列表 */}
         {loading ? (
-          <div className="flex items-center justify-center py-12 text-gray-400 gap-2">
+          <div className="flex items-center justify-center py-12 text-ink-3 gap-2">
             <Loader2 size={20} className="animate-spin" />
             <span className="text-sm">加载中...</span>
           </div>
         ) : contentType === "ugc" ? (
           ugcItems.length === 0 && !error ? (
-            <div className="flex flex-col items-center justify-center py-12 text-gray-400 gap-2">
+            <div className="flex flex-col items-center justify-center py-12 text-ink-3 gap-2">
               <Trophy size={40} strokeWidth={1.5} />
               <p className="text-sm">暂无排行榜数据</p>
             </div>
@@ -232,7 +232,7 @@ export function RankingPage({ onBack, onParseVideo, onSelectItem }: Props) {
             </div>
           )
         ) : pgcItems.length === 0 && !error ? (
-          <div className="flex flex-col items-center justify-center py-12 text-gray-400 gap-2">
+          <div className="flex flex-col items-center justify-center py-12 text-ink-3 gap-2">
             <Film size={40} strokeWidth={1.5} />
             <p className="text-sm">暂无 PGC 排行榜数据</p>
           </div>
@@ -262,7 +262,7 @@ function ContentTypeTabs({
   onChange: (t: ContentType) => void;
 }) {
   return (
-    <div className="flex gap-1 p-1 bg-gray-100 rounded-lg w-fit">
+    <div className="flex gap-1 p-1 bg-panel-2 rounded-lg w-fit">
       {(
         [
           { key: "ugc", label: "UGC 视频", Icon: Trophy },
@@ -274,8 +274,8 @@ function ContentTypeTabs({
           onClick={() => onChange(key)}
           className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md transition-colors ${
             value === key
-              ? "bg-white text-gray-800 shadow-sm"
-              : "text-gray-500 hover:text-gray-700"
+              ? "bg-panel text-ink shadow-sm"
+              : "text-ink-3 hover:text-ink-2"
           }`}
         >
           <Icon size={14} />
@@ -300,7 +300,7 @@ function FilterRow({
 }) {
   return (
     <div className="flex items-start gap-3">
-      <span className="text-xs text-gray-500 mt-1.5 w-8 shrink-0">{label}</span>
+      <span className="text-xs text-ink-3 mt-1.5 w-8 shrink-0">{label}</span>
       <div className="flex gap-1 flex-wrap">
         {options.map((opt) => {
           const active = value === opt.value;
@@ -310,8 +310,8 @@ function FilterRow({
               onClick={() => onChange(opt.value)}
               className={`px-2.5 py-1 text-xs rounded-md border transition-colors ${
                 active
-                  ? "bg-blue-50 border-blue-300 text-blue-600"
-                  : "bg-white border-gray-200 text-gray-500 hover:bg-gray-50"
+                  ? "bg-accent-soft border-accent text-accent"
+                  : "bg-panel border-line text-ink-3 hover:bg-base"
               }`}
             >
               {opt.label}
@@ -338,16 +338,16 @@ function RankingCard({
     item.rank === 1
       ? "bg-yellow-400 text-white"
       : item.rank === 2
-      ? "bg-gray-300 text-gray-700"
+      ? "bg-line-2 text-ink-2"
       : item.rank === 3
       ? "bg-orange-400 text-white"
-      : "bg-gray-100 text-gray-500";
+      : "bg-panel-2 text-ink-3";
 
   return (
     <button
       onClick={onClick}
       disabled={loading || !item.bvid}
-      className="relative flex items-start gap-3 w-full px-4 py-3 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 hover:border-gray-300 transition-colors text-left disabled:opacity-70"
+      className="relative flex items-start gap-3 w-full px-4 py-3 bg-panel border border-line rounded-lg hover:bg-base hover:border-line-2 transition-colors text-left disabled:opacity-70"
     >
       {/* 名次 */}
       <div
@@ -360,15 +360,15 @@ function RankingCard({
       <img
         src={item.cover}
         alt={item.title}
-        className="w-24 h-16 rounded object-cover bg-gray-100 shrink-0"
+        className="w-24 h-16 rounded object-cover bg-panel-2 shrink-0"
       />
 
       {/* 信息 */}
       <div className="flex-1 min-w-0">
-        <p className="text-sm text-gray-700 line-clamp-2 leading-snug">
+        <p className="text-sm text-ink-2 line-clamp-2 leading-snug">
           {item.title}
         </p>
-        <div className="flex items-center gap-3 mt-1.5 text-xs text-gray-400 flex-wrap">
+        <div className="flex items-center gap-3 mt-1.5 text-xs text-ink-3 flex-wrap">
           <span className="flex items-center gap-0.5">
             <User size={10} />
             {item.upper_name}
@@ -403,8 +403,8 @@ function RankingCard({
       {/* 综合分（v2 接口通常为 0，不显示） */}
       {!!item.score && item.score > 0 && (
         <div className="absolute top-1.5 right-2 flex flex-col items-end">
-          <span className="text-[10px] text-gray-300">综合分</span>
-          <span className="text-xs font-semibold text-gray-500">
+          <span className="text-[10px] text-ink-3">综合分</span>
+          <span className="text-xs font-semibold text-ink-3">
             {formatCount(item.score)}
           </span>
         </div>
@@ -433,16 +433,16 @@ function PgcRankCard({
     item.rank === 1
       ? "bg-yellow-400 text-white"
       : item.rank === 2
-      ? "bg-gray-300 text-gray-700"
+      ? "bg-line-2 text-ink-2"
       : item.rank === 3
       ? "bg-orange-400 text-white"
-      : "bg-gray-100 text-gray-500";
+      : "bg-panel-2 text-ink-3";
 
   return (
     <button
       onClick={onClick}
       disabled={loading || !item.season_id}
-      className="relative flex items-start gap-3 w-full px-4 py-3 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 hover:border-gray-300 transition-colors text-left disabled:opacity-70"
+      className="relative flex items-start gap-3 w-full px-4 py-3 bg-panel border border-line rounded-lg hover:bg-base hover:border-line-2 transition-colors text-left disabled:opacity-70"
     >
       {/* 名次 */}
       <div
@@ -456,16 +456,16 @@ function PgcRankCard({
         src={item.cover}
         alt={item.title}
         // h-18 非 Tailwind 默认尺寸类，不生效；尺寸由 w-32 + aspectRatio 撑出
-        className="w-32 rounded object-cover bg-gray-100 shrink-0"
+        className="w-32 rounded object-cover bg-panel-2 shrink-0"
         style={{ aspectRatio: "16/9" }}
       />
 
       {/* 信息 */}
       <div className="flex-1 min-w-0">
-        <p className="text-sm text-gray-700 line-clamp-2 leading-snug">
+        <p className="text-sm text-ink-2 line-clamp-2 leading-snug">
           {item.title}
         </p>
-        <div className="flex items-center gap-3 mt-1.5 text-xs text-gray-400 flex-wrap">
+        <div className="flex items-center gap-3 mt-1.5 text-xs text-ink-3 flex-wrap">
           {!!item.badge && (
             <span className="flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-pink-50 text-pink-500 text-[10px]">
               {item.badge}
@@ -489,7 +489,7 @@ function PgcRankCard({
       {/* 综合分（PGC 接口真实返回，总是显示） */}
       {!!item.score && item.score > 0 && (
         <div className="absolute top-1.5 right-2 flex flex-col items-end">
-          <span className="text-[10px] text-gray-300">综合分</span>
+          <span className="text-[10px] text-ink-3">综合分</span>
           <span className="text-xs font-semibold text-yellow-600">
             {item.score}
           </span>

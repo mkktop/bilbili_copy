@@ -89,17 +89,17 @@ export function RegionPage({ onBack, onParseVideo, onSelectItem }: Props) {
     REGION_OPTIONS.find((o) => o.value === rid)?.label ?? "";
 
   return (
-    <div className="flex flex-col h-screen bg-gray-50 text-gray-900">
-      <header className="flex items-center gap-2 px-4 py-3 bg-white border-b border-gray-200">
+    <div className="flex flex-col h-screen bg-base text-ink">
+      <header className="flex items-center gap-2 px-4 py-3 bg-panel border-b border-line">
         <button
           onClick={onBack}
-          className="p-1 rounded-md text-gray-500 hover:bg-gray-100 transition-colors"
+          className="p-1 rounded-md text-ink-3 hover:bg-panel-2 transition-colors"
         >
           <ArrowLeft size={18} />
         </button>
         <LayoutGrid size={18} className="text-purple-500" />
-        <h1 className="text-lg font-semibold text-gray-800">分区浏览</h1>
-        <span className="text-xs text-gray-400">{currentLabel}</span>
+        <h1 className="text-lg font-semibold text-ink">分区浏览</h1>
+        <span className="text-xs text-ink-3">{currentLabel}</span>
       </header>
 
       <div className="flex-1 overflow-auto px-6 py-4">
@@ -111,7 +111,7 @@ export function RegionPage({ onBack, onParseVideo, onSelectItem }: Props) {
           onChange={handleRidChange}
         />
         {/* 语义说明：分区浏览是该分区最新发布视频，非排行 */}
-        <p className="text-[11px] text-gray-400 mt-1.5 ml-11">
+        <p className="text-[11px] text-ink-3 mt-1.5 ml-11">
           按该分区最新发布时间排序，与排行榜（综合热度）是两套不同的内容
         </p>
 
@@ -130,12 +130,12 @@ export function RegionPage({ onBack, onParseVideo, onSelectItem }: Props) {
         )}
 
         {loading ? (
-          <div className="flex items-center justify-center gap-2 py-12 text-gray-400">
+          <div className="flex items-center justify-center gap-2 py-12 text-ink-3">
             <Loader2 size={20} className="animate-spin" />
             <span className="text-sm">加载中...</span>
           </div>
         ) : items.length === 0 && !error ? (
-          <div className="flex flex-col items-center justify-center py-12 text-gray-400 gap-2">
+          <div className="flex flex-col items-center justify-center py-12 text-ink-3 gap-2">
             <LayoutGrid size={40} strokeWidth={1.5} />
             <p className="text-sm">暂无分区视频</p>
           </div>
@@ -170,7 +170,7 @@ function FilterRow({
 }) {
   return (
     <div className="flex items-start gap-3">
-      <span className="text-xs text-gray-500 mt-1.5 w-8 shrink-0">{label}</span>
+      <span className="text-xs text-ink-3 mt-1.5 w-8 shrink-0">{label}</span>
       <div className="flex gap-1 flex-wrap">
         {options.map((opt) => {
           const active = value === opt.value;
@@ -181,7 +181,7 @@ function FilterRow({
               className={`px-2.5 py-1 text-xs rounded-md border transition-colors ${
                 active
                   ? "bg-purple-50 border-purple-300 text-purple-600"
-                  : "bg-white border-gray-200 text-gray-500 hover:bg-gray-50"
+                  : "bg-panel border-line text-ink-3 hover:bg-base"
               }`}
             >
               {opt.label}
@@ -207,21 +207,21 @@ function RegionCard({
     <button
       onClick={onClick}
       disabled={loading || !item.bvid}
-      className="relative flex items-start gap-3 w-full px-4 py-3 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 hover:border-gray-300 transition-colors text-left disabled:opacity-70"
+      className="relative flex items-start gap-3 w-full px-4 py-3 bg-panel border border-line rounded-lg hover:bg-base hover:border-line-2 transition-colors text-left disabled:opacity-70"
     >
       {/* 封面 */}
       <img
         src={item.cover}
         alt={item.title}
-        className="w-24 h-16 rounded object-cover bg-gray-100 shrink-0"
+        className="w-24 h-16 rounded object-cover bg-panel-2 shrink-0"
       />
 
       {/* 信息 */}
       <div className="flex-1 min-w-0">
-        <p className="text-sm text-gray-700 line-clamp-2 leading-snug">
+        <p className="text-sm text-ink-2 line-clamp-2 leading-snug">
           {item.title}
         </p>
-        <div className="flex items-center gap-3 mt-1.5 text-xs text-gray-400 flex-wrap">
+        <div className="flex items-center gap-3 mt-1.5 text-xs text-ink-3 flex-wrap">
           <span className="flex items-center gap-0.5">
             <User size={10} />
             {item.upper_name}

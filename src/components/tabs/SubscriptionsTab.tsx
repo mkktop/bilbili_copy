@@ -146,18 +146,18 @@ export function SubscriptionsTab({ onParseVideo, onSelectItem }: Props) {
         <div className="flex items-center gap-2 mb-3">
           <button
             onClick={handleBackToList}
-            className="p-1.5 rounded-lg border border-gray-300 hover:bg-gray-50 transition-colors"
+            className="p-1.5 rounded-lg border border-line-2 hover:bg-panel-2 transition-colors"
           >
             <ArrowLeft size={14} />
           </button>
-          <h2 className="text-sm font-semibold text-gray-700 truncate">
+          <h2 className="text-sm font-semibold text-ink-2 truncate">
             {selected.name}
           </h2>
-          <span className="text-xs text-gray-400">{total} 个内容</span>
+          <span className="text-xs text-ink-3">{total} 个内容</span>
         </div>
 
         {videoError && videos.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-12 text-gray-400 gap-2">
+          <div className="flex flex-col items-center justify-center py-12 text-ink-3 gap-2">
             <AlertCircle size={20} />
             <p className="text-sm">{videoError}</p>
             <button
@@ -168,7 +168,7 @@ export function SubscriptionsTab({ onParseVideo, onSelectItem }: Props) {
             </button>
           </div>
         ) : videos.length === 0 && !loadingVideos ? (
-          <div className="flex flex-col items-center justify-center py-12 text-gray-400 gap-2">
+          <div className="flex flex-col items-center justify-center py-12 text-ink-3 gap-2">
             <Bookmark size={40} strokeWidth={1.5} />
             <p className="text-sm">暂无内容</p>
           </div>
@@ -195,7 +195,7 @@ export function SubscriptionsTab({ onParseVideo, onSelectItem }: Props) {
                 <button
                   onClick={() => loadVideos(selected, videoPage + 1, true)}
                   disabled={loadingVideos}
-                  className="flex items-center gap-1.5 px-4 py-2 text-sm text-gray-500 border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50 transition-colors"
+                  className="flex items-center gap-1.5 px-4 py-2 text-sm text-ink-3 border border-line rounded-lg hover:bg-panel-2 disabled:opacity-50 transition-colors"
                 >
                   {loadingVideos ? (
                     <>
@@ -210,7 +210,7 @@ export function SubscriptionsTab({ onParseVideo, onSelectItem }: Props) {
             )}
 
             {loadingVideos && videos.length === 0 && (
-              <div className="flex items-center justify-center py-12 text-gray-400 gap-2">
+              <div className="flex items-center justify-center py-12 text-ink-3 gap-2">
                 <Loader2 size={20} className="animate-spin" />
                 <span className="text-sm">加载中...</span>
               </div>
@@ -224,7 +224,7 @@ export function SubscriptionsTab({ onParseVideo, onSelectItem }: Props) {
   // ===== 订阅列表层 =====
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-12 text-gray-400 gap-2">
+      <div className="flex items-center justify-center py-12 text-ink-3 gap-2">
         <Loader2 size={20} className="animate-spin" />
         <span className="text-sm">加载中...</span>
       </div>
@@ -233,7 +233,7 @@ export function SubscriptionsTab({ onParseVideo, onSelectItem }: Props) {
 
   if (error) {
     return (
-      <div className="flex flex-col items-center justify-center py-12 text-gray-400 gap-2">
+      <div className="flex flex-col items-center justify-center py-12 text-ink-3 gap-2">
         <AlertCircle size={20} />
         <p className="text-sm">{error}</p>
         <button
@@ -248,7 +248,7 @@ export function SubscriptionsTab({ onParseVideo, onSelectItem }: Props) {
 
   if (collections.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-12 text-gray-400 gap-2">
+      <div className="flex flex-col items-center justify-center py-12 text-ink-3 gap-2">
         <Bookmark size={40} strokeWidth={1.5} />
         <p className="text-sm">暂无订阅的合集/收藏夹</p>
       </div>
@@ -263,7 +263,7 @@ export function SubscriptionsTab({ onParseVideo, onSelectItem }: Props) {
           <button
             key={`${c.collection_type}-${c.id}`}
             onClick={() => handleSelectCollection(c)}
-            className="flex items-start gap-3 px-4 py-3 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 hover:border-gray-300 transition-colors text-left"
+            className="flex items-start gap-3 px-4 py-3 bg-panel border border-line rounded-lg hover:bg-panel-2 hover:border-line-2 transition-colors text-left"
           >
             {isFavorite ? (
               <Bookmark size={20} className="text-yellow-500 shrink-0 mt-0.5" />
@@ -271,19 +271,19 @@ export function SubscriptionsTab({ onParseVideo, onSelectItem }: Props) {
               <Layers size={20} className="text-green-500 shrink-0 mt-0.5" />
             )}
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-gray-700 line-clamp-1">
+              <p className="text-sm font-medium text-ink-2 line-clamp-1">
                 {c.name}
               </p>
-              <p className="text-xs text-gray-400 mt-0.5">
+              <p className="text-xs text-ink-3 mt-0.5">
                 {c.total} 个内容
               </p>
               {c.upper_name && (
-                <p className="text-xs text-gray-400 mt-0.5 truncate">
+                <p className="text-xs text-ink-3 mt-0.5 truncate">
                   UP: {c.upper_name}
                 </p>
               )}
             </div>
-            <span className="text-[10px] text-gray-400 shrink-0">
+            <span className="text-[10px] text-ink-3 shrink-0">
               {isFavorite ? "收藏夹" : "合集"}
             </span>
           </button>

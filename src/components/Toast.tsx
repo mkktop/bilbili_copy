@@ -41,21 +41,21 @@ const TYPE_CONFIG: Record<
 > = {
   success: {
     icon: <CheckCircle2 size={16} className="text-green-500" />,
-    color: "text-gray-700",
+    color: "text-ink-2",
     border: "border-green-200",
-    bg: "bg-white",
+    bg: "bg-panel",
   },
   error: {
     icon: <XCircle size={16} className="text-red-500" />,
-    color: "text-gray-700",
+    color: "text-ink-2",
     border: "border-red-200",
-    bg: "bg-white",
+    bg: "bg-panel",
   },
   info: {
-    icon: <Info size={16} className="text-blue-500" />,
-    color: "text-gray-700",
-    border: "border-gray-200",
-    bg: "bg-white",
+    icon: <Info size={16} className="text-accent" />,
+    color: "text-ink-2",
+    border: "border-line",
+    bg: "bg-panel",
   },
 };
 
@@ -115,7 +115,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
                 <span className={cn("text-sm", cfg.color)}>{t.message}</span>
                 <button
                   onClick={() => dismiss(t.id)}
-                  className="ml-1 p-0.5 rounded text-gray-300 hover:text-gray-500 transition-colors shrink-0"
+                  className="ml-1 p-0.5 rounded text-ink-3 hover:text-ink-2 transition-colors shrink-0"
                 >
                   <X size={14} />
                 </button>

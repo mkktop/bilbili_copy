@@ -42,14 +42,14 @@ export function VideoCard({
     <button
       onClick={onClick}
       disabled={disabled || loading}
-      className="relative flex items-start gap-3 w-full px-4 py-3 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 hover:border-gray-300 transition-colors text-left disabled:opacity-70"
+      className="relative flex items-start gap-3 w-full px-4 py-3 bg-panel border border-line rounded-lg hover:bg-panel-2 hover:border-line-2 transition-colors text-left disabled:opacity-70"
     >
       {/* 封面 */}
       <div className="relative shrink-0">
         <img
           src={cover}
           alt={title}
-          className="w-24 h-16 rounded object-cover bg-gray-100"
+          className="w-24 h-16 rounded object-cover bg-panel-2"
         />
         {!!badge && (
           <span className="absolute top-1 left-1 px-1 py-0.5 rounded bg-black/60 text-white text-[10px] leading-none">
@@ -60,8 +60,8 @@ export function VideoCard({
 
       {/* 信息 */}
       <div className="flex-1 min-w-0">
-        <p className="text-sm text-gray-700 line-clamp-2 leading-snug">{title}</p>
-        <div className="flex items-center gap-3 mt-1.5 text-xs text-gray-400 flex-wrap">
+        <p className="text-sm text-ink-2 line-clamp-2 leading-snug">{title}</p>
+        <div className="flex items-center gap-3 mt-1.5 text-xs text-ink-3 flex-wrap">
           {upperName && (
             <span className="flex items-center gap-0.5">
               <User size={10} />

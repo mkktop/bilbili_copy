@@ -173,24 +173,24 @@ export function LoginDialog({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-      <div className="bg-white rounded-xl shadow-xl p-6 w-80 relative">
+      <div className="bg-panel rounded-xl shadow-xl p-6 w-80 relative">
         {/* 关闭按钮 */}
         <button
           onClick={onClose}
-          className="absolute top-3 right-3 p-1 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100"
+          className="absolute top-3 right-3 p-1 rounded-md text-ink-3 hover:text-ink-2 hover:bg-panel-2"
         >
           <X size={16} />
         </button>
 
-        <h2 className="text-base font-semibold text-gray-800 mb-4 text-center">
+        <h2 className="text-base font-semibold text-ink mb-4 text-center">
           B站账号登录
         </h2>
 
         {/* 二维码区域 */}
         <div className="flex justify-center mb-4">
           {phase === "loading" ? (
-            <div className="w-[200px] h-[200px] flex items-center justify-center bg-gray-50 rounded-lg">
-              <Loader2 size={32} className="animate-spin text-gray-300" />
+            <div className="w-[200px] h-[200px] flex items-center justify-center bg-panel-2 rounded-lg">
+              <Loader2 size={32} className="animate-spin text-ink-3" />
             </div>
           ) : (
             <img
@@ -202,7 +202,7 @@ export function LoginDialog({
         </div>
 
         {/* 状态提示 */}
-        <div className="flex items-center justify-center gap-2 text-sm text-gray-600">
+        <div className="flex items-center justify-center gap-2 text-sm text-ink-2">
           {statusIcon}
           <span>{statusText}</span>
         </div>

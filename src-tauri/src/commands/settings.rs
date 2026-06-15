@@ -46,6 +46,11 @@ fn default_request_delay_ms() -> u64 {
     0
 }
 
+/// 主题模式 "light" | "dark" | "system"
+fn default_theme() -> String {
+    "light".to_string()
+}
+
 // ---- 弹幕渲染（用户可见配置）----
 
 fn default_dm_font_size() -> u32 {
@@ -131,6 +136,9 @@ pub struct AppSettings {
     // 仅音频下载输出格式 "m4a" | "mp3"
     #[serde(default = "default_audio_format")]
     pub audio_format: String,
+    // 主题模式 "light" | "dark" | "system"
+    #[serde(default = "default_theme")]
+    pub theme: String,
     // 防风控 - 设备指纹
     #[serde(default)]
     pub fingerprint_gpu_preset: String,
@@ -196,6 +204,7 @@ impl Default for AppSettings {
             parallel_threads: default_parallel_threads(),
             max_download_speed_kbps: 0,
             audio_format: default_audio_format(),
+            theme: default_theme(),
             fingerprint_gpu_preset: String::new(),
             fingerprint_resolution_preset: String::new(),
             dm_img_str: String::new(),
@@ -242,6 +251,7 @@ impl From<LegacySettings> for AppSettings {
             parallel_threads: default_parallel_threads(),
             max_download_speed_kbps: 0,
             audio_format: default_audio_format(),
+            theme: default_theme(),
             fingerprint_gpu_preset: String::new(),
             fingerprint_resolution_preset: String::new(),
             dm_img_str: String::new(),

@@ -1,9 +1,10 @@
 import { open } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
-import { FolderOpen, Check, Trash2 } from "lucide-react";
+import { FolderOpen, Check, Trash2, Sun, Moon, Monitor } from "lucide-react";
 import { useState } from "react";
 import { useToast } from "../Toast";
 import { friendlyError } from "../../lib/errors";
+import { SettingCard, SegmentedControl } from "./shared";
 
 interface GeneralTabProps {
   dir: string;
@@ -13,6 +14,8 @@ interface GeneralTabProps {
   onSave: () => void;
   onClearParse?: () => void;
   onClearDownload?: () => void;
+  theme: string;
+  onThemeChange: (t: "light" | "dark" | "system") => void;
 }
 
 export function GeneralTab({
@@ -23,6 +26,8 @@ export function GeneralTab({
   onSave,
   onClearParse,
   onClearDownload,
+  theme,
+  onThemeChange,
 }: GeneralTabProps) {
   const [clearing, setClearing] = useState<"parse" | "download" | null>(null);
   const toast = useToast();
@@ -61,19 +66,48 @@ export function GeneralTab({
 
   return (
     <div className="space-y-8">
+      {/* 外观 */}
+      <section className="space-y-2">
+        <header className="space-y-1">
+          <h3 className="text-sm font-medium text-ink-2">外观</h3>
+          <p className="text-xs text-ink-3">切换浅色 / 深色主题，或跟随系统</p>
+        </header>
+        <SettingCard
+          icon={theme === "dark" ? Moon : theme === "system" ? Monitor : Sun}
+          title="主题模式"
+          description={
+            theme === "system"
+              ? "跟随操作系统的浅色 / 深色设置"
+              : theme === "dark"
+              ? "当前为深色主题"
+              : "当前为浅色主题"
+          }
+        >
+          <SegmentedControl<"light" | "dark" | "system">
+            options={[
+              { value: "light", label: "浅色" },
+              { value: "dark", label: "深色" },
+              { value: "system", label: "跟随系统" },
+            ]}
+            value={theme === "dark" ? "dark" : theme === "system" ? "system" : "light"}
+            onChange={onThemeChange}
+          />
+        </SettingCard>
+      </section>
+
       {/* 下载设置 */}
       <section className="space-y-2">
         <header className="space-y-1">
-          <h3 className="text-sm font-medium text-gray-700">下载设置</h3>
-          <p className="text-xs text-gray-400">配置视频下载的保存位置</p>
+          <h3 className="text-sm font-medium text-ink-2">下载设置</h3>
+          <p className="text-xs text-ink-3">配置视频下载的保存位置</p>
         </header>
 
         <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1.5">
+          <label className="block text-xs font-medium text-ink-2 mb-1.5">
             默认下载目录
           </label>
-          <p className="text-xs text-gray-400 mb-2">
-            不设置时，视频将下载到安装目录下的 <code className="bg-gray-100 px-1 rounded">downloads</code> 文件夹
+          <p className="text-xs text-ink-3 mb-2">
+            不设置时，视频将下载到安装目录下的 <code className="bg-panel-2 px-1 rounded">downloads</code> 文件夹
           </p>
           <div className="flex items-center gap-2">
             <input
@@ -81,11 +115,11 @@ export function GeneralTab({
               value={dir}
               readOnly
               placeholder="未设置（使用安装目录/downloads/）"
-              className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded-lg bg-gray-50 text-gray-700 truncate"
+              className="flex-1 px-3 py-2 text-sm border border-line-2 rounded-lg bg-panel-2 text-ink-2 truncate"
             />
             <button
               onClick={handleSelectDir}
-              className="flex items-center gap-1.5 px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors text-sm"
+              className="flex items-center gap-1.5 px-3 py-2 border border-line-2 rounded-lg hover:bg-panel-2 transition-colors text-sm"
             >
               <FolderOpen size={14} />
               选择
@@ -93,7 +127,7 @@ export function GeneralTab({
             {dir && (
               <button
                 onClick={() => onDirChange("")}
-                className="px-3 py-2 text-sm text-gray-500 hover:text-gray-700 transition-colors"
+                className="px-3 py-2 text-sm text-ink-3 hover:text-ink-2 transition-colors"
               >
                 重置
               </button>
@@ -105,8 +139,8 @@ export function GeneralTab({
       {/* 历史记录管理 */}
       <section className="space-y-2">
         <header className="space-y-1">
-          <h3 className="text-sm font-medium text-gray-700">历史记录</h3>
-          <p className="text-xs text-gray-400">清除后不可恢复</p>
+          <h3 className="text-sm font-medium text-ink-2">历史记录</h3>
+          <p className="text-xs text-ink-3">清除后不可恢复</p>
         </header>
 
         <div className="flex items-center gap-3">

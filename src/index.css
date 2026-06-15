@@ -2,6 +2,37 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ==================== 主题色板 ====================
+ * 语义化 CSS 变量：组件使用 bg-panel / text-ink / border-line 等语义类，
+ * 主题切换由 <html> 上的 .dark 类整体翻转。
+ * 值用空格分隔的 R G B 三元组，配合 Tailwind 的 rgb(var(--x) / <alpha-value>) 支持透明度修饰符。
+ */
+:root {
+  --color-base: 249 250 251;       /* gray-50  页面底色 */
+  --color-panel: 255 255 255;      /* white    卡片/面板 */
+  --color-panel-2: 249 250 251;    /* gray-50  悬停/嵌套表面 */
+  --color-line: 229 231 235;       /* gray-200 默认边框 */
+  --color-line-2: 209 213 219;     /* gray-300 强边框 */
+  --color-ink: 17 24 39;           /* gray-900 主文本 */
+  --color-ink-2: 75 85 99;         /* gray-600 次文本（标题/标签） */
+  --color-ink-3: 156 163 175;      /* gray-400 弱化文本（描述/占位） */
+  --color-accent: 59 130 246;      /* blue-500  蓝色强调 */
+  --color-accent-soft: 239 246 255;/* blue-50   蓝色软背景 */
+}
+
+.dark {
+  --color-base: 3 7 18;            /* gray-950 */
+  --color-panel: 17 24 39;         /* gray-900 */
+  --color-panel-2: 31 41 55;       /* gray-800 */
+  --color-line: 31 41 55;          /* gray-800 */
+  --color-line-2: 55 65 81;        /* gray-700 */
+  --color-ink: 243 244 246;        /* gray-100 */
+  --color-ink-2: 209 213 219;      /* gray-300 */
+  --color-ink-3: 107 114 128;      /* gray-500 */
+  --color-accent: 96 165 250;      /* blue-400 */
+  --color-accent-soft: 23 37 84;   /* blue-950 */
+}
+
 body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
@@ -19,4 +50,3 @@ body {
     transform: translateY(0);
   }
 }
-

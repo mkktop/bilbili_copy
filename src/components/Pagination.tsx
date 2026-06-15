@@ -59,7 +59,7 @@ export function Pagination({
       <button
         onClick={() => onPageChange(currentPage - 1)}
         disabled={currentPage <= 1}
-        className="flex items-center gap-1 px-2 py-1 text-xs text-gray-500 rounded hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+        className="flex items-center gap-1 px-2 py-1 text-xs text-ink-3 rounded hover:bg-panel-2 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
       >
         <ChevronLeft size={12} />
         上一页
@@ -72,7 +72,7 @@ export function Pagination({
             return (
               <span
                 key={`ellipsis-${idx}`}
-                className="text-xs text-gray-400 px-1 select-none"
+                className="text-xs text-ink-3 px-1 select-none"
               >
                 …
               </span>
@@ -87,7 +87,7 @@ export function Pagination({
                 btnBase,
                 active
                   ? "bg-blue-500 text-white font-medium"
-                  : "text-gray-500 hover:bg-gray-100"
+                  : "text-ink-3 hover:bg-panel-2"
               )}
             >
               {p}
@@ -100,7 +100,7 @@ export function Pagination({
       <button
         onClick={() => onPageChange(currentPage + 1)}
         disabled={currentPage >= totalPages}
-        className="flex items-center gap-1 px-2 py-1 text-xs text-gray-500 rounded hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+        className="flex items-center gap-1 px-2 py-1 text-xs text-ink-3 rounded hover:bg-panel-2 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
       >
         下一页
         <ChevronRight size={12} />

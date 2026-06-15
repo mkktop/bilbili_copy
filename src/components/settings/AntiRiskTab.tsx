@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Shield, Cpu, Timer, RefreshCw, Check } from "lucide-react";
 import { cn } from "../../lib/utils";
+import { SettingCard } from "./shared";
 
 interface AntiRiskTabProps {
   gpuPreset: string;
@@ -32,31 +33,6 @@ const DELAY_OPTIONS = [
   { value: 2000, label: "2s" },
   { value: 3000, label: "3s" },
 ];
-
-function SettingCard({
-  icon: Icon,
-  title,
-  description,
-  children,
-}: {
-  icon: React.ElementType;
-  title: string;
-  description: React.ReactNode;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="flex items-start gap-4 p-4 rounded-xl border border-gray-100 bg-white">
-      <div className="p-2 rounded-lg bg-blue-50 text-blue-500 mt-0.5">
-        <Icon size={18} />
-      </div>
-      <div className="flex-1 min-w-0">
-        <h3 className="text-sm font-medium text-gray-800">{title}</h3>
-        <p className="text-xs text-gray-400 mt-0.5">{description}</p>
-        <div className="mt-3">{children}</div>
-      </div>
-    </div>
-  );
-}
 
 export function AntiRiskTab({
   gpuPreset,
@@ -141,7 +117,7 @@ export function AntiRiskTab({
             <select
               value={gpuPreset}
               onChange={(e) => onGpuPresetChange(e.target.value)}
-              className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-300"
+              className="flex-1 px-3 py-2 text-sm border border-line rounded-lg bg-panel text-ink-2 focus:outline-none focus:ring-2 focus:ring-accent"
             >
               <option value="">选择 GPU 型号</option>
               {gpuOptions.map((o) => (
@@ -153,7 +129,7 @@ export function AntiRiskTab({
             <select
               value={resolutionPreset}
               onChange={(e) => onResolutionPresetChange(e.target.value)}
-              className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-300"
+              className="flex-1 px-3 py-2 text-sm border border-line rounded-lg bg-panel text-ink-2 focus:outline-none focus:ring-2 focus:ring-accent"
             >
               <option value="">选择分辨率</option>
               {resOptions.map((o) => (
@@ -175,7 +151,7 @@ export function AntiRiskTab({
             <button
               onClick={handleRandomGenerate}
               disabled={generating}
-              className="flex items-center gap-1.5 px-3 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-40 transition-colors"
+              className="flex items-center gap-1.5 px-3 py-2 text-sm border border-line-2 rounded-lg hover:bg-panel-2 disabled:opacity-40 transition-colors"
             >
               <RefreshCw size={14} />
               随机生成
@@ -194,7 +170,7 @@ export function AntiRiskTab({
         title="请求间隔"
         description="每次 playurl API 请求前的等待时间，避免短时间大量请求触发风控。"
       >
-        <div className="inline-flex rounded-lg border border-gray-200 p-0.5 bg-gray-50">
+        <div className="inline-flex rounded-lg border border-line p-0.5 bg-panel-2">
           {DELAY_OPTIONS.map((opt) => (
             <button
               key={opt.value}
@@ -202,8 +178,8 @@ export function AntiRiskTab({
               className={cn(
                 "px-3 py-1.5 text-xs font-medium rounded-md transition-all",
                 requestDelayMs === opt.value
-                  ? "bg-white text-blue-600 shadow-sm border border-gray-200"
-                  : "text-gray-500 hover:text-gray-700"
+                  ? "bg-panel text-accent shadow-sm border border-line"
+                  : "text-ink-3 hover:text-ink-2"
               )}
             >
               {opt.label}
@@ -216,7 +192,7 @@ export function AntiRiskTab({
         icon={Shield}
         title="自动防护"
         description={
-          <span className="text-gray-500">
+          <span className="text-ink-3">
             GeeTest 验证码自动弹出 · gaia_vtoken 自动缓存 1 小时 · Cookie 过期自动刷新
           </span>
         }

@@ -18,8 +18,9 @@ import { useToast } from "./components/Toast";
 import { useUpdate } from "./contexts/UpdateContext";
 import { useSettings } from "./hooks/useSettings";
 import { useLogin } from "./hooks/useLogin";
-import { Settings, Download, Search, Trophy, Sparkles, LayoutGrid } from "lucide-react";
+import { Settings, Download, Search, Trophy, Sparkles, LayoutGrid, Sun, Moon } from "lucide-react";
 import type { AppSettings } from "./hooks/useSettings";
+import { useThemeApplier, type ThemeMode } from "./hooks/useTheme";
 import type { ParsedItem, DownloadTask, ParsedVideoInfo, ParseHistoryEntry, DownloadHistoryEntry, VideoMeta } from "./types";
 import { dbToParsedItem, dbToDownloadTask } from "./types";
 import { friendlyError } from "./lib/errors";
@@ -71,6 +72,10 @@ export default function App() {
 
   const { phase, updateInfo } = useUpdate();
   const { settings, save } = useSettings();
+  const { resolved: resolvedTheme, toggle: toggleTheme } = useThemeApplier(
+    settings.theme,
+    useCallback((t: ThemeMode) => save({ ...settings, theme: t }), [save, settings])
+  );
   const { userInfo, logout, generateQrcode, pollQrcode } = useLogin();
   const toast = useToast();
   const [version, setVersion] = useState("");
@@ -420,7 +425,7 @@ export default function App() {
   // 收藏夹视频等）完整保留，避免返回后回到空白初始页。
   const detailOverlay =
     currentView === "detail" && selectedItem ? (
-      <div className="fixed inset-0 z-50 bg-gray-50">
+      <div className="fixed inset-0 z-50 bg-base">
         <VideoDetail
           entry={selectedItem}
           onBack={handleDetailBack}
@@ -433,7 +438,7 @@ export default function App() {
   if (currentView === "settings") {
     return (
       <>
-        <div className="flex flex-col h-screen bg-gray-50 text-gray-900">
+        <div className="flex flex-col h-screen bg-base text-ink">
           <SettingsPage
             settings={settings}
             onSave={handleSaveSettings}
@@ -451,16 +456,16 @@ export default function App() {
   if (currentView === "downloads") {
     return (
       <>
-        <div className="flex flex-col h-screen bg-gray-50 text-gray-900">
+        <div className="flex flex-col h-screen bg-base text-ink">
           {/* Header */}
-          <div className="flex items-center gap-3 px-6 py-4 border-b border-gray-200 bg-white">
+          <div className="flex items-center gap-3 px-6 py-4 border-b border-line bg-panel">
             <button
               onClick={() => setCurrentView("main")}
-              className="p-1.5 rounded-lg border border-gray-300 hover:bg-gray-50 transition-colors"
+              className="p-1.5 rounded-lg border border-line-2 hover:bg-panel-2 transition-colors"
             >
               <Download size={16} className="rotate-180" />
             </button>
-            <h1 className="text-lg font-semibold text-gray-800">下载列表</h1>
+            <h1 className="text-lg font-semibold text-ink">下载列表</h1>
             {activeDownloads > 0 && (
               <span className="text-xs text-blue-500 font-medium">
                 {activeDownloads} 个任务进行中
@@ -660,18 +665,18 @@ export default function App() {
 
   // Main view
   return (
-    <div className="flex flex-col h-screen bg-gray-50 text-gray-900">
+    <div className="flex flex-col h-screen bg-base text-ink">
       {/* 顶部标题栏 */}
-      <header className="flex items-center justify-between px-6 py-4 bg-white border-b border-gray-200">
+      <header className="flex items-center justify-between px-6 py-4 bg-panel border-b border-line">
         <div className="flex items-center gap-2">
-          <h1 className="text-lg font-bold text-gray-800">BilbliCopy</h1>
-          <span className="text-xs text-gray-400">v{version}</span>
+          <h1 className="text-lg font-bold text-ink">BilbliCopy</h1>
+          <span className="text-xs text-ink-3">v{version}</span>
           {/* 设置按钮（紧跟版本号） */}
           <div className="relative">
             <button
               onClick={() => setCurrentView("settings")}
               title="设置"
-              className="p-1 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+              className="p-1 rounded-md text-ink-3 hover:text-ink-2 hover:bg-panel-2 transition-colors"
             >
               <Settings size={16} />
             </button>
@@ -683,11 +688,20 @@ export default function App() {
         </div>
 
         <div className="flex items-center gap-2">
+          {/* 主题切换：浅色显月亮（点击转深色），深色显太阳（点击转浅色） */}
+          <button
+            onClick={toggleTheme}
+            title={resolvedTheme === "dark" ? "切换到浅色" : "切换到深色"}
+            className="p-1 rounded-md text-ink-3 hover:text-ink-2 hover:bg-panel-2 transition-colors"
+          >
+            {resolvedTheme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
+          </button>
+
           {/* 发现入口 */}
           <button
             onClick={() => setCurrentView("explore")}
             title="发现"
-            className="p-1 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+            className="p-1 rounded-md text-ink-3 hover:text-ink-2 hover:bg-panel-2 transition-colors"
           >
             <Search size={16} />
           </button>
@@ -696,7 +710,7 @@ export default function App() {
           <button
             onClick={() => setCurrentView("ranking")}
             title="热门排行榜"
-            className="p-1 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+            className="p-1 rounded-md text-ink-3 hover:text-ink-2 hover:bg-panel-2 transition-colors"
           >
             <Trophy size={16} />
           </button>
@@ -705,7 +719,7 @@ export default function App() {
           <button
             onClick={() => setCurrentView("recommend")}
             title="推荐视频"
-            className="p-1 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+            className="p-1 rounded-md text-ink-3 hover:text-ink-2 hover:bg-panel-2 transition-colors"
           >
             <Sparkles size={16} />
           </button>
@@ -714,7 +728,7 @@ export default function App() {
           <button
             onClick={() => setCurrentView("region")}
             title="分区浏览"
-            className="p-1 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+            className="p-1 rounded-md text-ink-3 hover:text-ink-2 hover:bg-panel-2 transition-colors"
           >
             <LayoutGrid size={16} />
           </button>
@@ -724,7 +738,7 @@ export default function App() {
             <button
               onClick={() => setCurrentView("downloads")}
               title="下载列表"
-              className="p-1 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+              className="p-1 rounded-md text-ink-3 hover:text-ink-2 hover:bg-panel-2 transition-colors"
             >
               <Download size={16} />
             </button>
@@ -759,7 +773,7 @@ export default function App() {
       </header>
 
       {/* URL 输入区 */}
-      <div className="px-6 py-3 bg-white border-b border-gray-100">
+      <div className="px-6 py-3 bg-panel border-b border-line">
         <DownloadInput onParse={handleParse} isParsing={isParsing} />
       </div>
 

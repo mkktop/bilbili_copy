@@ -115,7 +115,7 @@ export function DownloadTab({
         title="自动优化"
         description={
           <>
-            <span className="text-gray-500">
+            <span className="text-ink-3">
               坏 CDN 节点自动缓存 10 分钟 &middot; 断点续传自动恢复 &middot; 并行失败自动降级单线程
             </span>
           </>
@@ -144,7 +144,7 @@ export function DownloadTab({
 
       {/* NFO 元数据刮削区块标题 */}
       <div className="pt-3">
-        <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">元数据</h3>
+        <h3 className="text-xs font-semibold text-ink-3 uppercase tracking-wide">元数据</h3>
       </div>
 
       <SettingCard
@@ -161,7 +161,7 @@ export function DownloadTab({
           title="NFO 详细选项"
           description="控制 .nfo 文件写入哪些字段。封面图不受此开关影响，开启 NFO 即下载。"
         >
-          <div className="divide-y divide-gray-100">
+          <div className="divide-y divide-line">
             <ToggleRow
               label="写入标签（<genre>）"
               checked={nfoIncludeGenre}
@@ -178,7 +178,7 @@ export function DownloadTab({
               onChange={onNfoIncludeStatsChange}
             />
           </div>
-          <p className="text-xs text-gray-400 mt-2">
+          <p className="text-xs text-ink-3 mt-2">
             标签来自普通视频的 tag / 番剧的类型风格；恢复/重试下载时若缺少元数据将跳过 NFO 生成（不影响视频本身）。
           </p>
         </SettingCard>

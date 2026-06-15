@@ -38,9 +38,9 @@ export function VideoDetail({ entry, onBack, onDownload }: VideoDetailProps) {
 
   if (!info) {
     return (
-      <div className="flex flex-col items-center justify-center h-full text-gray-400 gap-2">
+      <div className="flex flex-col items-center justify-center h-full text-ink-3 gap-2">
         <p className="text-sm">视频信息不可用</p>
-        <button onClick={onBack} className="text-blue-500 text-sm hover:underline">
+        <button onClick={onBack} className="text-accent text-sm hover:underline">
           返回
         </button>
       </div>
@@ -128,14 +128,14 @@ export function VideoDetail({ entry, onBack, onDownload }: VideoDetailProps) {
   return (
     <div className="flex flex-col h-full">
       {/* 顶部栏 */}
-      <div className="flex items-center gap-3 px-6 py-4 border-b border-gray-200 bg-white">
+      <div className="flex items-center gap-3 px-6 py-4 border-b border-line bg-panel">
         <button
           onClick={onBack}
-          className="p-1.5 rounded-lg border border-gray-300 hover:bg-gray-50 transition-colors"
+          className="p-1.5 rounded-lg border border-line-2 hover:bg-panel-2 transition-colors"
         >
           <ArrowLeft size={16} />
         </button>
-        <h1 className="text-lg font-semibold text-gray-800">视频详情</h1>
+        <h1 className="text-lg font-semibold text-ink">视频详情</h1>
         {downloadedIds.size > 0 && (
           <span className="text-xs text-green-500 font-medium flex items-center gap-1">
             <CheckCircle2 size={12} />
@@ -165,24 +165,24 @@ export function VideoDetail({ entry, onBack, onDownload }: VideoDetailProps) {
 
         <div className="px-6 py-4 space-y-4">
           {/* 标题 */}
-          <h2 className="text-base font-semibold text-gray-800 leading-snug">
+          <h2 className="text-base font-semibold text-ink leading-snug">
             {info.title}
           </h2>
 
           {/* UP主卡片 */}
           {info.owner_face && (
-            <div className="flex items-center gap-3 p-2.5 bg-gray-50 rounded-xl">
+            <div className="flex items-center gap-3 p-2.5 bg-panel-2 rounded-xl">
               <img
                 src={info.owner_face}
                 alt={info.owner_name}
-                className="w-9 h-9 rounded-full object-cover ring-2 ring-white shadow-sm"
+                className="w-9 h-9 rounded-full object-cover ring-2 ring-panel shadow-sm"
               />
-              <span className="text-sm font-medium text-gray-700">{info.owner_name}</span>
+              <span className="text-sm font-medium text-ink-2">{info.owner_name}</span>
             </div>
           )}
 
           {/* 统计数据 + 时长 */}
-          <div className="flex items-center gap-4 text-xs text-gray-400">
+          <div className="flex items-center gap-4 text-xs text-ink-3">
             {(info.view_count ?? 0) > 0 && (
               <span className="flex items-center gap-1">
                 <Eye size={13} />
@@ -212,21 +212,21 @@ export function VideoDetail({ entry, onBack, onDownload }: VideoDetailProps) {
 
           {/* 简介 */}
           {info.desc && (
-            <p className="text-xs text-gray-400 leading-relaxed line-clamp-3 border-l-2 border-gray-200 pl-3">
+            <p className="text-xs text-ink-3 leading-relaxed line-clamp-3 border-l-2 border-line pl-3">
               {info.desc}
             </p>
           )}
 
           {/* 正片/预告 切换（仅番剧显示） */}
           {hasExtra && (
-            <div className="inline-flex rounded-lg border border-gray-200 p-0.5 bg-gray-50">
+            <div className="inline-flex rounded-lg border border-line p-0.5 bg-panel-2">
               <button
                 onClick={() => switchTab("main")}
                 className={cn(
                   "px-4 py-1.5 text-xs font-medium rounded-md transition-all",
                   episodeTab === "main"
-                    ? "bg-white text-blue-600 shadow-sm border border-gray-200"
-                    : "text-gray-500 hover:text-gray-700"
+                    ? "bg-panel text-accent shadow-sm border border-line"
+                    : "text-ink-3 hover:text-ink-2"
                 )}
               >
                 正片（{info.pages.length}）
@@ -236,8 +236,8 @@ export function VideoDetail({ entry, onBack, onDownload }: VideoDetailProps) {
                 className={cn(
                   "px-4 py-1.5 text-xs font-medium rounded-md transition-all",
                   episodeTab === "extra"
-                    ? "bg-white text-blue-600 shadow-sm border border-gray-200"
-                    : "text-gray-500 hover:text-gray-700"
+                    ? "bg-panel text-accent shadow-sm border border-line"
+                    : "text-ink-3 hover:text-ink-2"
                 )}
               >
                 预告/花絮（{info.extra_pages!.length}）
@@ -249,13 +249,13 @@ export function VideoDetail({ entry, onBack, onDownload }: VideoDetailProps) {
           {isMultiPage && currentPages.length > 0 && (
             <div>
               <div className="flex items-center justify-between mb-2">
-                <label className="text-xs font-medium text-gray-600">
+                <label className="text-xs font-medium text-ink-2">
                   分P列表（已选 {selectedPages.size}/{currentPages.length}）
                 </label>
                 <div className="flex gap-2 items-center">
                   <button
                     onClick={() => setSortAsc(v => !v)}
-                    className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-0.5"
+                    className="text-xs text-ink-3 hover:text-ink-2 flex items-center gap-0.5"
                     title={sortAsc ? "当前正序，点击倒序" : "当前倒序，点击正序"}
                   >
                     <ArrowUpDown size={12} />
@@ -263,13 +263,13 @@ export function VideoDetail({ entry, onBack, onDownload }: VideoDetailProps) {
                   </button>
                   <button
                     onClick={selectAll}
-                    className="text-xs text-blue-500 hover:underline"
+                    className="text-xs text-accent hover:underline"
                   >
                     全选
                   </button>
                   <button
                     onClick={deselectAll}
-                    className="text-xs text-gray-400 hover:underline"
+                    className="text-xs text-ink-3 hover:underline"
                   >
                     取消全选
                   </button>
@@ -290,7 +290,7 @@ export function VideoDetail({ entry, onBack, onDownload }: VideoDetailProps) {
                           ? "bg-green-50 border border-green-200"
                           : isSelected
                             ? "bg-blue-50 border border-blue-200 cursor-pointer"
-                            : "hover:bg-gray-50 border border-transparent cursor-pointer"
+                            : "hover:bg-panel-2 border border-transparent cursor-pointer"
                       )}
                     >
                       {/* 序号标记 */}
@@ -300,15 +300,15 @@ export function VideoDetail({ entry, onBack, onDownload }: VideoDetailProps) {
                           ? "bg-green-500 text-white"
                           : isSelected
                             ? "bg-blue-500 text-white"
-                            : "bg-gray-100 text-gray-400"
+                            : "bg-panel-2 text-ink-3"
                       )}>
                         {isDownloaded ? <CheckCircle2 size={12} /> : p.page}
                       </span>
-                      <span className="text-sm text-gray-700 flex-1 truncate">
+                      <span className="text-sm text-ink-2 flex-1 truncate">
                         {p.part}
                       </span>
                       {p.duration > 0 && (
-                        <span className="text-xs text-gray-400 shrink-0">
+                        <span className="text-xs text-ink-3 shrink-0">
                           {formatDuration(p.duration)}
                         </span>
                       )}
@@ -325,7 +325,7 @@ export function VideoDetail({ entry, onBack, onDownload }: VideoDetailProps) {
       </div>
 
       {/* 底部固定下载按钮 */}
-      <div className="px-6 py-3 bg-white border-t border-gray-200 space-y-2">
+      <div className="px-6 py-3 bg-panel border-t border-line space-y-2">
         {/* 模式选择：仅字幕 / 仅音频（互斥） */}
         <div className="flex items-center gap-4 py-1">
           <label className="flex items-center gap-2 cursor-pointer select-none">
@@ -333,18 +333,18 @@ export function VideoDetail({ entry, onBack, onDownload }: VideoDetailProps) {
               type="checkbox"
               checked={subtitleOnly}
               onChange={(e) => { setSubtitleOnly(e.target.checked); if (e.target.checked) setAudioOnly(false); }}
-              className="h-4 w-4 rounded border-gray-300 text-blue-500 focus:ring-blue-300 cursor-pointer"
+              className="h-4 w-4 rounded border-line-2 text-blue-500 focus:ring-accent cursor-pointer"
             />
-            <span className="text-xs text-gray-600">仅下载字幕</span>
+            <span className="text-xs text-ink-2">仅下载字幕</span>
           </label>
           <label className="flex items-center gap-2 cursor-pointer select-none">
             <input
               type="checkbox"
               checked={audioOnly}
               onChange={(e) => { setAudioOnly(e.target.checked); if (e.target.checked) setSubtitleOnly(false); }}
-              className="h-4 w-4 rounded border-gray-300 text-blue-500 focus:ring-blue-300 cursor-pointer"
+              className="h-4 w-4 rounded border-line-2 text-blue-500 focus:ring-accent cursor-pointer"
             />
-            <span className="text-xs text-gray-600">仅下载音频</span>
+            <span className="text-xs text-ink-2">仅下载音频</span>
           </label>
         </div>
         <button
@@ -354,7 +354,7 @@ export function VideoDetail({ entry, onBack, onDownload }: VideoDetailProps) {
             "w-full flex items-center justify-center gap-2 py-3 rounded-lg text-sm font-medium transition-colors",
             hasSelection && !isSingleDownloaded && !isAllDownloaded
               ? "bg-blue-500 text-white hover:bg-blue-600"
-              : "bg-gray-100 text-gray-400 cursor-not-allowed"
+              : "bg-panel-2 text-ink-3 cursor-not-allowed"
           )}
         >
           <Download size={16} />

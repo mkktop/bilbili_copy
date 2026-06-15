@@ -89,7 +89,7 @@ export function WatchHistoryTab({ onParseVideo, onSelectItem }: Props) {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-12 text-gray-400 gap-2">
+      <div className="flex items-center justify-center py-12 text-ink-3 gap-2">
         <Loader2 size={20} className="animate-spin" />
         <span className="text-sm">加载中...</span>
       </div>
@@ -98,7 +98,7 @@ export function WatchHistoryTab({ onParseVideo, onSelectItem }: Props) {
 
   if (error) {
     return (
-      <div className="flex flex-col items-center justify-center py-12 text-gray-400 gap-2">
+      <div className="flex flex-col items-center justify-center py-12 text-ink-3 gap-2">
         <AlertCircle size={20} />
         <p className="text-sm">{error}</p>
         <button
@@ -113,7 +113,7 @@ export function WatchHistoryTab({ onParseVideo, onSelectItem }: Props) {
 
   if (items.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-12 text-gray-400 gap-2">
+      <div className="flex flex-col items-center justify-center py-12 text-ink-3 gap-2">
         <History size={40} strokeWidth={1.5} />
         <p className="text-sm">暂无观看历史</p>
       </div>
@@ -146,7 +146,7 @@ export function WatchHistoryTab({ onParseVideo, onSelectItem }: Props) {
           <button
             onClick={() => load(nextCursor, true)}
             disabled={loadingMore}
-            className="flex items-center gap-1.5 px-4 py-2 text-sm text-gray-500 border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50 transition-colors"
+            className="flex items-center gap-1.5 px-4 py-2 text-sm text-ink-3 border border-line rounded-lg hover:bg-panel-2 disabled:opacity-50 transition-colors"
           >
             {loadingMore ? (
               <>

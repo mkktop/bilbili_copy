@@ -1,35 +1,25 @@
-## v0.7.1 更新内容
+## v0.7.2 更新内容
 
 ### ✨ 新增
 
-#### 下载限速（全局总速）
-- 设置页「下载」tab 新增「下载限速」卡片，自由输入 KB/s 数值 + 「无限制」开关
-- **全局令牌桶**：所有下载任务（含多任务并发、单文件分片并行）合计不超过设定速度，避免占满家庭带宽
-- 设为「无限制」（0）时零开销，不影响正常全速下载
-- 设置位置：设置 → 下载 → 下载限速
-
-#### 仅下载音频（播客模式）
-- 视频详情页底部新增「仅下载音频」勾选框（与「仅下载字幕」互斥）
-- 跳过视频流，只下载 DASH 独立音频流，ffmpeg 封装为音频文件
-- 输出格式可选（设置 → 下载 → 仅音频输出格式）：
-  - **M4A**（无损封装）：`-c copy` 保留原始 AAC 编码，零转码无音质损失，兼容 iTunes/音乐播放器/播客
-  - **MP3**（转码）：`libmp3lame` VBR ~190kbps，兼容老旧设备，有轻微音质损失
-- 多分P视频支持批量仅下载音频
+#### 深色 / 浅色主题切换
+- 设置页「通用」tab 新增「外观」分区，提供 **浅色 / 深色 / 跟随系统** 三种主题模式
+- **跟随系统**：读取 Windows 的浅色/深色偏好自动联动，系统切换时应用即时跟随
+- **主界面顶栏快捷按钮**：太阳/月亮图标，一键在浅色↔深色间切换，无需进设置
+- **防首屏闪烁**：`index.html` 内联脚本在首帧前根据偏好应用 `.dark` 类，重启/刷新无白闪
+- 主题偏好持久化到 `settings.json`，跨重启保留
+- 设置位置：设置 → 通用 → 外观
 
 ### 🔧 实现亮点
 
-- **令牌桶算法**：滑动窗口补充令牌（上限 1 秒量避免突发），写入磁盘前申请额度，`max_bps=0` 直接返回零开销
-- **限速插桩复用现有架构**：仅在 `download_single` / `download_range_segment` 两个写入循环的 `file.write_all` 前各加一行 `throttle::acquire`，不改变下载重试/续传/坏CDN黑名单等既有逻辑
-- **仅音频复用 DASH 音频流**：`streams.audio_urls` 本就是独立音频流，直接下载 + ffmpeg `-vn -c copy` 封装，无需解码视频
-- **新增 NumberInput 组件**：设置页首个自由数字输入控件（带单位 + 无限制开关），与现有 SegmentedControl 风格一致
+- **语义化 Token 系统**：采用 CSS 变量 + Tailwind 语义色方案（而非 `dark:` 变体）。在 `index.css` 的 `:root`/`.dark` 定义 10 个语义色变量（base/panel/line/ink/accent 等），在 `tailwind.config.cjs` 注册为语义名（`bg-panel`/`text-ink`/`border-line`...）。主题切换由 `<html>` 的 `.dark` 类整体翻转，每个颜色类只写一次
+- **全量颜色迁移**：扫描替换了 28 个文件中所有硬编码的 `bg-white`/`bg-gray-*`/`text-gray-*`/`border-gray-*` 为语义 token，保留语义性状态色（green/red/amber 状态、blue/purple 品牌强调色）
+- **即时保存模式**：主题切换复用 `AboutTab` 的 Pattern B（直接调 `save`，不走表单保存按钮），与 auto_update 开关一致
+- **useTheme Hook**：解析 `light/dark/system`，监听 OS `prefers-color-scheme`（仅 system 模式响应），提供 `toggle()` 在 light↔dark 间翻转
+- **后端无缝迁移**：`theme` 字段带 serde default，旧 `settings.json` 缺该字段时回退 `light`，`LegacySettings` 迁移路径同步处理
 
 ### 📝 说明
 
-- 仅音频要求 DASH 格式（legacy durl 是音视频合一无法分离）；绝大多数现代视频均为 DASH
-- 限速对断点续传、并行分片、坏 CDN 黑名单、指数退避重试等既有机制无影响
-
-## 升级说明
-
+- 蓝色品牌色（主按钮、选中态）、绿色/红色/琥珀色状态标识（下载中/完成/失败）在深浅两套主题下均保持不变
 - 本次未改动数据库 schema，升级无数据迁移
-- 限速设置持久化到 settings.json；仅音频为单任务选项不持久化
 - Windows: 下载 `.msi` 或 `.exe` 安装包覆盖安装，应用内自动更新将在后台推送

@@ -153,14 +153,14 @@ export function CaptchaDialog({ vVoucher, onSuccess, onCancel }: CaptchaDialogPr
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-      <div className="bg-white rounded-2xl shadow-xl w-80 overflow-hidden">
+      <div className="bg-panel rounded-2xl shadow-xl w-80 overflow-hidden">
         {/* Header */}
-        <div className="px-5 py-4 border-b border-gray-100">
+        <div className="px-5 py-4 border-b border-line">
           <div className="flex items-center gap-2">
             <ShieldCheck size={18} className="text-blue-500" />
-            <h3 className="text-sm font-semibold text-gray-800">安全验证</h3>
+            <h3 className="text-sm font-semibold text-ink">安全验证</h3>
           </div>
-          <p className="text-xs text-gray-400 mt-1">完成验证后继续下载</p>
+          <p className="text-xs text-ink-3 mt-1">完成验证后继续下载</p>
         </div>
 
         {/* Content */}
@@ -168,14 +168,14 @@ export function CaptchaDialog({ vVoucher, onSuccess, onCancel }: CaptchaDialogPr
           {status === "loading" && (
             <div className="flex items-center justify-center py-6 gap-2">
               <Loader2 size={16} className="animate-spin text-blue-500" />
-              <span className="text-sm text-gray-500">加载验证码...</span>
+              <span className="text-sm text-ink-3">加载验证码...</span>
             </div>
           )}
 
           {status === "validating" && (
             <div className="flex items-center justify-center py-6 gap-2">
               <Loader2 size={16} className="animate-spin text-green-500" />
-              <span className="text-sm text-gray-500">验证中...</span>
+              <span className="text-sm text-ink-3">验证中...</span>
             </div>
           )}
 
@@ -194,7 +194,7 @@ export function CaptchaDialog({ vVoucher, onSuccess, onCancel }: CaptchaDialogPr
               </div>
               <button
                 onClick={onCancel}
-                className="w-full py-2 text-xs text-gray-500 hover:text-gray-700 border border-gray-200 rounded-lg"
+                className="w-full py-2 text-xs text-ink-3 hover:text-ink-2 border border-line rounded-lg"
               >
                 关闭
               </button>

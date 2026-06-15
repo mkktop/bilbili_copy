@@ -47,7 +47,7 @@ const STATUS_CONFIG: Record<
 export function ParseList({ items, onRemove, onSelect, currentPage, totalCount, onPageChange }: ParseListProps) {
   if (items.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center h-full text-gray-400 gap-2">
+      <div className="flex flex-col items-center justify-center h-full text-ink-3 gap-2">
         <Search size={40} strokeWidth={1.5} />
         <p className="text-sm">输入视频链接开始解析</p>
       </div>
@@ -67,8 +67,8 @@ export function ParseList({ items, onRemove, onSelect, currentPage, totalCount, 
               if (item.status !== "parsing") onSelect(item);
             }}
             className={cn(
-              "flex items-start gap-3 px-4 py-3 bg-white border border-gray-200 rounded-lg",
-              item.status !== "parsing" && "cursor-pointer hover:bg-gray-50 hover:border-gray-300 transition-colors"
+              "flex items-start gap-3 px-4 py-3 bg-panel border border-line rounded-lg",
+              item.status !== "parsing" && "cursor-pointer hover:bg-panel-2 hover:border-line-2 transition-colors"
             )}
           >
             {/* 封面缩略图 */}
@@ -76,23 +76,23 @@ export function ParseList({ items, onRemove, onSelect, currentPage, totalCount, 
               <img
                 src={info.pic}
                 alt={item.title}
-                className="w-24 h-16 rounded object-cover shrink-0 bg-gray-100"
+                className="w-24 h-16 rounded object-cover shrink-0 bg-panel-2"
               />
             ) : (
-              <div className="w-24 h-16 rounded bg-gray-100 flex items-center justify-center shrink-0">
-                <Search size={20} className="text-gray-300" />
+              <div className="w-24 h-16 rounded bg-panel-2 flex items-center justify-center shrink-0">
+                <Search size={20} className="text-ink-3" />
               </div>
             )}
 
             {/* 信息区 */}
             <div className="flex-1 min-w-0">
-              <p className="text-sm text-gray-700 line-clamp-2 leading-snug">
+              <p className="text-sm text-ink-2 line-clamp-2 leading-snug">
                 {item.title}
               </p>
 
               {/* 元信息行 */}
               {info && (
-                <div className="flex items-center gap-3 mt-1.5 text-xs text-gray-400">
+                <div className="flex items-center gap-3 mt-1.5 text-xs text-ink-3">
                   {info.owner_name && (
                     <span className="flex items-center gap-0.5">
                       <User size={10} />
@@ -133,14 +133,14 @@ export function ParseList({ items, onRemove, onSelect, currentPage, totalCount, 
             {/* 右侧：箭头 + 删除 */}
             <div className="flex items-center gap-1 shrink-0 mt-1">
               {item.status !== "parsing" && (
-                <ChevronRight size={14} className="text-gray-300" />
+                <ChevronRight size={14} className="text-ink-3" />
               )}
               <button
                 onClick={(e) => {
                   e.stopPropagation();
                   onRemove(item.id);
                 }}
-                className="p-1 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+                className="p-1 rounded text-ink-3 hover:text-ink-2 hover:bg-panel-2 transition-colors"
               >
                 <X size={14} />
               </button>

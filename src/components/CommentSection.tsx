@@ -56,14 +56,14 @@ export function CommentSection({ aid }: Props) {
   }, [load]);
 
   return (
-    <div className="px-6 py-4 border-t border-gray-100 mt-2">
+    <div className="px-6 py-4 border-t border-line mt-2">
       {/* 标题栏：评论数 + 刷新 */}
       <div className="flex items-center gap-2 mb-3">
-        <MessageSquare size={15} className="text-gray-500" />
-        <h3 className="text-sm font-semibold text-gray-700">
+        <MessageSquare size={15} className="text-ink-3" />
+        <h3 className="text-sm font-semibold text-ink-2">
           评论
           {total > 0 && (
-            <span className="ml-1 text-xs font-normal text-gray-400">
+            <span className="ml-1 text-xs font-normal text-ink-3">
               {formatCount(total)}
             </span>
           )}
@@ -72,7 +72,7 @@ export function CommentSection({ aid }: Props) {
           onClick={() => load(1, false)}
           disabled={loading}
           title="刷新评论"
-          className="ml-auto p-1 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors disabled:opacity-50"
+          className="ml-auto p-1 rounded text-ink-3 hover:text-ink-2 hover:bg-panel-2 transition-colors disabled:opacity-50"
         >
           <RefreshCw size={13} className={loading ? "animate-spin" : ""} />
         </button>
@@ -94,12 +94,12 @@ export function CommentSection({ aid }: Props) {
 
       {/* 加载中（首屏） */}
       {loading ? (
-        <div className="flex items-center justify-center gap-2 py-8 text-gray-400">
+        <div className="flex items-center justify-center gap-2 py-8 text-ink-3">
           <Loader2 size={16} className="animate-spin" />
           <span className="text-xs">加载评论...</span>
         </div>
       ) : comments.length === 0 && !error ? (
-        <div className="flex flex-col items-center justify-center py-8 text-gray-400 gap-1.5">
+        <div className="flex flex-col items-center justify-center py-8 text-ink-3 gap-1.5">
           <MessageSquare size={32} strokeWidth={1.5} />
           <p className="text-xs">暂无评论</p>
         </div>
@@ -118,7 +118,7 @@ export function CommentSection({ aid }: Props) {
               <button
                 onClick={() => load(page + 1, true)}
                 disabled={loadingMore}
-                className="flex items-center gap-1.5 px-4 py-1.5 text-xs text-gray-500 border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50 transition-colors"
+                className="flex items-center gap-1.5 px-4 py-1.5 text-xs text-ink-3 border border-line rounded-lg hover:bg-panel-2 disabled:opacity-50 transition-colors"
               >
                 {loadingMore ? (
                   <>
@@ -145,14 +145,14 @@ function CommentRow({ item }: { item: CommentItem }) {
       <img
         src={item.avatar}
         alt={item.uname}
-        className="w-7 h-7 rounded-full object-cover bg-gray-100 shrink-0"
+        className="w-7 h-7 rounded-full object-cover bg-panel-2 shrink-0"
       />
 
       {/* 内容 */}
       <div className="flex-1 min-w-0">
         {/* 用户名 + 等级 + 楼层 */}
         <div className="flex items-center gap-1.5 flex-wrap">
-          <span className="text-xs font-medium text-gray-600">
+          <span className="text-xs font-medium text-ink-2">
             {item.uname}
           </span>
           {item.level > 0 && (
@@ -161,17 +161,17 @@ function CommentRow({ item }: { item: CommentItem }) {
             </span>
           )}
           {item.floor > 0 && (
-            <span className="text-[10px] text-gray-400">#{item.floor}</span>
+            <span className="text-[10px] text-ink-3">#{item.floor}</span>
           )}
         </div>
 
         {/* 评论正文（保留换行） */}
-        <p className="text-xs text-gray-700 mt-0.5 whitespace-pre-wrap break-words leading-relaxed">
+        <p className="text-xs text-ink-2 mt-0.5 whitespace-pre-wrap break-words leading-relaxed">
           {item.content}
         </p>
 
         {/* 底部：时间 + 点赞 + 回复数 */}
-        <div className="flex items-center gap-3 mt-1 text-[10px] text-gray-400">
+        <div className="flex items-center gap-3 mt-1 text-[10px] text-ink-3">
           {item.ctime > 0 && <span>{formatDate(item.ctime)}</span>}
           {item.like > 0 && (
             <span className="flex items-center gap-0.5">

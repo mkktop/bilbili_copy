@@ -22,11 +22,11 @@ export function UserProfile({ userInfo, onLogout, onClose }: UserProfileProps) {
   };
 
   return (
-    <div className="absolute right-0 top-full mt-2 w-64 bg-white border border-gray-200 rounded-xl shadow-lg z-50 p-4">
+    <div className="absolute right-0 top-full mt-2 w-64 bg-panel border border-line rounded-xl shadow-lg z-50 p-4">
       {/* 关闭按钮 */}
       <button
         onClick={onClose}
-        className="absolute top-2 right-2 p-1 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100"
+        className="absolute top-2 right-2 p-1 rounded-md text-ink-3 hover:text-ink-2 hover:bg-panel-2"
       >
         <X size={14} />
       </button>
@@ -36,13 +36,13 @@ export function UserProfile({ userInfo, onLogout, onClose }: UserProfileProps) {
         <img
           src={userInfo.face}
           alt={userInfo.uname}
-          className="w-12 h-12 rounded-full object-cover border border-gray-200"
+          className="w-12 h-12 rounded-full object-cover border border-line"
         />
         <div className="min-w-0">
-          <p className="text-sm font-medium text-gray-800 truncate">
+          <p className="text-sm font-medium text-ink truncate">
             {userInfo.uname}
           </p>
-          <p className="text-xs text-gray-400">UID: {userInfo.mid}</p>
+          <p className="text-xs text-ink-3">UID: {userInfo.mid}</p>
         </div>
       </div>
 

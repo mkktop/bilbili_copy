@@ -17,6 +17,8 @@ export interface AppSettings {
   max_download_speed_kbps: number;   // 默认 0
   // 仅音频下载输出格式 "m4a" | "mp3"
   audio_format: string;              // 默认 "m4a"
+  // 主题模式 "light" | "dark" | "system"
+  theme: string;                     // 默认 "light"
   // 防风控 - 设备指纹
   fingerprint_gpu_preset: string;
   fingerprint_resolution_preset: string;
@@ -62,6 +64,7 @@ export function useSettings() {
     parallel_threads: 4,
     max_download_speed_kbps: 0,
     audio_format: "m4a",
+    theme: "light",
     fingerprint_gpu_preset: "",
     fingerprint_resolution_preset: "",
     dm_img_str: "",

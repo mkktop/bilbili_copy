@@ -50,7 +50,7 @@ export function WatchLaterTab({ onParseVideo, onSelectItem }: Props) {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-12 text-gray-400 gap-2">
+      <div className="flex items-center justify-center py-12 text-ink-3 gap-2">
         <Loader2 size={20} className="animate-spin" />
         <span className="text-sm">加载中...</span>
       </div>
@@ -59,7 +59,7 @@ export function WatchLaterTab({ onParseVideo, onSelectItem }: Props) {
 
   if (error) {
     return (
-      <div className="flex flex-col items-center justify-center py-12 text-gray-400 gap-2">
+      <div className="flex flex-col items-center justify-center py-12 text-ink-3 gap-2">
         <AlertCircle size={20} />
         <p className="text-sm">{error}</p>
         <button onClick={load} className="text-xs text-blue-500 hover:underline">
@@ -71,7 +71,7 @@ export function WatchLaterTab({ onParseVideo, onSelectItem }: Props) {
 
   if (items.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-12 text-gray-400 gap-2">
+      <div className="flex flex-col items-center justify-center py-12 text-ink-3 gap-2">
         <Clock size={40} strokeWidth={1.5} />
         <p className="text-sm">稍后再看列表为空</p>
       </div>

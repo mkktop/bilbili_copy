@@ -35,7 +35,7 @@ const STATUS_CONFIG: Record<
   queued: {
     icon: <Clock size={14} />,
     text: "排队中",
-    color: "text-gray-400",
+    color: "text-ink-3",
   },
   downloading: {
     icon: <Loader2 size={14} className="animate-spin" />,
@@ -84,8 +84,8 @@ function IconButton({
       className={cn(
         "p-1 rounded transition-colors shrink-0",
         danger
-          ? "text-gray-400 hover:text-red-500 hover:bg-red-50"
-          : "text-gray-400 hover:text-gray-600 hover:bg-gray-100"
+          ? "text-ink-3 hover:text-red-500 hover:bg-red-50"
+          : "text-ink-3 hover:text-ink-2 hover:bg-panel-2"
       )}
     >
       {children}
@@ -107,7 +107,7 @@ export function DownloadList({
 }: DownloadListProps) {
   if (downloads.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center h-full text-gray-400 gap-2">
+      <div className="flex flex-col items-center justify-center h-full text-ink-3 gap-2">
         <Download size={40} strokeWidth={1.5} />
         <p className="text-sm">暂无下载任务</p>
       </div>
@@ -126,24 +126,24 @@ export function DownloadList({
         return (
           <div
             key={item.id}
-            className="flex items-start gap-3 px-4 py-3 bg-white border border-gray-200 rounded-lg"
+            className="flex items-start gap-3 px-4 py-3 bg-panel border border-line rounded-lg"
           >
             {/* 封面缩略图（无封面时回退文件图标） */}
             {item.pic ? (
               <img
                 src={item.pic}
                 alt={item.title}
-                className="w-24 h-16 rounded object-cover shrink-0 bg-gray-100"
+                className="w-24 h-16 rounded object-cover shrink-0 bg-panel-2"
               />
             ) : (
-              <div className="w-10 h-10 rounded bg-gray-100 flex items-center justify-center shrink-0">
-                <Download size={18} className="text-gray-400" />
+              <div className="w-10 h-10 rounded bg-panel-2 flex items-center justify-center shrink-0">
+                <Download size={18} className="text-ink-3" />
               </div>
             )}
 
             {/* 信息区 */}
             <div className="flex-1 min-w-0">
-              <p className="text-sm text-gray-700 line-clamp-2 leading-snug">
+              <p className="text-sm text-ink-2 line-clamp-2 leading-snug">
                 {item.title}
               </p>
 
@@ -160,7 +160,7 @@ export function DownloadList({
                   </span>
                   {(item.status === "downloading" || item.status === "paused") &&
                     item.progress !== undefined && (
-                      <span className="text-xs text-gray-400 ml-1">
+                      <span className="text-xs text-ink-3 ml-1">
                         {Math.round(item.progress)}%
                       </span>
                     )}
@@ -173,7 +173,7 @@ export function DownloadList({
 
                 {/* 进度条 */}
                 {showProgress && (
-                  <div className="w-full bg-gray-200 rounded-full h-1.5 mt-1.5">
+                  <div className="w-full bg-line rounded-full h-1.5 mt-1.5">
                     <div
                       className={cn(
                         "h-1.5 rounded-full transition-all duration-300",

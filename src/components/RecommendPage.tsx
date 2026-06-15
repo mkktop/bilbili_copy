@@ -92,16 +92,16 @@ export function RecommendPage({
   };
 
   return (
-    <div className="flex flex-col h-screen bg-gray-50 text-gray-900">
-      <header className="flex items-center gap-2 px-4 py-3 bg-white border-b border-gray-200">
+    <div className="flex flex-col h-screen bg-base text-ink">
+      <header className="flex items-center gap-2 px-4 py-3 bg-panel border-b border-line">
         <button
           onClick={onBack}
-          className="p-1 rounded-md text-gray-500 hover:bg-gray-100 transition-colors"
+          className="p-1 rounded-md text-ink-3 hover:bg-panel-2 transition-colors"
         >
           <ArrowLeft size={18} />
         </button>
         <Sparkles size={18} className="text-blue-500" />
-        <h1 className="text-lg font-semibold text-gray-800">推荐视频</h1>
+        <h1 className="text-lg font-semibold text-ink">推荐视频</h1>
         {userInfo && (
           <button
             onClick={handleRefresh}
@@ -118,7 +118,7 @@ export function RecommendPage({
       <div className="flex-1 overflow-auto px-6 py-4">
         {/* 未登录态：提示登录 */}
         {!userInfo ? (
-          <div className="flex flex-col items-center justify-center py-20 text-gray-400 gap-3">
+          <div className="flex flex-col items-center justify-center py-20 text-ink-3 gap-3">
             <Sparkles size={48} strokeWidth={1.5} />
             <p className="text-sm text-center">
               推荐视频为个性化内容
@@ -144,12 +144,12 @@ export function RecommendPage({
             </button>
           </div>
         ) : loading ? (
-          <div className="flex items-center justify-center gap-2 py-12 text-gray-400">
+          <div className="flex items-center justify-center gap-2 py-12 text-ink-3">
             <Loader2 size={20} className="animate-spin" />
             <span className="text-sm">加载中...</span>
           </div>
         ) : items.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-12 text-gray-400 gap-2">
+          <div className="flex flex-col items-center justify-center py-12 text-ink-3 gap-2">
             <Sparkles size={40} strokeWidth={1.5} />
             <p className="text-sm">暂无推荐内容，点「换一批」试试</p>
           </div>
@@ -184,21 +184,21 @@ function RecommendCard({
     <button
       onClick={onClick}
       disabled={loading || !item.bvid}
-      className="relative flex items-start gap-3 w-full px-4 py-3 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 hover:border-gray-300 transition-colors text-left disabled:opacity-70"
+      className="relative flex items-start gap-3 w-full px-4 py-3 bg-panel border border-line rounded-lg hover:bg-base hover:border-line-2 transition-colors text-left disabled:opacity-70"
     >
       {/* 封面 */}
       <img
         src={item.cover}
         alt={item.title}
-        className="w-24 h-16 rounded object-cover bg-gray-100 shrink-0"
+        className="w-24 h-16 rounded object-cover bg-panel-2 shrink-0"
       />
 
       {/* 信息 */}
       <div className="flex-1 min-w-0">
-        <p className="text-sm text-gray-700 line-clamp-2 leading-snug">
+        <p className="text-sm text-ink-2 line-clamp-2 leading-snug">
           {item.title}
         </p>
-        <div className="flex items-center gap-3 mt-1.5 text-xs text-gray-400 flex-wrap">
+        <div className="flex items-center gap-3 mt-1.5 text-xs text-ink-3 flex-wrap">
           <span className="flex items-center gap-0.5">
             <User size={10} />
             {item.upper_name}

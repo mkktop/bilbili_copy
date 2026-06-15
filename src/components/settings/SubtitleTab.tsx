@@ -75,7 +75,7 @@ export function SubtitleTab({
     <div className="space-y-4 max-w-lg">
       {/* 弹幕区块标题 */}
       <div className="pt-1">
-        <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">弹幕</h3>
+        <h3 className="text-xs font-semibold text-ink-3 uppercase tracking-wide">弹幕</h3>
       </div>
 
       <SettingCard
@@ -95,7 +95,7 @@ export function SubtitleTab({
         >
           <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <span className="text-xs text-gray-600">字号</span>
+              <span className="text-xs text-ink-2">字号</span>
               <SegmentedControl
                 options={FONT_SIZE_OPTIONS}
                 value={FONT_SIZE_OPTIONS.find((o) => o.value === dmFontSize)?.value ?? 25}
@@ -103,7 +103,7 @@ export function SubtitleTab({
               />
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-xs text-gray-600">滚动速度</span>
+              <span className="text-xs text-ink-2">滚动速度</span>
               <SegmentedControl
                 options={SCROLL_OPTIONS}
                 value={SCROLL_OPTIONS.find((o) => o.value === dmScrollDuration)?.value ?? 15}
@@ -111,7 +111,7 @@ export function SubtitleTab({
               />
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-xs text-gray-600">透明度</span>
+              <span className="text-xs text-ink-2">透明度</span>
               <SegmentedControl
                 options={OPACITY_OPTIONS}
                 value={OPACITY_OPTIONS.find((o) => Math.abs(o.value - dmOpacity) < 0.01)?.value ?? 0.3}
@@ -129,7 +129,7 @@ export function SubtitleTab({
           title="屏蔽区域"
           description="勾选后对应类型的弹幕将不会写入 ASS 文件。"
         >
-          <div className="divide-y divide-gray-100">
+          <div className="divide-y divide-line">
             <ToggleRow
               label="屏蔽顶部弹幕"
               checked={dmBlockTop}
@@ -146,7 +146,7 @@ export function SubtitleTab({
 
       {/* 字幕区块标题 */}
       <div className="pt-3">
-        <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">字幕</h3>
+        <h3 className="text-xs font-semibold text-ink-3 uppercase tracking-wide">字幕</h3>
       </div>
 
       <SettingCard

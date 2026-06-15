@@ -95,7 +95,7 @@ export function InteractionBar({ bvid, aid, likeCount }: Props) {
     });
 
   return (
-    <div className="flex items-center gap-2 bg-gray-50 rounded-xl p-2">
+    <div className="flex items-center gap-2 bg-panel-2 rounded-xl p-2">
       {/* 点赞 */}
       <button
         onClick={handleLike}
@@ -103,7 +103,7 @@ export function InteractionBar({ bvid, aid, likeCount }: Props) {
         className={`flex items-center gap-1 px-3 py-1.5 text-xs rounded-lg border transition-colors disabled:opacity-50 ${
           liked
             ? "bg-pink-50 border-pink-300 text-pink-600"
-            : "bg-white border-gray-200 text-gray-600 hover:bg-gray-50"
+            : "bg-panel border-line text-ink-2 hover:bg-panel-2"
         }`}
       >
         {busy === "like" ? (
@@ -113,7 +113,7 @@ export function InteractionBar({ bvid, aid, likeCount }: Props) {
         )}
         点赞
         {likeCount !== undefined && likeCount > 0 && (
-          <span className="text-gray-400">{formatCount(likeCount)}</span>
+          <span className="text-ink-3">{formatCount(likeCount)}</span>
         )}
       </button>
 
@@ -121,7 +121,7 @@ export function InteractionBar({ bvid, aid, likeCount }: Props) {
       <button
         onClick={handleCoin}
         disabled={busy !== null}
-        className="flex items-center gap-1 px-3 py-1.5 text-xs rounded-lg border bg-white border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-50"
+        className="flex items-center gap-1 px-3 py-1.5 text-xs rounded-lg border bg-panel border-line text-ink-2 hover:bg-panel-2 transition-colors disabled:opacity-50"
       >
         {busy === "coin" ? (
           <Loader2 size={13} className="animate-spin" />
@@ -136,7 +136,7 @@ export function InteractionBar({ bvid, aid, likeCount }: Props) {
         <button
           onClick={handleOpenFolders}
           disabled={busy !== null}
-          className="flex items-center gap-1 px-3 py-1.5 text-xs rounded-lg border bg-white border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-50"
+          className="flex items-center gap-1 px-3 py-1.5 text-xs rounded-lg border bg-panel border-line text-ink-2 hover:bg-panel-2 transition-colors disabled:opacity-50"
         >
           {busy === "favorite" ? (
             <Loader2 size={13} className="animate-spin" />
@@ -149,14 +149,14 @@ export function InteractionBar({ bvid, aid, likeCount }: Props) {
 
         {/* 收藏夹下拉 */}
         {showFolders && (
-          <div className="absolute top-full left-0 mt-1 z-20 min-w-[180px] max-h-60 overflow-y-auto bg-white border border-gray-200 rounded-lg shadow-lg py-1">
+          <div className="absolute top-full left-0 mt-1 z-20 min-w-[180px] max-h-60 overflow-y-auto bg-panel border border-line rounded-lg shadow-lg py-1">
             {loadingFolders ? (
-              <div className="flex items-center justify-center gap-1.5 py-3 text-xs text-gray-400">
+              <div className="flex items-center justify-center gap-1.5 py-3 text-xs text-ink-3">
                 <Loader2 size={12} className="animate-spin" />
                 加载中...
               </div>
             ) : folders.length === 0 ? (
-              <div className="px-3 py-3 text-xs text-gray-400 text-center">
+              <div className="px-3 py-3 text-xs text-ink-3 text-center">
                 暂无收藏夹
               </div>
             ) : (
@@ -164,10 +164,10 @@ export function InteractionBar({ bvid, aid, likeCount }: Props) {
                 <button
                   key={f.id}
                   onClick={() => handleFavorite(f)}
-                  className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-left text-gray-600 hover:bg-gray-50 transition-colors"
+                  className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-left text-ink-2 hover:bg-panel-2 transition-colors"
                 >
                   <span className="flex-1 truncate">{f.title}</span>
-                  <span className="text-gray-400">{f.media_count}</span>
+                  <span className="text-ink-3">{f.media_count}</span>
                 </button>
               ))
             )}
@@ -177,7 +177,7 @@ export function InteractionBar({ bvid, aid, likeCount }: Props) {
 
       {/* 已登录标记（视觉提示当前账号可操作） */}
       {loggedIn && (
-        <span className="ml-auto flex items-center gap-0.5 text-[10px] text-gray-400">
+        <span className="ml-auto flex items-center gap-0.5 text-[10px] text-ink-3">
           <Check size={10} />
           {userInfo!.uname}
         </span>
