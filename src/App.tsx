@@ -12,6 +12,7 @@ import { LoginDialog } from "./components/LoginDialog";
 import { CaptchaDialog } from "./components/CaptchaDialog";
 import { UserProfilePage } from "./components/UserProfilePage";
 import { UpperHomePage } from "./components/UpperHomePage";
+import { VideoPlayer } from "./components/VideoPlayer";
 import { ExplorePage } from "./components/ExplorePage";
 import { RankingPage } from "./components/RankingPage";
 import { RecommendPage } from "./components/RecommendPage";
@@ -83,6 +84,10 @@ export default function App() {
   const [selectedItem, setSelectedItem] = useState<ParsedItem | null>(null);
   // UP 主主页覆盖层：从详情页点头像进入，叠加在详情之上。null=未打开。
   const [upperViewMid, setUpperViewMid] = useState<number | null>(null);
+  // 在线播放覆盖层：从详情页「在线播放」进入，最上层。null=未打开。
+  const [playingItem, setPlayingItem] = useState<{
+    bvid: string; cid: number; epId?: number; duration: number; title: string;
+  } | null>(null);
   const downloadingIds = useRef<Set<string>>(new Set());
   // 每个下载任务最近一次进度落库的时间戳，用于节流，避免高频争抢 SQLite 锁
   const lastProgressWrite = useRef<Map<string, number>>(new Map());
@@ -506,6 +511,11 @@ export default function App() {
     setUpperViewMid(mid);
   };
 
+  // 从详情页点击「在线播放」→ 打开 MSE 播放器覆盖层（最上层 z-[70]）
+  const handlePlay = (p: { bvid: string; cid: number; epId?: number; duration: number; title: string }) => {
+    setPlayingItem(p);
+  };
+
   // 在 UP 主主页覆盖层中点开某个视频：替换当前详情页内容并关闭 UP 主页覆盖层。
   // previousView 保持不变，从新详情返回时仍回到原来源页（main/explore/...）。
   const handleSelectFromUpper = (videoInfo: ParsedVideoInfo) => {
@@ -534,6 +544,7 @@ export default function App() {
           sourceLabel={viewLabel(previousView)}
           onBack={handleDetailBack}
           onOpenUpper={handleOpenUpper}
+          onPlay={handlePlay}
           onDownload={handleDownload}
         />
         {/* UP 主主页覆盖层：从详情页点头像进入，叠加在详情之上（更高 z-index）。
@@ -550,6 +561,17 @@ export default function App() {
               onSelectItem={handleSelectFromUpper}
             />
           </div>
+        )}
+        {/* 在线播放覆盖层：MSE 播放器，最上层 z-[70] */}
+        {playingItem && (
+          <VideoPlayer
+            bvid={playingItem.bvid}
+            cid={playingItem.cid}
+            epId={playingItem.epId}
+            duration={playingItem.duration}
+            title={playingItem.title}
+            onBack={() => setPlayingItem(null)}
+          />
         )}
       </div>
     ) : null;

@@ -230,6 +230,18 @@ pub async fn fetch_danmaku_ass(
     Ok(to_ass(&danmus, title, opt))
 }
 
+/// 获取弹幕原始列表（Danmu 结构），供在线播放器弹幕覆盖层渲染（区别于 ASS 文件导出）
+pub async fn fetch_danmaku_list(
+    client: &reqwest::Client,
+    credential: &Credential,
+    cid: i64,
+    aid: u64,
+    duration_secs: u64,
+) -> anyhow::Result<Vec<Danmu>> {
+    let elems = fetch_danmaku_elems(client, credential, cid, aid, duration_secs).await?;
+    Ok(elems.into_iter().map(Danmu::from).collect())
+}
+
 // ==================== ASS 格式输出 ====================
 
 /// ASS 弹幕配置（默认值和 bili-sync-up 一致）。

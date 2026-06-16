@@ -26,6 +26,7 @@ use commands::recommend::get_recommend;
 use commands::region::get_region;
 use commands::comment::get_video_comments;
 use commands::interaction::{like_video, coin_video, favorite_video};
+use commands::player::{get_play_streams, get_danmaku_json, log_player_error};
 use download_manager::manager;
 
 /// Read Windows system proxy settings and set HTTPS_PROXY env var
@@ -110,6 +111,64 @@ fn init_logger() {
     log::logger().flush();
 }
 
+/// biliproxy 自定义协议处理：
+/// 前端 fetch("http://biliproxy.localhost/b/<base64url(B站url)>") →
+/// 这里带 Referer+Cookie 透传 Range，把字节回灌给前端 MSE
+/// （解决浏览器跨域拿不到 B站流 + B站要求 Referer 头两个问题）。
+async fn biliproxy_fetch(
+    request: tauri::http::Request<Vec<u8>>,
+) -> anyhow::Result<tauri::http::Response<std::borrow::Cow<'static, [u8]>>> {
+    use base64::Engine;
+    // 路径形如 /b/<base64url>，取最后一段解码出 B站 原始 URL
+    let path = request.uri().path();
+    let b64 = path.rsplit('/').next().unwrap_or("");
+    let bili_url = String::from_utf8(
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(b64.trim_end_matches('='))?,
+    )?;
+
+    // 透传 Range（MSE 分块请求）
+    let range = request
+        .headers()
+        .get("range")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+
+    let client = reqwest::Client::builder()
+        .user_agent(bilibili::USER_AGENT)
+        .timeout(std::time::Duration::from_secs(30))
+        .build()?;
+    let cred = bilibili::credential::Credential::load().ok().flatten();
+    let mut req = client
+        .get(&bili_url)
+        .header("Referer", bilibili::REFERER)
+        .header("Origin", bilibili::ORIGIN);
+    if let Some(r) = &range {
+        req = req.header("Range", r);
+    }
+    if let Some(c) = cred.as_ref() {
+        req = req.header("Cookie", c.cookie_header());
+    }
+    let resp = req.send().await?;
+    let status = resp.status();
+    // 透传与范围/类型相关的头，补 CORS + 断点续传支持
+    let mut builder = tauri::http::Response::builder()
+        .status(status.as_u16())
+        .header("Accept-Ranges", "bytes")
+        .header("Access-Control-Allow-Origin", "*")
+        // 暴露 Range 相关头给 JS：否则 MSE 侧 res.headers.get("content-range") 读不到 → 无法判断文件总长
+        .header("Access-Control-Expose-Headers", "Content-Range, Content-Length, Accept-Ranges");
+    for (k, v) in resp.headers().iter() {
+        if matches!(
+            k.as_str(),
+            "content-type" | "content-length" | "content-range" | "last-modified" | "etag"
+        ) {
+            builder = builder.header(k, v);
+        }
+    }
+    let body = resp.bytes().await?.to_vec();
+    Ok(builder.body(std::borrow::Cow::Owned(body))?)
+}
+
 pub fn run() {
     init_logger();
     init_system_proxy();
@@ -123,6 +182,20 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(db_state)
+        // biliproxy：B站流代理协议。前端经它拉取流字节喂给 MSE（补 Referer、绕跨域、透传 Range）
+        .register_asynchronous_uri_scheme_protocol("biliproxy", |_app, request, responder| {
+            tauri::async_runtime::spawn(async move {
+                let resp = biliproxy_fetch(request).await.unwrap_or_else(|e| {
+                    log::warn!("[biliproxy] 代理失败: {}", e);
+                    tauri::http::Response::builder()
+                        .status(502)
+                        .header("content-type", "text/plain; charset=utf-8")
+                        .body(std::borrow::Cow::Borrowed(&b"proxy error"[..]))
+                        .unwrap()
+                });
+                responder.respond(resp);
+            });
+        })
         .setup(|app| {
             // 启动下载调度器 dispatcher 后台循环。常驻运行：
             // pop 最高优先级任务 → acquire permit → spawn 执行 → 处理 pause/cancel/优先级。
@@ -229,6 +302,9 @@ pub fn run() {
             like_video,
             coin_video,
             favorite_video,
+            get_play_streams,
+            get_danmaku_json,
+            log_player_error,
         ])
         .on_window_event(|window, event| {
             // 拦截主窗口关闭：根据设置决定是「最小化到托盘」还是「正常退出」。
