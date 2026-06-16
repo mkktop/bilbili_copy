@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { ArrowLeft, Download, Clock, CheckCircle2, Eye, MessageSquare, ArrowUpDown } from "lucide-react";
+import { ArrowLeft, Download, Clock, CheckCircle2, Eye, MessageSquare, ArrowUpDown, ChevronRight } from "lucide-react";
 import type { ParsedItem, VideoPage, VideoMeta } from "../types";
 import { formatDuration } from "../types";
 import { cn } from "../lib/utils";
@@ -12,6 +12,8 @@ type EpisodeTab = "main" | "extra";
 interface VideoDetailProps {
   entry: ParsedItem;
   onBack: () => void;
+  /** 点击 UP 主头像/卡片 → 进入该 UP 主主页（看投稿/合集）。无此回调时卡片不可点击。 */
+  onOpenUpper?: (mid: number) => void;
   onDownload: (
     id: string,
     bvid: string,
@@ -27,7 +29,7 @@ interface VideoDetailProps {
   ) => void;
 }
 
-export function VideoDetail({ entry, onBack, onDownload }: VideoDetailProps) {
+export function VideoDetail({ entry, onBack, onOpenUpper, onDownload }: VideoDetailProps) {
   const info = entry.videoInfo;
   const [selectedPages, setSelectedPages] = useState<Set<number>>(new Set());
   const [downloadedIds, setDownloadedIds] = useState<Set<string>>(new Set());
@@ -169,16 +171,35 @@ export function VideoDetail({ entry, onBack, onDownload }: VideoDetailProps) {
             {info.title}
           </h2>
 
-          {/* UP主卡片 */}
+          {/* UP主卡片 — 点击进入该 UP 主主页（看投稿/合集） */}
           {info.owner_face && (
-            <div className="flex items-center gap-3 p-2.5 bg-panel-2 rounded-xl">
-              <img
-                src={info.owner_face}
-                alt={info.owner_name}
-                className="w-9 h-9 rounded-full object-cover ring-2 ring-panel shadow-sm"
-              />
-              <span className="text-sm font-medium text-ink-2">{info.owner_name}</span>
-            </div>
+            onOpenUpper && info.owner_mid > 0 ? (
+              <button
+                type="button"
+                onClick={() => onOpenUpper(info.owner_mid)}
+                title={`查看 ${info.owner_name} 的主页`}
+                className="group flex w-full items-center gap-3 p-2.5 bg-panel-2 rounded-xl hover:bg-panel transition-colors text-left"
+              >
+                <img
+                  src={info.owner_face}
+                  alt={info.owner_name}
+                  className="w-9 h-9 rounded-full object-cover ring-2 ring-panel shadow-sm transition-transform group-hover:scale-105"
+                />
+                <span className="text-sm font-medium text-ink-2 group-hover:text-accent transition-colors flex-1 truncate">
+                  {info.owner_name}
+                </span>
+                <ChevronRight size={16} className="text-ink-3 group-hover:text-accent transition-colors shrink-0" />
+              </button>
+            ) : (
+              <div className="flex items-center gap-3 p-2.5 bg-panel-2 rounded-xl">
+                <img
+                  src={info.owner_face}
+                  alt={info.owner_name}
+                  className="w-9 h-9 rounded-full object-cover ring-2 ring-panel shadow-sm"
+                />
+                <span className="text-sm font-medium text-ink-2">{info.owner_name}</span>
+              </div>
+            )
           )}
 
           {/* 统计数据 + 时长 */}

@@ -11,6 +11,7 @@ import { SettingsPage } from "./components/SettingsPage";
 import { LoginDialog } from "./components/LoginDialog";
 import { CaptchaDialog } from "./components/CaptchaDialog";
 import { UserProfilePage } from "./components/UserProfilePage";
+import { UpperHomePage } from "./components/UpperHomePage";
 import { ExplorePage } from "./components/ExplorePage";
 import { RankingPage } from "./components/RankingPage";
 import { RecommendPage } from "./components/RecommendPage";
@@ -64,6 +65,8 @@ export default function App() {
   const [captchaVoucher, setCaptchaVoucher] = useState<string | null>(null);
   const [isParsing, setIsParsing] = useState(false);
   const [selectedItem, setSelectedItem] = useState<ParsedItem | null>(null);
+  // UP 主主页覆盖层：从详情页点头像进入，叠加在详情之上。null=未打开。
+  const [upperViewMid, setUpperViewMid] = useState<number | null>(null);
   const downloadingIds = useRef<Set<string>>(new Set());
   // 每个下载任务最近一次进度落库的时间戳，用于节流，避免高频争抢 SQLite 锁
   const lastProgressWrite = useRef<Map<string, number>>(new Map());
@@ -482,6 +485,28 @@ export default function App() {
     if (prev === "main") loadParsePage(parsePage);
   };
 
+  // 从详情页点击 UP 主头像 → 打开该 UP 主主页覆盖层（叠加在详情之上）
+  const handleOpenUpper = (mid: number) => {
+    setUpperViewMid(mid);
+  };
+
+  // 在 UP 主主页覆盖层中点开某个视频：替换当前详情页内容并关闭 UP 主页覆盖层。
+  // previousView 保持不变，从新详情返回时仍回到原来源页（main/explore/...）。
+  const handleSelectFromUpper = (videoInfo: ParsedVideoInfo) => {
+    const item: ParsedItem = {
+      id: `upper-${videoInfo.bvid}`,
+      url: videoInfo.bvid ? `https://www.bilibili.com/video/${videoInfo.bvid}` : "",
+      title: videoInfo.title,
+      status: "pending",
+      videoInfo,
+    };
+    if (videoInfo.bvid) {
+      invoke("touch_parse_history", { bvid: videoInfo.bvid }).catch(() => {});
+    }
+    setSelectedItem(item);
+    setUpperViewMid(null);
+  };
+
   // 视频详情覆盖层：无论当前在哪个视图都叠在最上层。
   // 关键：来源页组件保持挂载不被卸载，返回时其 state（搜索结果、UP 主投稿列表、
   // 收藏夹视频等）完整保留，避免返回后回到空白初始页。
@@ -491,8 +516,23 @@ export default function App() {
         <VideoDetail
           entry={selectedItem}
           onBack={handleDetailBack}
+          onOpenUpper={handleOpenUpper}
           onDownload={handleDownload}
         />
+        {/* UP 主主页覆盖层：从详情页点头像进入，叠加在详情之上（更高 z-index）。
+            外层 fixed 无 transform，内层 fixed 仍相对视口铺满；z-[60] > z-50，
+            故本层绘制在 VideoDetail 之上。返回关闭本层 → 回到详情；
+            点开某视频 → handleSelectFromUpper 替换详情内容并关闭本层。 */}
+        {upperViewMid !== null && (
+          <div className="fixed inset-0 z-[60] bg-base">
+            <UpperHomePage
+              mid={upperViewMid}
+              onBack={() => setUpperViewMid(null)}
+              onParseVideo={handleParse}
+              onSelectItem={handleSelectFromUpper}
+            />
+          </div>
+        )}
       </div>
     ) : null;
 

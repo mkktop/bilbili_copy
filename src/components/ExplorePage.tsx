@@ -19,7 +19,7 @@ import type {
   SearchResultType,
   ParsedVideoInfo,
 } from "../types";
-import { UpperView } from "./tabs/UpperView";
+import { UpperHomePage } from "./UpperHomePage";
 import { formatCount } from "./VideoCard";
 import { friendlyError } from "../lib/errors";
 import { TID_OPTIONS } from "../lib/constants";
@@ -71,8 +71,6 @@ export function ExplorePage({ onBack, onParseVideo, onSelectItem }: Props) {
   const [searched, setSearched] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // UP 主主页视图（UpperView）的虚拟化滚动容器 ref
-  const upperScrollRef = useRef<HTMLDivElement>(null);
   const [upperMid, setUpperMid] = useState<number | null>(null);
   const [parsingKey, setParsingKey] = useState<string | null>(null);
   // 请求竞态控制：每次新搜索递增，响应回来时校验是否仍是最新请求，丢弃过期响应
@@ -182,25 +180,12 @@ export function ExplorePage({ onBack, onParseVideo, onSelectItem }: Props) {
   // ===== UP 主主页视图 =====
   if (upperMid !== null) {
     return (
-      <div className="flex flex-col h-screen bg-base text-ink">
-        <header className="flex items-center gap-3 px-6 py-4 bg-panel border-b border-line">
-          <button
-            onClick={() => setUpperMid(null)}
-            className="p-1.5 rounded-lg border border-line-2 hover:bg-panel-2 transition-colors"
-          >
-            <ArrowLeft size={16} />
-          </button>
-          <h1 className="text-lg font-semibold text-ink">UP 主主页</h1>
-        </header>
-        <div ref={upperScrollRef} className="flex-1 overflow-auto px-6 py-4">
-          <UpperView
-            mid={upperMid}
-            scrollRef={upperScrollRef}
-            onParseVideo={onParseVideo}
-            onSelectItem={onSelectItem}
-          />
-        </div>
-      </div>
+      <UpperHomePage
+        mid={upperMid}
+        onBack={() => setUpperMid(null)}
+        onParseVideo={onParseVideo}
+        onSelectItem={onSelectItem}
+      />
     );
   }
 
