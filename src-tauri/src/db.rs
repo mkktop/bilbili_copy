@@ -484,9 +484,9 @@ mod tests {
 
         migrate_schema(&conn).unwrap();
 
-        // 迁移后 pic 列存在，版本升到 3（v2→pic，v3→quality/video_title 一次到位）
+        // 迁移后 pic 列存在，版本一路升到最新（当前为 5）
         assert!(column_exists(&conn, "download_history", "pic").unwrap());
-        assert_eq!(current_schema_version(&conn), 3);
+        assert_eq!(current_schema_version(&conn), 5);
     }
 
     #[test]
@@ -507,7 +507,7 @@ mod tests {
 
         assert!(column_exists(&conn, "download_history", "quality").unwrap());
         assert!(column_exists(&conn, "download_history", "video_title").unwrap());
-        assert_eq!(current_schema_version(&conn), 3);
+        assert_eq!(current_schema_version(&conn), 5);
     }
 
     #[test]
@@ -516,7 +516,7 @@ mod tests {
         migrate_schema(&conn).unwrap();
         // 再次执行迁移不应报错（version 已是 3，跳过 ALTER）
         migrate_schema(&conn).unwrap();
-        assert_eq!(current_schema_version(&conn), 3);
+        assert_eq!(current_schema_version(&conn), 5);
         assert!(column_exists(&conn, "download_history", "pic").unwrap());
     }
 
@@ -532,8 +532,8 @@ mod tests {
         assert!(column_exists(&conn, "download_history", "video_title").unwrap());
 
         migrate_schema(&conn).unwrap();
-        // 全新库经 migrate_schema 走完 v2/v3 分支（列已存在则跳过 ALTER，但仍记录 version）
-        assert_eq!(current_schema_version(&conn), 3);
+        // 全新库经 migrate_schema 走完所有迁移分支（列已存在则跳过 ALTER，但仍记录 version 到最新 5）
+        assert_eq!(current_schema_version(&conn), 5);
     }
 
     #[test]

@@ -194,28 +194,44 @@ pub async fn validate_credentials(cred: &Credential) -> Result<UserInfo> {
         #[serde(default)]
         sex: String,
     }
-    let resp: BilibiliResponse<NavData> = client
-        .get("https://api.bilibili.com/x/web-interface/nav")
-        .header("Cookie", cred.cookie_header())
-        .header("Referer", REFERER)
-        .send()
-        .await?
-        .json()
-        .await?;
+    // dedeuserid 即用户 mid，用作 relation 请求参数，使 nav 与 relation 两个独立请求
+    // 并发执行（省一次串行往返）。relation 为 best-effort：失败或无 mid 时返回 (0,0)，
+    // 不影响登录校验主流程。
+    let mid_from_cred: u64 = cred.dedeuserid.parse().unwrap_or(0);
 
+    let (nav_result, relation) = tokio::join!(
+        async {
+            let resp: BilibiliResponse<NavData> = client
+                .get("https://api.bilibili.com/x/web-interface/nav")
+                .header("Cookie", cred.cookie_header())
+                .header("Referer", REFERER)
+                .send()
+                .await?
+                .json()
+                .await?;
+            Result::<_, anyhow::Error>::Ok(resp)
+        },
+        async {
+            if mid_from_cred == 0 {
+                return (0u64, 0u64);
+            }
+            match get_relation_info(&client, cred, mid_from_cred).await {
+                Ok(info) => info,
+                Err(e) => {
+                    log::warn!("[passport] 获取关注/粉丝数失败: {}", e);
+                    (0u64, 0u64)
+                }
+            }
+        },
+    );
+
+    let resp = nav_result?;
     if resp.code != 0 {
         anyhow::bail!("凭证验证失败: {:?}", resp.message);
     }
     let data = resp.data.context("nav 响应无 data")?;
 
-    // 获取关注数和粉丝数（失败不影响登录，但记录日志）
-    let (following, follower) = match get_relation_info(&client, cred, data.mid).await {
-        Ok(info) => info,
-        Err(e) => {
-            log::warn!("[passport] 获取关注/粉丝数失败: {}", e);
-            (0, 0)
-        }
-    };
+    let (following, follower) = relation;
 
     Ok(UserInfo {
         mid: data.mid,

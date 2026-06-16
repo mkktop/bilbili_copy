@@ -1,3 +1,4 @@
+import { memo } from "react";
 import {
   Download,
   Loader2,
@@ -29,6 +30,18 @@ interface DownloadListProps {
   currentPage: number;
   totalCount: number;
   onPageChange: (page: number) => void;
+}
+
+interface DownloadRowProps {
+  item: DownloadTask;
+  onRemove: (id: string) => void;
+  onPause: (id: string) => void;
+  onCancel: (id: string) => void;
+  onResume: (item: DownloadTask) => void;
+  onRetry: (item: DownloadTask) => void;
+  onSetPriority: (id: string, priority: number) => void;
+  onOpenFolder: (item: DownloadTask) => void;
+  onOpenDetail: (item: DownloadTask) => void;
 }
 
 const STATUS_CONFIG: Record<
@@ -96,6 +109,194 @@ function IconButton({
   );
 }
 
+/**
+ * 单个下载任务行。
+ * 用 memo 包裹 + 自定义比较：仅当 item 的渲染相关字段（status/progress/phase/...）
+ * 变化时才重渲染该行。父组件 App 在下载进度节流后仍会重渲染，但只有真正变化的行
+ * （如正在下载的那一行 progress 变了）会重绘，其余行跳过。
+ * 回调函数 identity 不参与比较——这些回调行为恒定（调用 invoke + setState），
+ * 忽略其引用变化可避免父组件未 useCallback 导致的 memo 失效。
+ */
+const DownloadRow = memo(
+  function DownloadRow({
+    item,
+    onRemove,
+    onPause,
+    onCancel,
+    onResume,
+    onRetry,
+    onSetPriority,
+    onOpenFolder,
+    onOpenDetail,
+  }: DownloadRowProps) {
+    const status = STATUS_CONFIG[item.status] || STATUS_CONFIG.downloading;
+    // 进度条在 downloading（蓝，动）与 paused（琥珀，静态）时显示
+    const showProgress =
+      (item.status === "downloading" || item.status === "paused") &&
+      item.progress !== undefined;
+
+    return (
+      <div className="flex items-start gap-3 px-4 py-3 bg-panel border border-line rounded-lg">
+        {/* 封面缩略图（无封面时回退文件图标）；点击进入视频详情页 */}
+        {item.pic ? (
+          <img
+            src={item.pic}
+            alt={item.title}
+            title="查看详情"
+            onClick={() => onOpenDetail(item)}
+            className="w-24 h-16 rounded object-cover shrink-0 bg-panel-2 cursor-pointer hover:ring-2 hover:ring-blue-400 transition-all"
+          />
+        ) : (
+          <div
+            title="查看详情"
+            onClick={() => onOpenDetail(item)}
+            className="w-24 h-16 rounded bg-panel-2 flex items-center justify-center shrink-0 cursor-pointer hover:ring-2 hover:ring-blue-400 transition-all"
+          >
+            <Download size={18} className="text-ink-3" />
+          </div>
+        )}
+
+        {/* 信息区 */}
+        <div className="flex-1 min-w-0">
+          <p className="text-sm text-ink-2 line-clamp-2 leading-snug">
+            {item.title}
+          </p>
+
+          {/* 状态 + 进度 */}
+          <div className="mt-1">
+            <div className="flex items-center gap-1">
+              <span className={cn("text-xs", status.color)}>
+                {status.icon}
+              </span>
+              <span className={cn("text-xs", status.color)}>
+                {item.status === "downloading" && item.phase
+                  ? PHASE_TEXT[item.phase] || status.text
+                  : status.text}
+              </span>
+              {(item.status === "downloading" || item.status === "paused") &&
+                item.progress !== undefined && (
+                  <span className="text-xs text-ink-3 ml-1">
+                    {Math.round(item.progress)}%
+                  </span>
+                )}
+              {item.errorMsg && (
+                <span className="text-xs text-red-400 ml-1 truncate">
+                  {item.errorMsg}
+                </span>
+              )}
+            </div>
+
+            {/* 进度条 */}
+            {showProgress && (
+              <div className="w-full bg-line rounded-full h-1.5 mt-1.5">
+                <div
+                  className={cn(
+                    "h-1.5 rounded-full transition-all duration-300",
+                    item.status === "paused"
+                      ? "bg-amber-400"
+                      : "bg-blue-500"
+                  )}
+                  style={{ width: `${Math.min(item.progress ?? 0, 100)}%` }}
+                />
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* 操作按钮区：按状态切换 */}
+        <div className="flex items-center gap-0.5 mt-1 shrink-0">
+          {item.status === "queued" && (
+            <>
+              {/* 置顶：用一个大优先级值；后端 set_priority 会覆盖 */}
+              <IconButton
+                onClick={() => onSetPriority(item.id, 1000000)}
+                title="置顶"
+              >
+                <ChevronUp size={14} />
+              </IconButton>
+              <IconButton
+                onClick={() => onCancel(item.id)}
+                title="取消"
+                danger
+              >
+                <X size={14} />
+              </IconButton>
+            </>
+          )}
+
+          {item.status === "downloading" && (
+            <>
+              <IconButton onClick={() => onPause(item.id)} title="暂停">
+                <Pause size={14} />
+              </IconButton>
+              <IconButton
+                onClick={() => onCancel(item.id)}
+                title="取消"
+                danger
+              >
+                <X size={14} />
+              </IconButton>
+            </>
+          )}
+
+          {item.status === "paused" && (
+            <>
+              <IconButton onClick={() => onResume(item)} title="恢复">
+                <Play size={14} />
+              </IconButton>
+              <IconButton
+                onClick={() => onCancel(item.id)}
+                title="取消（删除临时文件）"
+                danger
+              >
+                <X size={14} />
+              </IconButton>
+            </>
+          )}
+
+          {item.status === "done" && (
+            <>
+              {item.outputPath && (
+                <IconButton onClick={() => onOpenFolder(item)} title="打开所在目录">
+                  <FolderOpen size={14} />
+                </IconButton>
+              )}
+              <IconButton onClick={() => onRemove(item.id)} title="删除" danger>
+                <X size={14} />
+              </IconButton>
+            </>
+          )}
+
+          {item.status === "error" && (
+            <>
+              <IconButton onClick={() => onRetry(item)} title="重试">
+                <RotateCw size={14} />
+              </IconButton>
+              <IconButton onClick={() => onRemove(item.id)} title="删除" danger>
+                <X size={14} />
+              </IconButton>
+            </>
+          )}
+        </div>
+      </div>
+    );
+  },
+  (prev, next) => {
+    // 仅比较影响渲染的 item 字段；回调 identity 不参与（行为恒定）。
+    const a = prev.item;
+    const b = next.item;
+    return (
+      a.status === b.status &&
+      a.progress === b.progress &&
+      a.phase === b.phase &&
+      a.errorMsg === b.errorMsg &&
+      a.outputPath === b.outputPath &&
+      a.pic === b.pic &&
+      a.title === b.title
+    );
+  }
+);
+
 export function DownloadList({
   downloads,
   onRemove,
@@ -121,162 +322,20 @@ export function DownloadList({
 
   return (
     <div className="space-y-2">
-      {downloads.map((item) => {
-        const status = STATUS_CONFIG[item.status] || STATUS_CONFIG.downloading;
-        // 进度条在 downloading（蓝，动）与 paused（琥珀，静态）时显示
-        const showProgress =
-          (item.status === "downloading" || item.status === "paused") &&
-          item.progress !== undefined;
-
-        return (
-          <div
-            key={item.id}
-            className="flex items-start gap-3 px-4 py-3 bg-panel border border-line rounded-lg"
-          >
-            {/* 封面缩略图（无封面时回退文件图标）；点击进入视频详情页 */}
-            {item.pic ? (
-              <img
-                src={item.pic}
-                alt={item.title}
-                title="查看详情"
-                onClick={() => onOpenDetail(item)}
-                className="w-24 h-16 rounded object-cover shrink-0 bg-panel-2 cursor-pointer hover:ring-2 hover:ring-blue-400 transition-all"
-              />
-            ) : (
-              <div
-                title="查看详情"
-                onClick={() => onOpenDetail(item)}
-                className="w-24 h-16 rounded bg-panel-2 flex items-center justify-center shrink-0 cursor-pointer hover:ring-2 hover:ring-blue-400 transition-all"
-              >
-                <Download size={18} className="text-ink-3" />
-              </div>
-            )}
-
-            {/* 信息区 */}
-            <div className="flex-1 min-w-0">
-              <p className="text-sm text-ink-2 line-clamp-2 leading-snug">
-                {item.title}
-              </p>
-
-              {/* 状态 + 进度 */}
-              <div className="mt-1">
-                <div className="flex items-center gap-1">
-                  <span className={cn("text-xs", status.color)}>
-                    {status.icon}
-                  </span>
-                  <span className={cn("text-xs", status.color)}>
-                    {item.status === "downloading" && item.phase
-                      ? PHASE_TEXT[item.phase] || status.text
-                      : status.text}
-                  </span>
-                  {(item.status === "downloading" || item.status === "paused") &&
-                    item.progress !== undefined && (
-                      <span className="text-xs text-ink-3 ml-1">
-                        {Math.round(item.progress)}%
-                      </span>
-                    )}
-                  {item.errorMsg && (
-                    <span className="text-xs text-red-400 ml-1 truncate">
-                      {item.errorMsg}
-                    </span>
-                  )}
-                </div>
-
-                {/* 进度条 */}
-                {showProgress && (
-                  <div className="w-full bg-line rounded-full h-1.5 mt-1.5">
-                    <div
-                      className={cn(
-                        "h-1.5 rounded-full transition-all duration-300",
-                        item.status === "paused"
-                          ? "bg-amber-400"
-                          : "bg-blue-500"
-                      )}
-                      style={{ width: `${Math.min(item.progress ?? 0, 100)}%` }}
-                    />
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* 操作按钮区：按状态切换 */}
-            <div className="flex items-center gap-0.5 mt-1 shrink-0">
-              {item.status === "queued" && (
-                <>
-                  {/* 置顶：用一个大优先级值；后端 set_priority 会覆盖 */}
-                  <IconButton
-                    onClick={() => onSetPriority(item.id, 1000000)}
-                    title="置顶"
-                  >
-                    <ChevronUp size={14} />
-                  </IconButton>
-                  <IconButton
-                    onClick={() => onCancel(item.id)}
-                    title="取消"
-                    danger
-                  >
-                    <X size={14} />
-                  </IconButton>
-                </>
-              )}
-
-              {item.status === "downloading" && (
-                <>
-                  <IconButton onClick={() => onPause(item.id)} title="暂停">
-                    <Pause size={14} />
-                  </IconButton>
-                  <IconButton
-                    onClick={() => onCancel(item.id)}
-                    title="取消"
-                    danger
-                  >
-                    <X size={14} />
-                  </IconButton>
-                </>
-              )}
-
-              {item.status === "paused" && (
-                <>
-                  <IconButton onClick={() => onResume(item)} title="恢复">
-                    <Play size={14} />
-                  </IconButton>
-                  <IconButton
-                    onClick={() => onCancel(item.id)}
-                    title="取消（删除临时文件）"
-                    danger
-                  >
-                    <X size={14} />
-                  </IconButton>
-                </>
-              )}
-
-              {item.status === "done" && (
-                <>
-                  {item.outputPath && (
-                    <IconButton onClick={() => onOpenFolder(item)} title="打开所在目录">
-                      <FolderOpen size={14} />
-                    </IconButton>
-                  )}
-                  <IconButton onClick={() => onRemove(item.id)} title="删除" danger>
-                    <X size={14} />
-                  </IconButton>
-                </>
-              )}
-
-              {item.status === "error" && (
-                <>
-                  <IconButton onClick={() => onRetry(item)} title="重试">
-                    <RotateCw size={14} />
-                  </IconButton>
-                  <IconButton onClick={() => onRemove(item.id)} title="删除" danger>
-                    <X size={14} />
-                  </IconButton>
-                </>
-              )}
-            </div>
-          </div>
-        );
-      })}
+      {downloads.map((item) => (
+        <DownloadRow
+          key={item.id}
+          item={item}
+          onRemove={onRemove}
+          onPause={onPause}
+          onCancel={onCancel}
+          onResume={onResume}
+          onRetry={onRetry}
+          onSetPriority={onSetPriority}
+          onOpenFolder={onOpenFolder}
+          onOpenDetail={onOpenDetail}
+        />
+      ))}
 
       {/* 分页控件 */}
       <Pagination

@@ -222,9 +222,39 @@ async fn try_playurl_with_fallback(
     dm_img_inter: &str,
     request_delay_ms: u64,
 ) -> Result<SelectedStreams> {
+    // 快路径：单次请求最高画质。fnval=4048 响应的 dash.video 已含所有可用画质，
+    // parse_streams 会在 [min_qn, max_qn] 范围内挑最优——绝大多数情况一次请求即可，
+    // 避免逐档降级的多次往返与更高的风控触发概率。
+    // 仅当单次请求拿不到流、或遇到可降级的错误时，才落到下方逐档兜底。
+    // （大会员/充电专享属于硬错误，立即向上抛出。）
+    match try_playurl_once(client, bvid, cid, max_qn, credential, dm_img_str, dm_cover_img_str, dm_img_list, dm_img_inter).await {
+        Ok(data) => {
+            if let Some(vv) = data.v_voucher.as_deref() {
+                if !vv.is_empty() {
+                    log::warn!("[playurl] 检测到风控 v_voucher: {}", &vv.chars().take(20).collect::<String>());
+                    anyhow::bail!("RISK_CONTROL:{}", vv);
+                }
+            }
+            if let Some(streams) = parse_streams(&data, max_qn, min_qn, audio_max_qn, audio_min_qn, codec_priority) {
+                log::info!("[playurl] 单次请求命中: qn={}", streams.video_qn);
+                return Ok(streams);
+            }
+            log::warn!("[playurl] 单次请求无法解析流，回退逐档降级");
+        }
+        Err(e) => {
+            let err_str = e.to_string();
+            if err_str.contains("大会员") || err_str.contains("充电专享") {
+                return Err(e);
+            }
+            log::warn!("[playurl] 单次请求失败，回退逐档降级: {}", e);
+        }
+    }
+
+    // 兜底：逐档降级请求，应对单次请求拿不到流的边界情况。
+    // 快路径已试过 max_qn，这里排除掉以避免重复请求。
     let levels: Vec<i64> = QUALITY_LEVELS
         .iter()
-        .filter(|&&q| q <= max_qn)
+        .filter(|&&q| q < max_qn)
         .copied()
         .collect();
 

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
   ArrowLeft,
@@ -25,6 +25,7 @@ import { SubscriptionsTab } from "./tabs/SubscriptionsTab";
 import { FollowingsTab } from "./tabs/FollowingsTab";
 import { UpperView } from "./tabs/UpperView";
 import { formatCount } from "./VideoCard";
+import { VirtualList } from "./VirtualList";
 import { useToast } from "./Toast";
 import { friendlyError } from "../lib/errors";
 import type {
@@ -63,6 +64,10 @@ export function UserProfilePage({
   const [mediaPage, setMediaPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
   const [mediaTotal, setMediaTotal] = useState(0);
+
+  // 虚拟化列表的外层滚动容器 ref（flex-1 overflow-auto）。
+  // 收藏夹内容 / UP 主投稿等长列表通过它做窗口化渲染。
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   // 解析状态
   const [parsingBvid, setParsingBvid] = useState<string | null>(null);
@@ -202,7 +207,7 @@ export function UserProfilePage({
         )}
       </header>
 
-      <div className="flex-1 overflow-auto px-6 py-4">
+      <div ref={scrollRef} className="flex-1 overflow-auto px-6 py-4">
         {/* Tab 切换栏（收藏夹详情 / UP 主主页视图不显示） */}
         {!selectedFolder && selectedUpperMid === null && (
           <div className="flex gap-1 mb-4">
@@ -397,6 +402,7 @@ export function UserProfilePage({
         {!selectedFolder && selectedUpperMid !== null && (
           <UpperView
             mid={selectedUpperMid}
+            scrollRef={scrollRef}
             onParseVideo={onParseVideo}
             onSelectItem={onSelectItem}
           />
@@ -420,60 +426,70 @@ export function UserProfilePage({
               </div>
             ) : (
               <div className="space-y-2">
-                {medias.map((media) => (
-                  <button
-                    key={media.id}
-                    onClick={() => handleSelectVideo(media)}
-                    disabled={parsingBvid === media.bvid}
-                    className="flex items-start gap-3 w-full px-4 py-3 bg-panel border border-line rounded-lg hover:bg-base hover:border-line-2 transition-colors text-left disabled:opacity-70"
-                  >
-                    {/* 封面 */}
-                    <img
-                      src={media.cover}
-                      alt={media.title}
-                      className="w-24 h-16 rounded object-cover shrink-0 bg-panel-2"
-                    />
-
-                    {/* 信息 */}
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm text-ink-2 line-clamp-2 leading-snug">
-                        {media.title}
-                      </p>
-                      <div className="flex items-center gap-3 mt-1.5 text-xs text-ink-3">
-                        <span className="flex items-center gap-0.5">
-                          <User size={10} />
-                          {media.upper_name}
-                        </span>
-                        {media.duration != null && media.duration > 0 && (
-                          <span className="flex items-center gap-0.5">
-                            <Clock size={10} />
-                            {formatDuration(media.duration)}
-                          </span>
-                        )}
-                        {media.play > 0 && (
-                          <span className="flex items-center gap-0.5">
-                            <Eye size={10} />
-                            {formatCount(media.play)}
-                          </span>
-                        )}
-                        {media.like > 0 && (
-                          <span className="flex items-center gap-0.5">
-                            <ThumbsUp size={10} />
-                            {formatCount(media.like)}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* 解析中指示器 */}
-                    {parsingBvid === media.bvid && (
-                      <Loader2
-                        size={16}
-                        className="animate-spin text-blue-500 shrink-0 mt-1"
+                <VirtualList
+                  items={medias}
+                  scrollRef={scrollRef}
+                  estimateSize={96}
+                  gap={8}
+                  onNearEnd={() => {
+                    if (hasMore && !loadingMedias && selectedFolder) {
+                      loadMedias(selectedFolder, mediaPage + 1, true);
+                    }
+                  }}
+                  renderItem={(media) => (
+                    <button
+                      onClick={() => handleSelectVideo(media)}
+                      disabled={parsingBvid === media.bvid}
+                      className="flex items-start gap-3 w-full px-4 py-3 bg-panel border border-line rounded-lg hover:bg-base hover:border-line-2 transition-colors text-left disabled:opacity-70"
+                    >
+                      {/* 封面 */}
+                      <img
+                        src={media.cover}
+                        alt={media.title}
+                        className="w-24 h-16 rounded object-cover shrink-0 bg-panel-2"
                       />
-                    )}
-                  </button>
-                ))}
+
+                      {/* 信息 */}
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm text-ink-2 line-clamp-2 leading-snug">
+                          {media.title}
+                        </p>
+                        <div className="flex items-center gap-3 mt-1.5 text-xs text-ink-3">
+                          <span className="flex items-center gap-0.5">
+                            <User size={10} />
+                            {media.upper_name}
+                          </span>
+                          {media.duration != null && media.duration > 0 && (
+                            <span className="flex items-center gap-0.5">
+                              <Clock size={10} />
+                              {formatDuration(media.duration)}
+                            </span>
+                          )}
+                          {media.play > 0 && (
+                            <span className="flex items-center gap-0.5">
+                              <Eye size={10} />
+                              {formatCount(media.play)}
+                            </span>
+                          )}
+                          {media.like > 0 && (
+                            <span className="flex items-center gap-0.5">
+                              <ThumbsUp size={10} />
+                              {formatCount(media.like)}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* 解析中指示器 */}
+                      {parsingBvid === media.bvid && (
+                        <Loader2
+                          size={16}
+                          className="animate-spin text-blue-500 shrink-0 mt-1"
+                        />
+                      )}
+                    </button>
+                  )}
+                />
 
                 {/* 加载更多 */}
                 {hasMore && (

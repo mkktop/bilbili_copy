@@ -70,6 +70,9 @@ export function ExplorePage({ onBack, onParseVideo, onSelectItem }: Props) {
   const [searching, setSearching] = useState(false);
   const [searched, setSearched] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // UP 主主页视图（UpperView）的虚拟化滚动容器 ref
+  const upperScrollRef = useRef<HTMLDivElement>(null);
   const [upperMid, setUpperMid] = useState<number | null>(null);
   const [parsingKey, setParsingKey] = useState<string | null>(null);
   // 请求竞态控制：每次新搜索递增，响应回来时校验是否仍是最新请求，丢弃过期响应
@@ -189,9 +192,10 @@ export function ExplorePage({ onBack, onParseVideo, onSelectItem }: Props) {
           </button>
           <h1 className="text-lg font-semibold text-ink">UP 主主页</h1>
         </header>
-        <div className="flex-1 overflow-auto px-6 py-4">
+        <div ref={upperScrollRef} className="flex-1 overflow-auto px-6 py-4">
           <UpperView
             mid={upperMid}
+            scrollRef={upperScrollRef}
             onParseVideo={onParseVideo}
             onSelectItem={onSelectItem}
           />

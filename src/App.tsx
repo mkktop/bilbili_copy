@@ -135,20 +135,20 @@ export default function App() {
           if (cancelled) return;
           const { id, percent, label } = event.payload;
           const phase = label === "audio" ? "audio" as const : "video" as const;
+          // 节流：UI 更新与写库同频（每 id 约 1.2s 一次）。
+          // 后端虽按 512KB 节流发射 progress，但并行分片仍会产生每秒数十次事件；
+          // 这里再把 setDownloads 纳入节流，避免每个事件都全量重渲染整个 App（downloads 在顶层 state）。
+          // 下载完成由独立的 complete 监听器负责最终落库与置 100%，不受此节流影响。
+          const now = Date.now();
+          const last = lastProgressWrite.current.get(id) ?? 0;
+          if (now - last < DOWNLOAD_PROGRESS_THROTTLE_MS) return;
+          lastProgressWrite.current.set(id, now);
           setDownloads((prev) =>
             prev.map((d) =>
               d.id === id ? { ...d, status: "downloading" as const, progress: percent, phase } : d
             )
           );
-          // 节流写库：每个 id 至少间隔 DOWNLOAD_PROGRESS_THROTTLE_MS 落一次进度
-          // （完成时由 complete 事件负责最终落库），避免并行分片高频触发
-          // update_download_status 造成 SQLite 锁竞争与 UI 卡顿。
-          const now = Date.now();
-          const last = lastProgressWrite.current.get(id) ?? 0;
-          if (now - last >= DOWNLOAD_PROGRESS_THROTTLE_MS) {
-            lastProgressWrite.current.set(id, now);
-            invoke("update_download_status", { id, status: "downloading", progress: percent, phase, errorMsg: null, outputPath: null }).catch(() => {});
-          }
+          invoke("update_download_status", { id, status: "downloading", progress: percent, phase, errorMsg: null, outputPath: null }).catch(() => {});
         }),
         listen<DownloadComplete>("download://complete", (event) => {
           if (cancelled) return;

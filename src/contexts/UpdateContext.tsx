@@ -4,6 +4,7 @@ import {
   useState,
   useEffect,
   useCallback,
+  useMemo,
   useRef,
   type ReactNode,
 } from "react";
@@ -103,18 +104,23 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
     setError(null);
   }, [updateInfo]);
 
+  // value 用 useMemo 稳定 identity：只有 state/回调真正变化时才产生新对象，
+  // 避免每次 Provider 重渲染（phase 切换等）都触发所有 useUpdate() 消费者重渲染。
+  const value = useMemo<UpdateContextValue>(
+    () => ({
+      phase,
+      updateInfo,
+      error,
+      checkUpdate,
+      installUpdate,
+      dismiss,
+      isDismissed,
+    }),
+    [phase, updateInfo, error, isDismissed, checkUpdate, installUpdate, dismiss]
+  );
+
   return (
-    <UpdateContext.Provider
-      value={{
-        phase,
-        updateInfo,
-        error,
-        checkUpdate,
-        installUpdate,
-        dismiss,
-        isDismissed,
-      }}
-    >
+    <UpdateContext.Provider value={value}>
       {children}
     </UpdateContext.Provider>
   );

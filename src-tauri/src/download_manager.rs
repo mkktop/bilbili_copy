@@ -508,6 +508,7 @@ mod tests {
             ep_id: None,
             duration: None,
             subtitle_only: false,
+            audio_only: false,
             video_meta: None,
         }
     }

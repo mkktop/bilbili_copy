@@ -5,8 +5,10 @@ use md5::{Digest, Md5};
 use reqwest::header::{HeaderMap, HeaderValue};
 use reqwest::Client;
 use serde::Deserialize;
-use std::sync::OnceLock;
-use std::time::{SystemTime, UNIX_EPOCH};
+use once_cell::sync::Lazy;
+use std::sync::{OnceLock, RwLock};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use tokio::sync::Mutex as AsyncMutex;
 
 /// 构建模拟浏览器的 API 请求头
 pub fn create_api_headers() -> HeaderMap {
@@ -33,12 +35,26 @@ const MIXIN_KEY_ENC_TAB: [usize; 64] = [
     4, 22, 25, 54, 21, 56, 59, 6, 63, 57, 62, 11, 36, 20, 34, 44, 52,
 ];
 
-/// WBI密钥缓存（使用 OnceLock 实现只获取一次，刷新时用 RwLock 覆盖）
-static WBI_KEYS: OnceLock<RwLock<Option<WbiKeys>>> = OnceLock::new();
+/// WBI 密钥缓存 TTL：B站每日轮换 img/sub key，缓存过期后必须重新获取。
+/// 设为 12h 留出余量，避免在轮换时刻附近用到即将失效的 key。
+const WBI_TTL: Duration = Duration::from_secs(12 * 3600);
 
-use std::sync::RwLock;
+/// 带获取时间戳的缓存条目：用于判断是否超过 TTL。
+#[derive(Clone)]
+struct CachedKeys {
+    keys: WbiKeys,
+    fetched_at: Instant,
+}
 
-fn wbi_keys_store() -> &'static RwLock<Option<WbiKeys>> {
+/// WBI 密钥缓存（OnceLock 持有 RwLock<Option<CachedKeys>>）。
+/// 读多写少：get_mixin_key_cached 走读锁快路径；过期/刷新走写锁。
+static WBI_KEYS: OnceLock<RwLock<Option<CachedKeys>>> = OnceLock::new();
+
+/// fetch 串行锁：缓存为空或过期时，多个并发请求只允许一个真正执行 nav 请求，
+/// 其余在锁上等待并经 double-check 复用结果，避免冷启动/过期瞬间惊群打 nav。
+static FETCH_LOCK: Lazy<AsyncMutex<()>> = Lazy::new(|| AsyncMutex::new(()));
+
+fn wbi_keys_store() -> &'static RwLock<Option<CachedKeys>> {
     WBI_KEYS.get_or_init(|| RwLock::new(None))
 }
 
@@ -158,40 +174,59 @@ async fn fetch_wbi_keys(credential: &Credential) -> Result<WbiKeys> {
     })
 }
 
-/// 获取mixin_key用于签名（优先使用缓存）
+/// 获取mixin_key用于签名（优先使用缓存）。
+/// 缓存命中且未超过 WBI_TTL 时直接返回；否则经 fetch 锁串行获取一次（防惊群）。
 pub async fn get_mixin_key_cached(credential: &Credential) -> Result<String> {
-    let store = wbi_keys_store();
-    // 先尝试读缓存（中毒时也恢复，避免一次 panic 永久拖垮所有 WBI 签名）
+    // 1) 读锁快路径：命中且未过期直接返回（中毒时也恢复，避免 panic 永久拖垮签名）
     {
+        let store = wbi_keys_store();
         let guard = store.read().unwrap_or_else(|p| p.into_inner());
-        if let Some(keys) = guard.as_ref() {
-            return Ok(get_mixin_key(&keys.img_key, &keys.sub_key));
+        if let Some(c) = guard.as_ref() {
+            if c.fetched_at.elapsed() < WBI_TTL {
+                return Ok(get_mixin_key(&c.keys.img_key, &c.keys.sub_key));
+            }
         }
     }
 
-    // 缓存为空，获取新的（使用 double-check 避免重复获取）
+    // 2) 缓存为空或过期：用 fetch 锁串行化，避免多个并发请求同时打 nav（惊群）
+    let _fetch_guard = FETCH_LOCK.lock().await;
+
+    // 3) 持锁后 double-check：可能在等锁期间已被其他任务刷新为有效 key
+    {
+        let store = wbi_keys_store();
+        let guard = store.read().unwrap_or_else(|p| p.into_inner());
+        if let Some(c) = guard.as_ref() {
+            if c.fetched_at.elapsed() < WBI_TTL {
+                return Ok(get_mixin_key(&c.keys.img_key, &c.keys.sub_key));
+            }
+        }
+    }
+
+    // 4) 真正发起一次 nav 请求获取新 key 并写回缓存
     let keys = fetch_wbi_keys(credential).await?;
     let mixin_key = get_mixin_key(&keys.img_key, &keys.sub_key);
     {
+        let store = wbi_keys_store();
         let mut guard = store.write().unwrap_or_else(|p| p.into_inner());
-        // double-check: 如果其他任务已经写入了，使用已有的
-        if guard.is_none() {
-            *guard = Some(keys);
-        } else if let Some(existing) = guard.as_ref() {
-            return Ok(get_mixin_key(&existing.img_key, &existing.sub_key));
-        }
+        *guard = Some(CachedKeys {
+            keys,
+            fetched_at: Instant::now(),
+        });
     }
     Ok(mixin_key)
 }
 
-/// 强制刷新WBI密钥（签名失败时调用）
+/// 强制刷新WBI密钥（签名失败时调用，如 playurl 收到 412/-404）
 pub async fn refresh_mixin_key(credential: &Credential) -> Result<String> {
     let keys = fetch_wbi_keys(credential).await?;
     let mixin_key = get_mixin_key(&keys.img_key, &keys.sub_key);
     {
         let store = wbi_keys_store();
         let mut guard = store.write().unwrap_or_else(|p| p.into_inner());
-        *guard = Some(keys);
+        *guard = Some(CachedKeys {
+            keys,
+            fetched_at: Instant::now(),
+        });
     }
     Ok(mixin_key)
 }

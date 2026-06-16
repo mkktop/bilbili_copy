@@ -102,11 +102,19 @@ fn get_video_semaphore(bvid: &str, max_pages: usize) -> Arc<Semaphore> {
         .clone()
 }
 
-fn cleanup_video_semaphore(bvid: &str, max_pages: usize) {
-    let want = clamp_permits(max_pages);
+/// 任务结束后清理 per-video 信号量条目，避免 map 随下载过的不同 bvid 无限增长。
+///
+/// 判定：`Arc::strong_count(sem) <= 2` 意为「map 自身持有 1 + 当前调用方持有的 1」，
+/// 即没有其他并发任务在用该 bvid 的信号量，可安全移除。
+///
+/// 不用 `available_permits() == want` 的原因：Semaphore 不暴露总容量；且调用方此刻
+/// 仍持有未归还的 permit，`available_permits` 必然 < 容量，旧实现因此**永不移除**
+/// （map 持续泄漏）。容量错配（用户中途改 max_pages）只影响极窄的并发场景，
+/// 且任务结束后本清理会移除条目，下次同 bvid 提交时按新设置重建，可自愈。
+fn cleanup_video_semaphore(bvid: &str) {
     let mut map = lock_or_recover(&VIDEO_SEMAPHORES);
     if let Some(sem) = map.get(bvid) {
-        if sem.available_permits() == want {
+        if Arc::strong_count(sem) <= 2 {
             map.remove(bvid);
         }
     }
@@ -315,7 +323,7 @@ pub async fn execute_download(
             &download_id, &bvid, cid, aid, dur, &credential,
             &base_path, settings.download_danmaku, &settings,
         ).await;
-        cleanup_video_semaphore(&bvid, max_pages);
+        cleanup_video_semaphore(&bvid);
         return ExecOutcome::Done(video_folder.to_string_lossy().to_string());
     }
 
@@ -336,7 +344,7 @@ pub async fn execute_download(
         request_delay_ms, cancel,
     ).await;
 
-    cleanup_video_semaphore(&bvid, max_pages);
+    cleanup_video_semaphore(&bvid);
 
     // 取消信号中断：立即返回 Interrupted（run_download 内部已处理 .tmp 保留）
     if let Err(ref e) = result {
@@ -591,8 +599,12 @@ async fn download_extras(
 
     let base_path = output_path.with_extension("");
 
-    // 弹幕下载（ASS 格式，应用用户渲染配置）
-    if want_danmaku {
+    // 弹幕与字幕互相独立，并发执行（原本串行 await 会多耗一次往返）。
+    // 两者都借用 client/credential/settings 等不可变引用，可安全并发。
+    let danmaku_fut = async {
+        if !want_danmaku {
+            return;
+        }
         let opt = settings.to_danmaku_option();
         match crate::bilibili::danmaku::fetch_danmaku_ass(
             &client, credential, cid, aid, duration_secs, title, &opt,
@@ -614,15 +626,19 @@ async fn download_extras(
                 );
             }
         }
-    }
-
-    // 字幕下载（按 settings.subtitle_format 决定 SRT / VTT）
-    if want_subtitle {
+    };
+    let subtitle_fut = async {
+        if !want_subtitle {
+            return;
+        }
+        // 字幕下载（按 settings.subtitle_format 决定 SRT / VTT）
         fetch_and_save_subtitles(
             &client, download_id, bvid, cid, aid, credential,
             &base_path, settings,
-        ).await;
-    }
+        )
+        .await;
+    };
+    tokio::join!(danmaku_fut, subtitle_fut);
 
     let _ = app; // 保留 app 参数供将来扩展（如进度事件）
 }

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, type RefObject } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
   Loader2,
@@ -18,16 +18,19 @@ import type {
   ParsedVideoInfo,
 } from "../../types";
 import { VideoCard, formatCount } from "../VideoCard";
+import { VirtualList } from "../VirtualList";
 import { useToast } from "../Toast";
 import { friendlyError } from "../../lib/errors";
 
 interface Props {
   mid: number;
+  /** 虚拟化列表的外层滚动容器 ref（来自 UserProfilePage 的 flex-1 overflow-auto） */
+  scrollRef: RefObject<HTMLElement | null>;
   onParseVideo: (url: string) => Promise<ParsedVideoInfo>;
   onSelectItem: (videoInfo: ParsedVideoInfo) => void;
 }
 
-export function UpperView({ mid, onParseVideo, onSelectItem }: Props) {
+export function UpperView({ mid, scrollRef, onParseVideo, onSelectItem }: Props) {
   const [upper, setUpper] = useState<UpperInfo | null>(null);
   const [loadingUpper, setLoadingUpper] = useState(true);
   const [upperError, setUpperError] = useState<string | null>(null);
@@ -212,21 +215,31 @@ export function UpperView({ mid, onParseVideo, onSelectItem }: Props) {
           </div>
         ) : (
           <div className="space-y-2">
-            {colVideos.map((item) => (
-              <VideoCard
-                key={item.bvid || item.title}
-                title={item.title}
-                cover={item.cover}
-                upperName={item.upper_name}
-                duration={item.duration}
-                play={item.play}
-                danmaku={item.danmaku}
-                pubdate={item.pubdate}
-                loading={parsingBvid === item.bvid}
-                disabled={!item.bvid}
-                onClick={() => handleSelectVideo(item)}
-              />
-            ))}
+            <VirtualList
+              items={colVideos}
+              scrollRef={scrollRef}
+              estimateSize={96}
+              gap={8}
+              onNearEnd={() => {
+                if (colHasMore && !loadingColVideos && selectedCol) {
+                  loadCollectionVideos(selectedCol, colPage + 1, true);
+                }
+              }}
+              renderItem={(item) => (
+                <VideoCard
+                  title={item.title}
+                  cover={item.cover}
+                  upperName={item.upper_name}
+                  duration={item.duration}
+                  play={item.play}
+                  danmaku={item.danmaku}
+                  pubdate={item.pubdate}
+                  loading={parsingBvid === item.bvid}
+                  disabled={!item.bvid}
+                  onClick={() => handleSelectVideo(item)}
+                />
+              )}
+            />
             {colHasMore && (
               <div className="flex justify-center pt-2">
                 <button
@@ -366,20 +379,28 @@ export function UpperView({ mid, onParseVideo, onSelectItem }: Props) {
             </div>
           ) : (
             <>
-              {submissions.map((item) => (
-                <VideoCard
-                  key={item.bvid || item.title}
-                  title={item.title}
-                  cover={item.cover}
-                  duration={item.duration}
-                  play={item.play}
-                  danmaku={item.danmaku}
-                  pubdate={item.pubdate}
-                  loading={parsingBvid === item.bvid}
-                  disabled={!item.bvid}
-                  onClick={() => handleSelectVideo(item)}
-                />
-              ))}
+              <VirtualList
+                items={submissions}
+                scrollRef={scrollRef}
+                estimateSize={96}
+                gap={8}
+                onNearEnd={() => {
+                  if (subHasMore && !loadingSubs) loadSubmissions(subPage + 1, true);
+                }}
+                renderItem={(item) => (
+                  <VideoCard
+                    title={item.title}
+                    cover={item.cover}
+                    duration={item.duration}
+                    play={item.play}
+                    danmaku={item.danmaku}
+                    pubdate={item.pubdate}
+                    loading={parsingBvid === item.bvid}
+                    disabled={!item.bvid}
+                    onClick={() => handleSelectVideo(item)}
+                  />
+                )}
+              />
               {subHasMore && (
                 <div className="flex justify-center pt-2">
                   <button

@@ -759,8 +759,15 @@ async fn download_parallel(
     // 位图状态 + .meta 落盘的互斥保护（多分片并发完成时串行化写入）
     let done_state = Arc::new(Mutex::new(done.clone()));
     let meta_lock = Arc::new(Mutex::new(()));
+    // 本次需下载的分片数（已排除续传时已完成的分片）。
+    let total_to_download = tasks.len();
+    // 已完成分片计数，用于降频落盘：写 .meta 是同步 syscall，若每个分片完成都写，
+    // N 个分片会触发 N 次阻塞写（克隆整个位图 + 落盘），拖慢 async worker 线程。
+    // 改为每 FLUSH_EVERY 个分片落一次 + 最后一个必落，写次数从 N 降到 ~N/8。
+    let completed_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    const FLUSH_EVERY: usize = 8;
 
-    let segment_results: Vec<u64> = futures::future::try_join_all(
+    let segment_results = futures::future::try_join_all(
         tasks.into_iter().map(|(seg_idx, start, end)| {
             let client = client.clone();
             let url = url.to_string();
@@ -775,6 +782,7 @@ async fn download_parallel(
             let done_state = done_state.clone();
             let meta_lock = meta_lock.clone();
             let fingerprint = fingerprint.to_string();
+            let completed_count = completed_count.clone();
 
             async move {
                 let bytes = download_range_segment(
@@ -784,22 +792,39 @@ async fn download_parallel(
                 )
                 .await?;
 
-                // 分片完成：更新内存位图 + 落盘 .meta（互斥保护，避免并发写损坏）
+                // 分片完成：内存位图始终更新；.meta 降频落盘（每 FLUSH_EVERY 个 / 最后一个）。
+                // meta_lock 串行化写盘，避免并发写损坏文件。
                 {
                     let _g = meta_lock.lock();
                     let mut state = done_state.lock().unwrap_or_else(|p| p.into_inner());
                     if seg_idx < state.len() {
                         state[seg_idx] = true;
                     }
-                    let snapshot = state.clone();
-                    drop(state);
-                    write_meta_parallel_bitmap(&temp_path, &fingerprint, total_size, threads, segment_count, &snapshot);
+                    let done_now = completed_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+                    let should_flush = done_now % FLUSH_EVERY == 0 || done_now == total_to_download;
+                    if should_flush {
+                        let snapshot = state.clone();
+                        drop(state);
+                        write_meta_parallel_bitmap(&temp_path, &fingerprint, total_size, threads, segment_count, &snapshot);
+                    }
                 }
                 Ok::<u64, anyhow::Error>(bytes)
             }
         }),
     )
-    .await?;
+    .await;
+
+    // try_join_all 失败/中断（某分片 Err 或 cancel）时，在途分片被取消，
+    // 上面降频落盘可能没覆盖到最新进度。用最终内存位图补落一次，
+    // 保证续传位图与磁盘已写分片一致。
+    let segment_results: Vec<u64> = match segment_results {
+        Ok(v) => v,
+        Err(e) => {
+            let snapshot = done_state.lock().unwrap_or_else(|p| p.into_inner()).clone();
+            write_meta_parallel_bitmap(temp_path, fingerprint, total_size, threads, segment_count, &snapshot);
+            return Err(e);
+        }
+    };
 
     // 验证：本次新下载的字节 + 续传已有字节 ≈ total_size
     let newly_downloaded: u64 = segment_results.into_iter().sum();
@@ -856,11 +881,14 @@ async fn download_range_segment(
     }
 
     // 打开文件并 seek 到对应偏移
-    let mut file = tokio::fs::OpenOptions::new()
+    let file = tokio::fs::OpenOptions::new()
         .write(true)
         .open(temp_path)
         .await
         .context("打开临时文件失败")?;
+    // BufWriter：合并网络小 chunk（默认 ~8KB）为 64KB 大块再落盘，显著减少 syscall 次数。
+    // seek 在 buffer 为空时直接 forward 到底层文件，不受缓冲影响。
+    let mut file = tokio::io::BufWriter::with_capacity(64 * 1024, file);
     file.seek(tokio::io::SeekFrom::Start(start)).await?;
 
     let mut stream = response.bytes_stream();
@@ -948,7 +976,7 @@ async fn download_single(
     );
 
     // Feature 5: 断点续传 — append 模式打开文件
-    let mut file = if resume_from > 0 {
+    let file = if resume_from > 0 {
         tokio::fs::OpenOptions::new()
             .append(true)
             .open(temp_path)
@@ -959,6 +987,9 @@ async fn download_single(
             .await
             .context("创建临时文件失败")?
     };
+    // BufWriter：合并网络小 chunk 为 64KB 大块再落盘，显著减少 syscall 次数。
+    // append 模式下续传写在文件末尾，缓冲在 flush()（函数末尾）时统一落盘。
+    let mut file = tokio::io::BufWriter::with_capacity(64 * 1024, file);
 
     let mut downloaded: u64 = resume_from;
     let mut last_report: u64 = resume_from;
