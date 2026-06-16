@@ -57,6 +57,22 @@ interface DownloadStateChange {
   status: "queued" | "downloading" | "paused" | "cancelled";
 }
 
+/** 视图枚举 → 面包屑来源中文名（详情页/UP 主主页头部用，back 回到该来源） */
+function viewLabel(view: View): string {
+  switch (view) {
+    case "main": return "主页";
+    case "explore": return "发现";
+    case "ranking": return "排行榜";
+    case "recommend": return "推荐";
+    case "region": return "分区";
+    case "profile": return "我的";
+    case "downloads": return "下载";
+    case "stats": return "统计";
+    case "settings": return "设置";
+    case "detail": return "视频详情";
+  }
+}
+
 export default function App() {
   const [currentView, setCurrentView] = useState<View>("main");
   const [previousView, setPreviousView] = useState<View>("main");
@@ -515,6 +531,7 @@ export default function App() {
       <div className="fixed inset-0 z-50 bg-base">
         <VideoDetail
           entry={selectedItem}
+          sourceLabel={viewLabel(previousView)}
           onBack={handleDetailBack}
           onOpenUpper={handleOpenUpper}
           onDownload={handleDownload}
@@ -527,6 +544,7 @@ export default function App() {
           <div className="fixed inset-0 z-[60] bg-base">
             <UpperHomePage
               mid={upperViewMid}
+              sourceLabel="视频详情"
               onBack={() => setUpperViewMid(null)}
               onParseVideo={handleParse}
               onSelectItem={handleSelectFromUpper}

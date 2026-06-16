@@ -11,6 +11,8 @@ type EpisodeTab = "main" | "extra";
 
 interface VideoDetailProps {
   entry: ParsedItem;
+  /** 面包屑来源标签（如"发现"/"主页"），back 回到该来源页 */
+  sourceLabel: string;
   onBack: () => void;
   /** 点击 UP 主头像/卡片 → 进入该 UP 主主页（看投稿/合集）。无此回调时卡片不可点击。 */
   onOpenUpper?: (mid: number) => void;
@@ -29,7 +31,7 @@ interface VideoDetailProps {
   ) => void;
 }
 
-export function VideoDetail({ entry, onBack, onOpenUpper, onDownload }: VideoDetailProps) {
+export function VideoDetail({ entry, sourceLabel, onBack, onOpenUpper, onDownload }: VideoDetailProps) {
   const info = entry.videoInfo;
   const [selectedPages, setSelectedPages] = useState<Set<number>>(new Set());
   const [downloadedIds, setDownloadedIds] = useState<Set<string>>(new Set());
@@ -129,14 +131,19 @@ export function VideoDetail({ entry, onBack, onOpenUpper, onDownload }: VideoDet
 
   return (
     <div className="flex flex-col h-full">
-      {/* 顶部栏 */}
-      <div className="flex items-center gap-3 px-6 py-4 border-b border-line bg-panel">
+      {/* 顶部栏：面包屑（来源 › 视频详情），back 回到来源页 */}
+      <div className="flex items-center gap-2 px-6 py-4 border-b border-line bg-panel">
         <button
           onClick={onBack}
-          className="p-1.5 rounded-lg border border-line-2 hover:bg-panel-2 transition-colors"
+          className="flex items-center gap-1.5 p-1.5 rounded-lg border border-line-2 hover:bg-panel-2 transition-colors group"
+          title={`返回${sourceLabel}`}
         >
           <ArrowLeft size={16} />
+          <span className="text-sm text-ink-3 group-hover:text-ink-2 transition-colors max-w-[8em] truncate">
+            {sourceLabel}
+          </span>
         </button>
+        <ChevronRight size={14} className="text-ink-3 shrink-0" />
         <h1 className="text-lg font-semibold text-ink">视频详情</h1>
         {downloadedIds.size > 0 && (
           <span className="text-xs text-green-500 font-medium flex items-center gap-1">
@@ -146,8 +153,10 @@ export function VideoDetail({ entry, onBack, onOpenUpper, onDownload }: VideoDet
         )}
       </div>
 
-      {/* 内容区 */}
-      <div className="flex-1 overflow-y-auto">
+      {/* 内容区：lg 双栏（左 视频信息 | 右 分P+评论）各自独立滚动；窄屏单栏整体滚动 */}
+      <div className="flex-1 flex flex-col lg:flex-row overflow-y-auto lg:overflow-hidden">
+        {/* 左栏：封面 + 标题/UP/统计/互动/简介（lg 独立列，窄屏随主滚动） */}
+        <section className="lg:w-2/5 lg:shrink-0 lg:overflow-y-auto lg:border-r lg:border-line">
         {/* 封面区 — 模糊背景 + 完整封面 */}
         {info.pic && (
           <div className="w-full aspect-video max-h-56 relative overflow-hidden">
@@ -237,7 +246,11 @@ export function VideoDetail({ entry, onBack, onOpenUpper, onDownload }: VideoDet
               {info.desc}
             </p>
           )}
+        </div>
+        </section>
 
+        {/* 右栏：正片/预告 + 分P + 评论（lg 独立列滚动） */}
+        <section className="px-6 py-4 space-y-4 lg:flex-1 lg:overflow-y-auto">
           {/* 正片/预告 切换（仅番剧显示） */}
           {hasExtra && (
             <div className="inline-flex rounded-lg border border-line p-0.5 bg-panel-2">
@@ -339,10 +352,10 @@ export function VideoDetail({ entry, onBack, onOpenUpper, onDownload }: VideoDet
               </div>
             </div>
           )}
-        </div>
 
-        {/* 评论区：详情页底部，与上方内容同滚动 */}
-        <CommentSection aid={info.aid} />
+          {/* 评论区 */}
+          <CommentSection aid={info.aid} />
+        </section>
       </div>
 
       {/* 底部固定下载按钮 */}

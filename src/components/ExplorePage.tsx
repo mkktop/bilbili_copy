@@ -182,6 +182,7 @@ export function ExplorePage({ onBack, onParseVideo, onSelectItem }: Props) {
     return (
       <UpperHomePage
         mid={upperMid}
+        sourceLabel="发现"
         onBack={() => setUpperMid(null)}
         onParseVideo={onParseVideo}
         onSelectItem={onSelectItem}
