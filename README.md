@@ -85,7 +85,23 @@
 
 ## 📸 Screenshots
 
-> Screenshots coming soon. Run the app locally or grab the latest build from [Releases](https://github.com/mkktop/bilbili_copy/releases/latest) to take a look.
+<table>
+  <tr>
+    <td width="33%" align="center"><b>Home — Parse & Queue</b></td>
+    <td width="33%" align="center"><b>Settings</b></td>
+    <td width="33%" align="center"><b>Personal Homepage</b></td>
+  </tr>
+  <tr>
+    <td width="33%" align="center"><img src="docs/screenshots/home.png" alt="Home view"></td>
+    <td width="33%" align="center"><img src="docs/screenshots/settings.png" alt="Settings view"></td>
+    <td width="33%" align="center"><img src="docs/screenshots/profile.png" alt="Profile view"></td>
+  </tr>
+  <tr>
+    <td width="33%" align="center">Paste a link, parse it, and queue downloads.</td>
+    <td width="33%" align="center">Quality, download, subtitles/danmaku, anti-risk, theme, tray.</td>
+    <td width="33%" align="center">Favorites, watch history, watch later, follows, subscriptions.</td>
+  </tr>
+</table>
 
 ## 📦 Installation
 

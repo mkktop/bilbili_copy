@@ -85,7 +85,23 @@
 
 ## 📸 界面预览
 
-> 界面截图即将上线。可本地运行应用，或前往 [Releases](https://github.com/mkktop/bilbili_copy/releases/latest) 下载最新构建版本查看。
+<table>
+  <tr>
+    <td width="33%" align="center"><b>首页 —— 解析与下载队列</b></td>
+    <td width="33%" align="center"><b>设置页</b></td>
+    <td width="33%" align="center"><b>个人主页</b></td>
+  </tr>
+  <tr>
+    <td width="33%" align="center"><img src="docs/screenshots/home.png" alt="首页"></td>
+    <td width="33%" align="center"><img src="docs/screenshots/settings.png" alt="设置页"></td>
+    <td width="33%" align="center"><img src="docs/screenshots/profile.png" alt="个人主页"></td>
+  </tr>
+  <tr>
+    <td width="33%" align="center">粘贴链接，一键解析，加入下载队列。</td>
+    <td width="33%" align="center">视频质量、下载、字幕弹幕、防风控、主题、托盘等。</td>
+    <td width="33%" align="center">收藏夹、观看历史、稍后再看、关注、订阅。</td>
+  </tr>
+</table>
 
 ## 📦 安装
 
