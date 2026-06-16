@@ -70,7 +70,8 @@ pub async fn get_upper_info(mid: i64, credential: Option<&Credential>) -> Result
             .unwrap_or(0) as u32,
         fans: card["fans"].as_i64().unwrap_or(0),
         following: card["attention"].as_i64().unwrap_or(0),
-        archive_count: card["archive_count"].as_i64().unwrap_or(0),
+        // B站 web-interface/card 的 archive_count 在 data 顶层（非 card 内）；历史误读 card.archive_count 导致恒为 0
+        archive_count: resp["data"]["archive_count"].as_i64().unwrap_or(0),
     })
 }
 

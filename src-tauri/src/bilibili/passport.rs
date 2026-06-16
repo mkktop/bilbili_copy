@@ -165,13 +165,36 @@ async fn get_relation_info(client: &Client, cred: &Credential, mid: u64) -> Resu
     }
 }
 
+/// 获取登录用户的硬币余额
+/// B站 nav 的 coins 字段不可靠（对多数账号恒为 0），改用专用接口。
+/// API: GET https://account.bilibili.com/site/getCoin → data.money
+async fn get_coin_count(client: &Client, cred: &Credential) -> Result<f64> {
+    #[derive(Deserialize)]
+    struct CoinData {
+        #[serde(default)]
+        money: f64,
+    }
+    let resp: BilibiliResponse<CoinData> = client
+        .get("https://account.bilibili.com/site/getCoin")
+        .header("Cookie", cred.cookie_header())
+        .header("Referer", REFERER)
+        .send()
+        .await?
+        .json()
+        .await?;
+
+    let data = resp.data.context("getCoin 响应无 data")?;
+    Ok(data.money)
+}
+
 /// 验证凭证是否有效，返回用户信息
 pub async fn validate_credentials(cred: &Credential) -> Result<UserInfo> {
     let client = bilibili_client()?;
     #[derive(Deserialize)]
     struct LevelInfo {
+        // B站 nav 返回等级在 level_info.current_level；历史误用 level 字段名导致恒为 0
         #[serde(default)]
-        level: u8,
+        current_level: u8,
     }
     #[derive(Deserialize)]
     struct VipInfo {
@@ -186,8 +209,6 @@ pub async fn validate_credentials(cred: &Credential) -> Result<UserInfo> {
         #[serde(default)]
         level_info: Option<LevelInfo>,
         #[serde(default)]
-        coins: f64,
-        #[serde(default)]
         sign: String,
         #[serde(default)]
         vip: Option<VipInfo>,
@@ -199,7 +220,7 @@ pub async fn validate_credentials(cred: &Credential) -> Result<UserInfo> {
     // 不影响登录校验主流程。
     let mid_from_cred: u64 = cred.dedeuserid.parse().unwrap_or(0);
 
-    let (nav_result, relation) = tokio::join!(
+    let (nav_result, relation, coins) = tokio::join!(
         async {
             let resp: BilibiliResponse<NavData> = client
                 .get("https://api.bilibili.com/x/web-interface/nav")
@@ -223,6 +244,16 @@ pub async fn validate_credentials(cred: &Credential) -> Result<UserInfo> {
                 }
             }
         },
+        async {
+            // nav 的 coins 不可靠，硬币余额走专用 getCoin 接口（best-effort，失败回退 0）
+            match get_coin_count(&client, cred).await {
+                Ok(c) => c,
+                Err(e) => {
+                    log::warn!("[passport] 获取硬币余额失败: {}", e);
+                    0.0
+                }
+            }
+        },
     );
 
     let resp = nav_result?;
@@ -237,8 +268,8 @@ pub async fn validate_credentials(cred: &Credential) -> Result<UserInfo> {
         mid: data.mid,
         uname: data.uname,
         face: http_to_https(&data.face),
-        level: data.level_info.map(|l| l.level).unwrap_or(0),
-        coins: data.coins,
+        level: data.level_info.map(|l| l.current_level).unwrap_or(0),
+        coins,
         sign: data.sign,
         vip: data.vip.map(|v| v.status == 1).unwrap_or(false),
         following,
