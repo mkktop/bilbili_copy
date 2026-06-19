@@ -99,6 +99,14 @@ struct DurlItem {
     backup_url: Option<Vec<String>>,
 }
 
+/// 一个可选画质（某 qn 下按编解码器优先级选出的流）
+#[derive(Debug, Clone)]
+pub struct QualityInfo {
+    pub qn: i64,
+    pub codecid: i64,
+    pub video_url: String,
+}
+
 /// 选中的音视频流（包含备用 URL）
 pub struct SelectedStreams {
     pub video_urls: Vec<String>,
@@ -111,6 +119,9 @@ pub struct SelectedStreams {
     pub video_codecid: i64,
     /// 选中音频流的 id（如 30280 Hi-Res、30251 Dolby 等）。用于音频流续传指纹。无音频为 0。
     pub audio_id: i64,
+    /// 所有可选画质（按 qn 降序，仅含 codec_priority 命中的编码）。
+    /// 在线播放器用它构建画质菜单；下载路径不使用。
+    pub all_qualities: Vec<QualityInfo>,
 }
 
 impl SelectedStreams {
@@ -498,6 +509,9 @@ fn parse_streams(
         // 选择音频流：按质量范围过滤（返回 URL 列表与流 id）
         let (audio_urls, audio_id) = select_audio(dash, audio_max_qn, audio_min_qn);
 
+        // 收集所有可选画质（仅 codec_priority 命中的编码，按 qn 降序），供在线播放器画质菜单使用
+        let all_qualities = collect_qualities(dash, codec_priority);
+
         return Some(SelectedStreams {
             video_urls,
             audio_urls,
@@ -505,6 +519,7 @@ fn parse_streams(
             video_qn,
             video_codecid,
             audio_id,
+            all_qualities,
         });
     }
 
@@ -518,6 +533,7 @@ fn parse_streams(
                 video_qn: 0,
                 video_codecid: 0,
                 audio_id: 0,
+                all_qualities: Vec::new(),
             });
         }
     }
@@ -569,6 +585,37 @@ fn codec_index(codec: &str, priority: &[String]) -> usize {
         .iter()
         .position(|p| p == codec)
         .unwrap_or(usize::MAX)
+}
+
+/// 收集所有可选画质（仅含 codec_priority 命中的编码），按 qn 降序。
+/// 每个 qn 取优先级最高的编码流（在线播放器只需 AVC 时，便只返回有 AVC 的画质）。
+fn collect_qualities(dash: &DashData, codec_priority: &[String]) -> Vec<QualityInfo> {
+    // qn → 当前最优（priority index 最小）的流
+    let mut best_by_qn: std::collections::BTreeMap<i64, (usize, &DashStream)> =
+        std::collections::BTreeMap::new();
+    for s in &dash.video {
+        let pri = codec_index(codec_name(s.codecid), codec_priority);
+        if pri == usize::MAX {
+            continue; // 该编码不在优先级列表（如只要 AVC，跳过 HEVC/AV1）
+        }
+        match best_by_qn.get(&s.id) {
+            Some((existing_pri, _)) if *existing_pri <= pri => {}
+            _ => {
+                best_by_qn.insert(s.id, (pri, s));
+            }
+        }
+    }
+    let mut out: Vec<QualityInfo> = best_by_qn
+        .into_iter()
+        .map(|(qn, (_, s))| QualityInfo {
+            qn,
+            codecid: s.codecid,
+            video_url: s.base_url.clone(),
+        })
+        .collect();
+    // BTreeMap 按 qn 升序，翻转成降序（最高画质在前）
+    out.reverse();
+    out
 }
 
 /// 选择音频流：按质量范围过滤，选最高质量。返回 (URL 列表, 流 id)。

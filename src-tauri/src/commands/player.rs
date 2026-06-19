@@ -17,22 +17,62 @@ pub fn log_player_error(msg: String) {
     log::warn!("[player] {}", msg);
 }
 
+/// 在线播放可选画质
+#[derive(Serialize)]
+pub struct PlayQuality {
+    /// 画质 id（16/32/64/80/112/116/120/125/126/127…）
+    pub qn: i64,
+    /// 中文画质名（如 "1080P"）
+    pub label: String,
+    /// 编码名（AVC-only 下恒为 "AVC"）
+    pub codec: String,
+    /// 该画质视频流主 URL（前端经 biliproxy 代理拉取喂给 MSE）
+    pub video_url: String,
+}
+
 /// 在线播放流地址
 #[derive(Serialize)]
 pub struct PlayStreams {
-    /// 视频流主 URL（前端经 biliproxy 代理拉取字节喂给 MSE）
-    pub video_url: String,
-    /// 音频流主 URL（可能为空，如 legacy 合并流）
+    /// 所有可选画质（按 qn 降序，仅含命中的编码）
+    pub qualities: Vec<PlayQuality>,
+    /// 音频流主 URL（各画质共享，可能为空如 legacy 合并流）
     pub audio_url: String,
     pub has_audio: bool,
-    /// 命中的画质 id
-    pub video_qn: i64,
+    /// 默认画质 id（qualities[0].qn，即最高画质）
+    pub default_qn: i64,
     /// 视频时长（秒，前端用于弹幕分段与 UI）
     pub duration: u64,
 }
 
-/// 获取在线播放流（强制 AVC/H.264，画质封顶 1080P）。
-/// 前端拿到 video_url / audio_url 后，经 biliproxy 代理用 MSE 边下边播。
+/// qn → 中文画质名
+fn qn_label(qn: i64) -> &'static str {
+    match qn {
+        127 => "8K 超高清",
+        126 => "杜比视界",
+        125 => "HDR 真彩",
+        120 => "4K 超清",
+        116 => "1080P60",
+        112 => "1080P高码率",
+        80 => "1080P",
+        64 => "720P",
+        32 => "480P",
+        16 => "360P",
+        _ => "未知画质",
+    }
+}
+
+/// codecid → 编码名（7=AVC,12=HEVC,13=AV1）
+fn codec_label(codecid: i64) -> &'static str {
+    match codecid {
+        7 => "AVC",
+        12 => "HEVC",
+        13 => "AV1",
+        _ => "?",
+    }
+}
+
+/// 获取在线播放流（强制 AVC/H.264；画质取消 1080P 上限，返回全部可选 AVC 画质）。
+/// 前端拿到 qualities / audio_url 后，经 biliproxy 代理用 MSE 边下边播，并提供画质切换。
 #[command]
 pub async fn get_play_streams(
     bvid: String,
@@ -50,7 +90,7 @@ pub async fn get_play_streams(
         &bvid,
         cid,
         &credential,
-        80,  // video_max_qn：在线播放封顶 1080P（兼顾质量与流量）
+        127,  // video_max_qn：取消 1080P 上限，4K/8K 若 B站 提供 AVC 则入列
         16,  // video_min_qn：下限 360P
         30280, // audio_max_qn：取较高质量音频
         0,     // audio_min_qn
@@ -65,11 +105,40 @@ pub async fn get_play_streams(
     .await
     .map_err(|e| format!("获取播放流失败: {e}"))?;
 
+    let audio_url = streams.audio_urls.first().cloned().unwrap_or_default();
+    let has_audio = streams.has_audio();
+
+    // 收集全部可选 AVC 画质（降序）
+    let mut qualities: Vec<PlayQuality> = streams
+        .all_qualities
+        .iter()
+        .map(|q| PlayQuality {
+            qn: q.qn,
+            label: qn_label(q.qn).to_string(),
+            codec: codec_label(q.codecid).to_string(),
+            video_url: q.video_url.clone(),
+        })
+        .collect();
+
+    // 兜底：极端情况下没有画质列表 → 用主选流构造单条
+    if qualities.is_empty() {
+        if let Some(url) = streams.video_urls.first() {
+            qualities.push(PlayQuality {
+                qn: streams.video_qn,
+                label: qn_label(streams.video_qn).to_string(),
+                codec: codec_label(streams.video_codecid).to_string(),
+                video_url: url.clone(),
+            });
+        }
+    }
+
+    let default_qn = qualities.first().map(|q| q.qn).unwrap_or(0);
+
     Ok(PlayStreams {
-        video_url: streams.video_urls.first().cloned().unwrap_or_default(),
-        audio_url: streams.audio_urls.first().cloned().unwrap_or_default(),
-        has_audio: streams.has_audio(),
-        video_qn: streams.video_qn,
+        qualities,
+        audio_url,
+        has_audio,
+        default_qn,
         duration,
     })
 }

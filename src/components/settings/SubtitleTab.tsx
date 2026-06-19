@@ -40,10 +40,12 @@ const SCROLL_OPTIONS = [
   { value: 15, label: "标准" },
   { value: 25, label: "慢" },
 ];
+// 弹幕「透明度」：值是 opacity（越高越不透明/越实）。标签用直观词，避免「低/高」在「透明度」语境下的歧义
+// （旧版 低=0.2、高=0.8 与「透明度」直觉相反——选「高」反而最不透明）。现为：透明→0.2、不透明→0.8。
 const OPACITY_OPTIONS = [
-  { value: 0.2, label: "低" },
-  { value: 0.5, label: "中" },
-  { value: 0.8, label: "高" },
+  { value: 0.8, label: "不透明" },
+  { value: 0.5, label: "半透明" },
+  { value: 0.2, label: "透明" },
 ];
 const SUBTITLE_FORMAT_OPTIONS = [
   { value: "srt", label: "SRT" },
@@ -114,7 +116,9 @@ export function SubtitleTab({
               <span className="text-xs text-ink-2">透明度</span>
               <SegmentedControl
                 options={OPACITY_OPTIONS}
-                value={OPACITY_OPTIONS.find((o) => Math.abs(o.value - dmOpacity) < 0.01)?.value ?? 0.3}
+                value={OPACITY_OPTIONS.reduce((best, o) =>
+                  Math.abs(o.value - dmOpacity) < Math.abs(best.value - dmOpacity) ? o : best
+                ).value}
                 onChange={onDmOpacityChange}
               />
             </div>
