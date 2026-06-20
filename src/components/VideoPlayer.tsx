@@ -26,6 +26,17 @@ interface PlayStreams {
   duration: number;
 }
 
+// ---- 精准拖动索引（后端 get_seek_index 返回）----
+interface SeekPoint { time_secs: number; byte: number; }
+interface StreamSeekIndex { init_end: number; points: SeekPoint[]; }
+interface SeekIndexResult { video: StreamSeekIndex | null; audio: StreamSeekIndex | null; }
+// 精准 seek 计划：目标分片 moof 字节偏移 + init 段边界（重建 SourceBuffer 后先 append init 再从 moof 拉）。
+// 分片式 fMP4 的 moof 自带绝对时间(tfdt)，MSE 按真实时间放置，无需 timestampOffset。
+interface SeekPlan {
+  videoByte: number; initEndVideo: number;
+  audioByte: number; initEndAudio: number;
+}
+
 /** 记住本会话上次手动选择的画质，下次打开沿用（播放器单实例） */
 let lastChosenQn: number | null = null;
 
@@ -55,9 +66,28 @@ function bestAvcCodec(): string {
   return 'video/mp4; codecs="avc1.42E01E"';
 }
 
+/** 时刻 t 是否落在 video 已缓冲范围内（含小余量） */
+function isBuffered(video: HTMLVideoElement, t: number): boolean {
+  for (let i = 0; i < video.buffered.length; i++) {
+    if (video.buffered.start(i) - 0.1 <= t && t <= video.buffered.end(i) - 0.1) return true;
+  }
+  return false;
+}
+
+/** 索引里找 time ≤ t 的最大点（点按时间升序） */
+function lookupPoint(points: SeekPoint[], t: number): SeekPoint | null {
+  let lo = 0, hi = points.length - 1, ans: SeekPoint | null = null;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (points[mid].time_secs <= t) { ans = points[mid]; lo = mid + 1; }
+    else hi = mid - 1;
+  }
+  return ans;
+}
+
 const AHEAD_S = 20; // 本条流在 currentTime 之前最多缓冲 20 秒，够了就暂停拉取，随播放推进再续
 const BEHIND_S = 5; // 保留 currentTime 之后 5 秒，更早的回收，释放 SourceBuffer 空间
-const KEEP_S = AHEAD_S + BEHIND_S + 5; // 追帧期保留的尾部窗口（画质切换续播时防止 [0,resumeTime] 全堆内存撑爆）
+const KEEP_S = AHEAD_S + BEHIND_S + 5; // 追帧期保留的尾部窗口（画质切换/精准 seek 续播时防止全堆内存撑爆）
 const BLIND_CAP = 4 * 1024 * 1024; // 缓冲范围解析出来前最多盲目取 4MB（init 段还在路上时封顶，防止狂拉）
 
 /** 本 SourceBuffer 在 t 之后的已缓冲秒数。
@@ -151,8 +181,9 @@ async function appendSafe(sb: SourceBuffer, buf: ArrayBuffer, video: HTMLVideoEl
 }
 
 /**
- * 边下边播。catchUpTo>0 时进入「追帧」模式（画质切换续播）：缓冲末端到达 catchUpTo 前不按播放节奏节流，
- * 尽快拉满，并用尾部窗口回收（evictFront）防止 [0,resumeTime] 全堆内存撑爆；到达后切回正常节奏 + evictBehind。
+ * 边下边播。startByte>0 用于精准 seek（从关键帧字节开始拉，init 段已由调用方 append）。
+ * catchUpTo>0 时进入「追帧」模式：缓冲末端到达 catchUpTo 前不按播放节奏节流，尽快拉满，
+ * 并用尾部窗口回收（evictFront）防止全堆内存撑爆；到达后切回正常节奏 + evictBehind。
  */
 async function feedStream(
   url: string,
@@ -160,37 +191,50 @@ async function feedStream(
   video: HTMLVideoElement,
   signal: AbortSignal,
   catchUpTo = 0,
+  startByte = 0,
 ): Promise<void> {
-  let start = 0;
+  let start = startByte;
   let total = Infinity;
   const CHUNK = 2 * 1024 * 1024; // 2MB / 块
-  while (start < total) {
-    if (signal.aborted) return;
-    const catchingUp = catchUpTo > 0 && bufferedEnd(sb) < catchUpTo;
-    if (!catchingUp) {
-      // 正常节奏：缓冲范围未解析出且盲取够 → 等解析；否则等前方不足
-      if (sb.buffered.length === 0 && start >= BLIND_CAP) {
-        await waitForParsed(sb, signal);
-        if (signal.aborted) return;
-      } else {
-        await waitForOwnNeed(sb, video, signal);
-        if (signal.aborted) return;
+  try {
+    while (start < total) {
+      if (signal.aborted) return;
+      const catchingUp = catchUpTo > 0 && bufferedEnd(sb) < catchUpTo;
+      if (!catchingUp) {
+        // 正常节奏：缓冲范围未解析出且本轮盲取够 → 等解析；否则等前方不足
+        if (sb.buffered.length === 0 && (start - startByte) >= BLIND_CAP) {
+          await waitForParsed(sb, signal);
+          if (signal.aborted) return;
+        } else {
+          await waitForOwnNeed(sb, video, signal);
+          if (signal.aborted) return;
+        }
       }
+      const { buf, total: t } = await fetchRangeTotal(url, start, start + CHUNK, signal);
+      if (buf.byteLength === 0) return;
+      total = t;
+      if (catchingUp) await evictFront(sb); // 追帧期：维持尾部窗口
+      else await evictBehind(sb, video); // 正常：回收已播放段
+      await appendSafe(sb, buf, video);
+      start += buf.byteLength;
     }
-    const res = await fetch(url, { headers: { Range: `bytes=${start}-${start + CHUNK - 1}` }, signal });
-    if (res.status !== 206 && res.status !== 200) throw new Error(`拉流失败 HTTP ${res.status}`);
-    const buf = await res.arrayBuffer();
-    if (buf.byteLength === 0) return;
-    const cr = res.headers.get("content-range");
-    total = cr ? parseInt(cr.split("/")[1], 10) : start + buf.byteLength;
-    if (catchingUp) await evictFront(sb); // 追帧期：维持尾部窗口
-    else await evictBehind(sb, video); // 正常：回收已播放段
-    await appendSafe(sb, buf, video);
-    start += buf.byteLength;
+  } catch (e) {
+    if (signal.aborted) return; // 取消不算错（seek / 切画质 abort 旧拉取）
+    throw e;
   }
 }
 
-/** 等缓冲覆盖 target 时刻（画质切换续播：追帧到位即可 seek） */
+/** fetchRange 同时返回 total（来自 content-range） */
+async function fetchRangeTotal(url: string, start: number, endExclusive: number, signal?: AbortSignal): Promise<{ buf: ArrayBuffer; total: number }> {
+  const res = await fetch(url, { headers: { Range: `bytes=${start}-${endExclusive - 1}` }, signal });
+  if (res.status !== 206 && res.status !== 200) throw new Error(`拉流失败 HTTP ${res.status}`);
+  const buf = await res.arrayBuffer();
+  const cr = res.headers.get("content-range");
+  const total = cr ? parseInt(cr.split("/")[1], 10) : start + buf.byteLength;
+  return { buf, total };
+}
+
+/** 等缓冲覆盖 target 时刻（画质切换/精准 seek 续播：追帧到位即可 seek） */
 function waitForBuffered(video: HTMLVideoElement, target: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve) => {
     const tick = () => {
@@ -211,13 +255,18 @@ export function VideoPlayer({ bvid, cid, epId, duration, title, onBack }: Props)
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const freezeCanvasRef = useRef<HTMLCanvasElement | null>(null); // 精准 seek 重建期的冻结帧 overlay（canvas 同步绘制，盖住黑屏）
 
-  // MSE 生命周期（初始打开 / 画质切换 / 卸载清理 共用）
+  // MSE 生命周期（初始打开 / 画质切换 / 精准 seek / 卸载清理 共用）
   const acRef = useRef<AbortController | null>(null);
   const objectUrlRef = useRef<string | null>(null);
   const cancelledRef = useRef(false);
   const qualitiesRef = useRef<PlayQuality[]>([]);
   const audioRef = useRef<{ url: string; has: boolean }>({ url: "", has: false });
+  const currentQualityRef = useRef<PlayQuality | null>(null);
+  // 精准拖动索引（仅当 video 可用、且与当前画质 URL 匹配时启用）
+  const seekIndexRef = useRef<{ videoUrl: string; video?: StreamSeekIndex; audio?: StreamSeekIndex } | null>(null);
+  const inSeekRef = useRef(false); // 防止 seek 重入
 
   const reportError = useCallback((msg: string) => {
     if (cancelledRef.current) return; // 已卸载 / StrictMode 重跑，不再报错
@@ -225,8 +274,27 @@ export function VideoPlayer({ bvid, cid, epId, duration, title, onBack }: Props)
     setError(msg);
   }, []);
 
-  /** 打开/切换到指定画质。resumeTime>0.5 表示画质切换续播（快速追帧到该时刻再 seek+play） */
-  const play = useCallback(async (quality: PlayQuality, resumeTime: number) => {
+  /** 异步加载精准拖动索引（非阻塞，失败静默） */
+  const loadSeekIndex = useCallback(async (videoUrl: string, audioUrl: string) => {
+    seekIndexRef.current = null;
+    try {
+      const r = await invoke<SeekIndexResult>("get_seek_index", { videoUrl, audioUrl });
+      if (cancelledRef.current) return;
+      seekIndexRef.current = { videoUrl, video: r.video ?? undefined, audio: r.audio ?? undefined };
+    } catch {
+      /* 精准 seek 可选，失败静默 → seekTo 会走回退 */
+    }
+  }, []);
+
+  /**
+   * 打开/切换/精准 seek 到指定画质。
+   * - resumeTime=0：首次打开（从 0 顺序播）。
+   * - resumeTime=0：首次打开（从 0 顺序播）。
+   * - resumeTime>0.5 无 seek：画质切换续播（重建流，从 0 追帧到 resumeTime）。
+   * - 带 seek：精准 seek（重建流 + append init，从目标分片 moof 字节拉，追帧到 resumeTime）。
+   *   重建会清帧，调用方应先用冻结帧 overlay 盖住避免黑屏。
+   */
+  const play = useCallback(async (quality: PlayQuality, resumeTime: number, seek?: SeekPlan) => {
     // 清理上一路（中止旧拉流、回收旧 objectUrl）
     if (acRef.current) acRef.current.abort();
     if (objectUrlRef.current) {
@@ -235,6 +303,7 @@ export function VideoPlayer({ bvid, cid, epId, duration, title, onBack }: Props)
     }
     if (cancelledRef.current) return;
 
+    currentQualityRef.current = quality;
     setLoading(true);
     setError(null);
     const video = videoRef.current;
@@ -247,19 +316,27 @@ export function VideoPlayer({ bvid, cid, epId, duration, title, onBack }: Props)
       return;
     }
 
+    // 异步预取精准拖动索引（不阻塞起播）
+    void loadSeekIndex(quality.video_url, audioRef.current.url);
+
     const ac = new AbortController();
     acRef.current = ac;
     const mediaSource = new MediaSource();
     objectUrlRef.current = URL.createObjectURL(mediaSource);
 
-    const switching = resumeTime > 0.5;
+    const switching = resumeTime > 0.5; // 画质切换 或 精准 seek 都走「追帧 + 续播」
     video.autoplay = !switching;
     video.src = objectUrlRef.current;
     if (switching) {
       try { video.pause(); } catch { /* 防止 autoPlay 从 0 开始播 */ }
     }
 
-    const hideLoading = () => { if (!cancelledRef.current) setLoading(false); };
+    const hideLoading = () => {
+      if (!cancelledRef.current) {
+        setLoading(false);
+        if (freezeCanvasRef.current) freezeCanvasRef.current.style.display = "none";
+      }
+    };
 
     mediaSource.addEventListener("sourceopen", async () => {
       try {
@@ -268,19 +345,28 @@ export function VideoPlayer({ bvid, cid, epId, duration, title, onBack }: Props)
         const asb = ai.has && ai.url && MediaSource.isTypeSupported(audioMime)
           ? mediaSource.addSourceBuffer(audioMime)
           : null;
+
+        // 精准 seek：先 append init 段（ftyp+moov+sidx → 解析器拿到 moov init），再从目标分片 moof 字节拉
+        if (seek) {
+          const vInit = await fetchRangeTotal(proxyUrl(quality.video_url), 0, seek.initEndVideo, ac.signal);
+          await appendSafe(vsb, vInit.buf, video);
+          if (asb && seek.initEndAudio > 0) {
+            const aInit = await fetchRangeTotal(proxyUrl(ai.url), 0, seek.initEndAudio, ac.signal);
+            await appendSafe(asb, aInit.buf, video);
+          }
+        }
+
         // 视频、音频并行拉取 append；MSE 负责时间轴同步
-        const tasks: Promise<void>[] = [feedStream(proxyUrl(quality.video_url), vsb, video, ac.signal, resumeTime)];
-        if (asb) tasks.push(feedStream(proxyUrl(ai.url), asb, video, ac.signal, resumeTime));
+        const tasks: Promise<void>[] = [feedStream(proxyUrl(quality.video_url), vsb, video, ac.signal, resumeTime, seek?.videoByte ?? 0)];
+        if (asb) tasks.push(feedStream(proxyUrl(ai.url), asb, video, ac.signal, resumeTime, seek?.audioByte ?? 0));
         const feed = Promise.all(tasks);
 
         if (switching) {
-          // 追帧到 resumeTime → seek + 续播
           await waitForBuffered(video, resumeTime, ac.signal);
           if (cancelledRef.current || ac.signal.aborted) return;
           try { video.currentTime = resumeTime; await video.play(); } catch { /* 忽略 */ }
           hideLoading();
         } else {
-          // 首次打开：有足够数据可播即隐藏 loading
           video.addEventListener("canplay", hideLoading, { signal: ac.signal });
           video.addEventListener("playing", hideLoading, { signal: ac.signal });
         }
@@ -290,19 +376,17 @@ export function VideoPlayer({ bvid, cid, epId, duration, title, onBack }: Props)
         }
       } catch (e) {
         if (!ac.signal.aborted) {
-          ac.abort(); // 出错就停掉另一条流，避免继续狂拉
+          ac.abort();
           reportError(`播放流加载失败：${e instanceof Error ? e.message : String(e)}`);
         }
       } finally {
-        // 仅当本次 ac 仍是当前流时才收尾（避免旧流的 finally 覆盖新流的 loading 状态）
         if (!cancelledRef.current && acRef.current === ac) setLoading(false);
       }
     }, { once: true });
-  }, [reportError]);
+  }, [reportError, loadSeekIndex]);
 
   // 初次加载：取画质列表 → 选默认画质 → 打开
   useEffect(() => {
-    // 本地 active 旗标：StrictMode 重跑时让上一轮 await 回来后 bail（cancelledRef 会被下一轮重置成 false，拦不住）
     let active = true;
     cancelledRef.current = false;
     (async () => {
@@ -315,7 +399,6 @@ export function VideoPlayer({ bvid, cid, epId, duration, title, onBack }: Props)
         qualitiesRef.current = streams.qualities;
         audioRef.current = { url: streams.audio_url, has: streams.has_audio };
         setQualities(streams.qualities);
-        // 沿用本会话上次选择（若该画质可用），否则取默认（最高）
         const qn = lastChosenQn != null && streams.qualities.some(q => q.qn === lastChosenQn)
           ? lastChosenQn
           : streams.default_qn;
@@ -338,6 +421,67 @@ export function VideoPlayer({ bvid, cid, epId, duration, title, onBack }: Props)
       }
     };
   }, [bvid, cid, epId, duration, play, reportError]);
+
+  /** 精准拖动：拖到未缓冲处时，捕获当前帧做冻结 overlay（盖住重建黑屏），重建流并从目标分片 moof 字节拉。
+   *  必须重建（abort 旧拉取会留下半截 fragment，直接复用 SourceBuffer 会让解析器混乱报致命错）。*/
+  const seekTo = useCallback((t: number) => {
+    if (inSeekRef.current) return;
+    const video = videoRef.current;
+    if (!video) return;
+    if (isBuffered(video, t)) return; // 已缓冲 → 原生瞬时 seek
+    const idx = seekIndexRef.current;
+    const q = currentQualityRef.current;
+    if (!idx?.video || !q || idx.videoUrl !== q.video_url) return; // 无索引 / 画质不匹配 → 回退顺序填充
+    const vPt = lookupPoint(idx.video.points, t);
+    if (!vPt) return;
+    const aPt = idx.audio ? lookupPoint(idx.audio.points, t) : null;
+    inSeekRef.current = true;
+    // 显示已缓存的冻结帧（timeupdate 持续缓存），盖住重建 SourceBuffer 期间的黑屏
+    const fc = freezeCanvasRef.current;
+    if (fc) fc.style.display = "block";
+    const seek: SeekPlan = {
+      videoByte: vPt.byte, initEndVideo: idx.video.init_end,
+      audioByte: aPt?.byte ?? 0, initEndAudio: idx.audio?.init_end ?? 0,
+    };
+    void play(q, t, seek).finally(() => { inSeekRef.current = false; });
+  }, [play]);
+
+  // 持续缓存最近帧到 freeze canvas（播放时 drawImage，seek 时直接显示）。
+  // 不能在 'seeking' 才抓帧 —— MSE seek 到未缓冲处时浏览器会立即丢帧，抓到的是黑帧。
+  useEffect(() => {
+    const video = videoRef.current;
+    const fc = freezeCanvasRef.current;
+    if (!video || !fc) return;
+    const cache = () => {
+      if (video.readyState >= 2 && video.videoWidth > 0) {
+        try {
+          if (fc.width !== video.videoWidth) fc.width = video.videoWidth;
+          if (fc.height !== video.videoHeight) fc.height = video.videoHeight;
+          fc.getContext("2d")?.drawImage(video, 0, 0);
+        } catch {
+          /* 忽略（如偶发未就绪） */
+        }
+      }
+    };
+    video.addEventListener("timeupdate", cache);
+    video.addEventListener("playing", cache);
+    return () => {
+      video.removeEventListener("timeupdate", cache);
+      video.removeEventListener("playing", cache);
+    };
+  }, []);
+
+  // 监听原生 seek：拖到未缓冲处 → 精准 seek
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    const onSeeking = () => {
+      if (inSeekRef.current) return;
+      seekTo(video.currentTime);
+    };
+    video.addEventListener("seeking", onSeeking);
+    return () => video.removeEventListener("seeking", onSeeking);
+  }, [seekTo]);
 
   /** 画质切换：记住选择，从当前位置续播 */
   const switchQuality = useCallback((qn: number) => {
@@ -395,6 +539,12 @@ export function VideoPlayer({ bvid, cid, epId, duration, title, onBack }: Props)
           竖屏视频原生很高会把本区撑到视口外，导致下半部分被裁掉看不到。 */}
       <div className="flex-1 min-h-0 flex items-center justify-center relative overflow-hidden">
         <video ref={videoRef} controls autoPlay className="max-w-full max-h-full object-contain" />
+        {/* 冻结帧 overlay：canvas 默认透明（不可见）；seek 时 drawImage 画出帧并 display:block。
+            不能在 JSX 里写 style.display —— play() 的 setLoading 会触发 re-render 把它重置回默认，导致 overlay 被 React 抹掉、黑屏复发。显示态完全由 ref 控制。 */}
+        <canvas
+          ref={freezeCanvasRef}
+          className="absolute inset-0 w-full h-full object-contain pointer-events-none"
+        />
         {loading && (
           <div className="absolute inset-0 flex items-center justify-center gap-2 text-white/80 pointer-events-none">
             <Loader2 size={24} className="animate-spin" />

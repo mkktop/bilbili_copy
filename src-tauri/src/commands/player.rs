@@ -7,6 +7,7 @@ use tauri::command;
 
 use crate::bilibili::credential::Credential;
 use crate::bilibili::danmaku::{self, Danmu, DanmuType};
+use crate::bilibili::mp4_seek;
 use crate::bilibili::{api_client, playurl};
 use crate::commands::settings::load_settings;
 use serde::Serialize;
@@ -166,6 +167,45 @@ pub async fn get_danmaku_json(cid: i64, aid: u64, duration: u64) -> Result<Vec<D
         .await
         .map_err(|e| format!("获取弹幕失败: {e}"))?;
     Ok(list.into_iter().map(danmu_to_item).collect())
+}
+
+/// 在线播放器精准拖动索引：解析 video/audio 两条流的 moov，返回 时间→字节 索引。
+/// 前端 seek 时据此跳到目标字节 + 用 timestampOffset 重映射时间。
+/// 任一流解析失败返回该字段 None（前端走回退）。命令本身不报错。
+#[derive(Serialize)]
+pub struct SeekIndexResult {
+    pub video: Option<mp4_seek::StreamSeekIndex>,
+    pub audio: Option<mp4_seek::StreamSeekIndex>,
+}
+
+#[command]
+pub async fn get_seek_index(video_url: String, audio_url: String) -> Result<SeekIndexResult, String> {
+    let video_fut = async {
+        if video_url.is_empty() {
+            return None;
+        }
+        match mp4_seek::fetch_index(&video_url, "video").await {
+            Ok(v) => v,
+            Err(e) => {
+                log::warn!("[seek-index] 视频索引获取失败: {e}");
+                None
+            }
+        }
+    };
+    let audio_fut = async {
+        if audio_url.is_empty() {
+            return None;
+        }
+        match mp4_seek::fetch_index(&audio_url, "audio").await {
+            Ok(v) => v,
+            Err(e) => {
+                log::warn!("[seek-index] 音频索引获取失败: {e}");
+                None
+            }
+        }
+    };
+    let (video, audio) = tokio::join!(video_fut, audio_fut);
+    Ok(SeekIndexResult { video, audio })
 }
 
 /// Danmu → 前端弹幕条目

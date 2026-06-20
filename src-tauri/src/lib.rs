@@ -26,7 +26,7 @@ use commands::recommend::get_recommend;
 use commands::region::get_region;
 use commands::comment::get_video_comments;
 use commands::interaction::{like_video, coin_video, favorite_video};
-use commands::player::{get_play_streams, get_danmaku_json, log_player_error};
+use commands::player::{get_play_streams, get_danmaku_json, log_player_error, get_seek_index};
 use download_manager::manager;
 
 /// Read Windows system proxy settings and set HTTPS_PROXY env var
@@ -111,6 +111,17 @@ fn init_logger() {
     log::logger().flush();
 }
 
+/// 池化的代理 HTTP client：keep-alive 复用连接，避免每个 2MB 分块都重新 TCP+TLS 握手到 B站 CDN。
+/// （旧版每块 new 一个 client → 上百块每块多 ~100-300ms 握手，严重拖慢缓冲 / 起播 / 切画质追帧。）
+static PROXY_CLIENT: once_cell::sync::Lazy<reqwest::Client> = once_cell::sync::Lazy::new(|| {
+    reqwest::Client::builder()
+        .user_agent(bilibili::USER_AGENT)
+        .timeout(std::time::Duration::from_secs(30))
+        .cookie_store(false) // 与代码库约定一致：按请求手动带 Cookie，不开 jar 避免污染
+        .build()
+        .expect("代理 HTTP client 创建失败")
+});
+
 /// biliproxy 自定义协议处理：
 /// 前端 fetch("http://biliproxy.localhost/b/<base64url(B站url)>") →
 /// 这里带 Referer+Cookie 透传 Range，把字节回灌给前端 MSE
@@ -133,12 +144,9 @@ async fn biliproxy_fetch(
         .and_then(|v| v.to_str().ok())
         .map(|s| s.to_string());
 
-    let client = reqwest::Client::builder()
-        .user_agent(bilibili::USER_AGENT)
-        .timeout(std::time::Duration::from_secs(30))
-        .build()?;
+    // 复用池化 client：同 host 连续分块复用 TCP+TLS 连接，省掉每块握手
     let cred = bilibili::credential::Credential::load().ok().flatten();
-    let mut req = client
+    let mut req = PROXY_CLIENT
         .get(&bili_url)
         .header("Referer", bilibili::REFERER)
         .header("Origin", bilibili::ORIGIN);
@@ -167,6 +175,22 @@ async fn biliproxy_fetch(
     }
     let body = resp.bytes().await?.to_vec();
     Ok(builder.body(std::borrow::Cow::Owned(body))?)
+}
+
+/// 用池化代理 client 取 B站 流的某段字节（带 Referer/Cookie，复用 keep-alive 连接）。
+/// 供 mp4_seek 后端直连解析 moov 复用（不经前端 webview 代理）。
+pub(crate) async fn proxy_fetch_bytes(url: &str, start: u64, end_inclusive: u64) -> anyhow::Result<Vec<u8>> {
+    let cred = bilibili::credential::Credential::load().ok().flatten();
+    let mut req = PROXY_CLIENT
+        .get(url)
+        .header("Referer", bilibili::REFERER)
+        .header("Origin", bilibili::ORIGIN)
+        .header("Range", format!("bytes={start}-{end_inclusive}"));
+    if let Some(c) = cred.as_ref() {
+        req = req.header("Cookie", c.cookie_header());
+    }
+    let resp = req.send().await?.error_for_status()?;
+    Ok(resp.bytes().await?.to_vec())
 }
 
 pub fn run() {
@@ -305,6 +329,7 @@ pub fn run() {
             get_play_streams,
             get_danmaku_json,
             log_player_error,
+            get_seek_index,
         ])
         .on_window_event(|window, event| {
             // 拦截主窗口关闭：根据设置决定是「最小化到托盘」还是「正常退出」。
