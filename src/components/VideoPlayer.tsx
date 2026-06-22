@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { ArrowLeft, Loader2, AlertCircle, Settings2, Check } from "lucide-react";
+import { ArrowLeft, Loader2, AlertCircle, Settings2, Check, ListVideo } from "lucide-react";
+import type { VideoPage } from "../types";
 
 interface Props {
   bvid: string;
@@ -8,6 +9,8 @@ interface Props {
   epId?: number;
   duration: number;
   title: string;
+  /** 多分P列表：传入则在顶部显示「选集」菜单，可切换播放。单P/缺省则不显示。 */
+  pages?: VideoPage[];
   onBack: () => void;
 }
 
@@ -248,13 +251,25 @@ function waitForBuffered(video: HTMLVideoElement, target: number, signal: AbortS
   });
 }
 
-export function VideoPlayer({ bvid, cid, epId, duration, title, onBack }: Props) {
+export function VideoPlayer({ bvid, cid, epId, duration, title, pages, onBack }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
+
+  // 多分P：当前播放的分P（初始为 props.cid 对应的P）。切换分P → 派生值变化 →
+  // 下面的初始化 effect 重跑（中断旧流、加载新分P流），复用现有 MSE 生命周期。
+  // 父级每次打开播放器都是新挂载（playingItem null→对象），故初始值生效一次即可。
+  const [activePage, setActivePage] = useState<VideoPage | null>(
+    () => pages?.find(p => p.cid === cid) ?? null
+  );
+  const currentCid = activePage?.cid ?? cid;
+  const currentDuration = activePage && activePage.duration > 0 ? activePage.duration : duration;
+  const currentEpId = activePage?.ep_id ?? epId;
+  const multiPage = (pages?.length ?? 0) > 1;
   const [qualities, setQualities] = useState<PlayQuality[]>([]);
   const [selectedQn, setSelectedQn] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [episodeMenuOpen, setEpisodeMenuOpen] = useState(false); // 分P选集菜单
   const freezeCanvasRef = useRef<HTMLCanvasElement | null>(null); // 精准 seek 重建期的冻结帧 overlay（canvas 同步绘制，盖住黑屏）
 
   // MSE 生命周期（初始打开 / 画质切换 / 精准 seek / 卸载清理 共用）
@@ -346,6 +361,11 @@ export function VideoPlayer({ bvid, cid, epId, duration, title, onBack }: Props)
           ? mediaSource.addSourceBuffer(audioMime)
           : null;
 
+        // 设置媒体时长：MSE 默认 duration=Infinity，原生控件会当成「直播流」→
+        // 进度条不显示、右端无总时长、加载期无可拖动范围。设为已知时长后，
+        // 加载阶段即显示完整时间轴，进度条与可拖动范围立即可见。
+        try { if (currentDuration > 0) mediaSource.duration = currentDuration; } catch { /* 个别 webview 拒绝则忽略 */ }
+
         // 精准 seek：先 append init 段（ftyp+moov+sidx → 解析器拿到 moov init），再从目标分片 moof 字节拉
         if (seek) {
           const vInit = await fetchRangeTotal(proxyUrl(quality.video_url), 0, seek.initEndVideo, ac.signal);
@@ -383,7 +403,7 @@ export function VideoPlayer({ bvid, cid, epId, duration, title, onBack }: Props)
         if (!cancelledRef.current && acRef.current === ac) setLoading(false);
       }
     }, { once: true });
-  }, [reportError, loadSeekIndex]);
+  }, [reportError, loadSeekIndex, currentDuration]);
 
   // 初次加载：取画质列表 → 选默认画质 → 打开
   useEffect(() => {
@@ -392,7 +412,7 @@ export function VideoPlayer({ bvid, cid, epId, duration, title, onBack }: Props)
     (async () => {
       try {
         const streams = await invoke<PlayStreams>("get_play_streams", {
-          bvid, cid, epId: epId ?? null, duration,
+          bvid, cid: currentCid, epId: currentEpId ?? null, duration: currentDuration,
         });
         if (!active) return;
         if (!streams.qualities.length) throw new Error("未取到视频流地址（可能需要登录或遇到风控）");
@@ -420,7 +440,7 @@ export function VideoPlayer({ bvid, cid, epId, duration, title, onBack }: Props)
         objectUrlRef.current = null;
       }
     };
-  }, [bvid, cid, epId, duration, play, reportError]);
+  }, [bvid, currentCid, currentEpId, currentDuration, play, reportError]);
 
   /** 精准拖动：拖到未缓冲处时，捕获当前帧做冻结 overlay（盖住重建黑屏），重建流并从目标分片 moof 字节拉。
    *  必须重建（abort 旧拉取会留下半截 fragment，直接复用 SourceBuffer 会让解析器混乱报致命错）。*/
@@ -483,6 +503,20 @@ export function VideoPlayer({ bvid, cid, epId, duration, title, onBack }: Props)
     return () => video.removeEventListener("seeking", onSeeking);
   }, [seekTo]);
 
+  /** 分P 切换：更新当前分P → 派生 cid/duration 变化 → 初始化 effect 重跑加载新流。
+   *  顺手清掉 freeze canvas 上一P的残留帧，避免新分P canplay 前被旧帧盖住。 */
+  const switchPage = useCallback((p: VideoPage) => {
+    setEpisodeMenuOpen(false);
+    setMenuOpen(false);
+    if (p.cid === activePage?.cid) return;
+    const fc = freezeCanvasRef.current;
+    if (fc) {
+      fc.style.display = "none";
+      try { fc.getContext("2d")?.clearRect(0, 0, fc.width, fc.height); } catch { /* 忽略 */ }
+    }
+    setActivePage(p);
+  }, [activePage?.cid]);
+
   /** 画质切换：记住选择，从当前位置续播 */
   const switchQuality = useCallback((qn: number) => {
     const q = qualitiesRef.current.find(x => x.qn === qn);
@@ -505,10 +539,43 @@ export function VideoPlayer({ bvid, cid, epId, duration, title, onBack }: Props)
         </button>
         <h1 className="text-sm font-medium text-white truncate flex-1">{title}</h1>
 
+        {/* 分P选集（多分P才显示） */}
+        {multiPage && pages && (
+          <div className="relative">
+            <button
+              onClick={() => { setEpisodeMenuOpen(v => !v); setMenuOpen(false); }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm text-white bg-white/10 hover:bg-white/20 transition-colors"
+            >
+              <ListVideo size={15} />
+              <span>{activePage ? `P${activePage.page}` : "选集"}</span>
+            </button>
+            {episodeMenuOpen && (
+              <>
+                <div className="fixed inset-0 z-20" onClick={() => setEpisodeMenuOpen(false)} />
+                <div className="absolute right-0 top-full z-30 mt-1 min-w-[200px] max-w-[320px] rounded-lg bg-zinc-900/95 border border-white/10 shadow-xl py-1 max-h-[60vh] overflow-auto">
+                  {pages.map(p => (
+                    <button
+                      key={p.page}
+                      onClick={() => switchPage(p)}
+                      className="w-full flex items-center justify-between gap-3 px-3 py-2 text-sm text-white hover:bg-white/10 transition-colors"
+                    >
+                      <span className="flex items-center gap-2 min-w-0">
+                        <span className="text-white/50 shrink-0">P{p.page}</span>
+                        <span className="truncate">{p.part}</span>
+                      </span>
+                      {p.cid === currentCid && <Check size={14} className="text-emerald-400 shrink-0" />}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
         {/* 画质选择 */}
         <div className="relative">
           <button
-            onClick={() => setMenuOpen(v => !v)}
+            onClick={() => { setMenuOpen(v => !v); setEpisodeMenuOpen(false); }}
             disabled={qualities.length === 0}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm text-white bg-white/10 hover:bg-white/20 transition-colors disabled:opacity-40"
           >
@@ -518,7 +585,7 @@ export function VideoPlayer({ bvid, cid, epId, duration, title, onBack }: Props)
           {menuOpen && (
             <>
               <div className="fixed inset-0 z-20" onClick={() => setMenuOpen(false)} />
-              <div className="absolute right-0 top-full mt-1 min-w-[150px] rounded-lg bg-zinc-900/95 border border-white/10 shadow-xl py-1 max-h-[60vh] overflow-auto">
+              <div className="absolute right-0 top-full z-30 mt-1 min-w-[150px] rounded-lg bg-zinc-900/95 border border-white/10 shadow-xl py-1 max-h-[60vh] overflow-auto">
                 {qualities.map(q => (
                   <button
                     key={q.qn}

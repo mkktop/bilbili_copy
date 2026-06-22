@@ -16,8 +16,9 @@ interface VideoDetailProps {
   onBack: () => void;
   /** 点击 UP 主头像/卡片 → 进入该 UP 主主页（看投稿/合集）。无此回调时卡片不可点击。 */
   onOpenUpper?: (mid: number) => void;
-  /** 在线播放（在线强制 H.264；下载仍用用户 codec 设置，互不影响） */
-  onPlay?: (p: { bvid: string; cid: number; epId?: number; duration: number; title: string }) => void;
+  /** 在线播放（在线强制 H.264；下载仍用用户 codec 设置，互不影响）。
+   *  pages=正片分P列表，多分P时播放器顶部显示「选集」菜单可切换。 */
+  onPlay?: (p: { bvid: string; cid: number; epId?: number; duration: number; title: string; pages?: VideoPage[] }) => void;
   onDownload: (
     id: string,
     bvid: string,
@@ -246,6 +247,7 @@ export function VideoDetail({ entry, sourceLabel, onBack, onOpenUpper, onPlay, o
                   epId: info.ep_id,
                   duration: info.duration,
                   title: info.title,
+                  pages: info.pages,
                 })
               }
               className="flex items-center justify-center gap-2 w-full py-2.5 rounded-lg bg-blue-500 text-white text-sm font-medium hover:bg-blue-600 transition-colors"

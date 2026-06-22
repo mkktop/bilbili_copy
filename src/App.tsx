@@ -25,7 +25,7 @@ import { useLogin } from "./hooks/useLogin";
 import { Settings, Download, Search, Trophy, Sparkles, LayoutGrid, Sun, Moon, BarChart3 } from "lucide-react";
 import type { AppSettings } from "./hooks/useSettings";
 import { useThemeApplier, type ThemeMode } from "./hooks/useTheme";
-import type { ParsedItem, DownloadTask, ParsedVideoInfo, ParseHistoryEntry, DownloadHistoryEntry, VideoMeta } from "./types";
+import type { ParsedItem, DownloadTask, ParsedVideoInfo, ParseHistoryEntry, DownloadHistoryEntry, VideoMeta, VideoPage } from "./types";
 import { dbToParsedItem, dbToDownloadTask } from "./types";
 import { friendlyError } from "./lib/errors";
 import { DOWNLOAD_PROGRESS_THROTTLE_MS } from "./lib/constants";
@@ -86,7 +86,7 @@ export default function App() {
   const [upperViewMid, setUpperViewMid] = useState<number | null>(null);
   // 在线播放覆盖层：从详情页「在线播放」进入，最上层。null=未打开。
   const [playingItem, setPlayingItem] = useState<{
-    bvid: string; cid: number; epId?: number; duration: number; title: string;
+    bvid: string; cid: number; epId?: number; duration: number; title: string; pages?: VideoPage[];
   } | null>(null);
   const downloadingIds = useRef<Set<string>>(new Set());
   // 每个下载任务最近一次进度落库的时间戳，用于节流，避免高频争抢 SQLite 锁
@@ -512,7 +512,7 @@ export default function App() {
   };
 
   // 从详情页点击「在线播放」→ 打开 MSE 播放器覆盖层（最上层 z-[70]）
-  const handlePlay = (p: { bvid: string; cid: number; epId?: number; duration: number; title: string }) => {
+  const handlePlay = (p: { bvid: string; cid: number; epId?: number; duration: number; title: string; pages?: VideoPage[] }) => {
     setPlayingItem(p);
   };
 
@@ -570,6 +570,7 @@ export default function App() {
             epId={playingItem.epId}
             duration={playingItem.duration}
             title={playingItem.title}
+            pages={playingItem.pages}
             onBack={() => setPlayingItem(null)}
           />
         )}
