@@ -1,8 +1,7 @@
 use crate::bilibili::credential::Credential;
 use crate::bilibili::wbi;
-use crate::bilibili::{USER_AGENT, http_to_https};
+use crate::bilibili::{api_client, http_to_https};
 use anyhow::{Context, Result};
-use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -47,14 +46,6 @@ pub struct SearchResultList {
     pub page: u32,
 }
 
-fn bilibili_client() -> Result<Client> {
-    Client::builder()
-        .user_agent(USER_AGENT)
-        .cookie_store(false)
-        .build()
-        .context("创建 HTTP 客户端失败")
-}
-
 /// 搜索 B站内容
 /// 优先用旧接口 `/x/web-interface/search/type`，触发风控(412)或失败时回退 WBI 签名接口
 /// API: GET https://api.bilibili.com/x/web-interface/search/type
@@ -87,7 +78,7 @@ async fn search_via_legacy(
     duration: &str,
     tids: &str,
 ) -> Result<SearchResultList> {
-    let client = bilibili_client()?;
+    let client = api_client();
     let resp_text = client
         .get("https://api.bilibili.com/x/web-interface/search/type")
         .header("Referer", "https://search.bilibili.com/")
@@ -119,7 +110,7 @@ async fn search_via_wbi(
     duration: &str,
     tids: &str,
 ) -> Result<SearchResultList> {
-    let client = bilibili_client()?;
+    let client = api_client();
     let mixin_key = wbi::get_mixin_key_cached(credential)
         .await
         .context("获取 WBI 签名密钥失败")?;

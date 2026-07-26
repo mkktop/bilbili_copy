@@ -1,7 +1,6 @@
 use crate::bilibili::credential::Credential;
-use crate::bilibili::{PagedResult, REFERER, USER_AGENT, http_to_https};
+use crate::bilibili::{PagedResult, REFERER, api_client, http_to_https};
 use anyhow::{Context, Result};
-use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -31,14 +30,6 @@ pub struct HistoryItem {
     pub progress: i64,
 }
 
-fn bilibili_client() -> Result<Client> {
-    Client::builder()
-        .user_agent(USER_AGENT)
-        .cookie_store(false)
-        .build()
-        .context("创建 HTTP 客户端失败")
-}
-
 /// 获取当前登录用户的观看历史（cursor 分页）
 /// API: GET https://api.bilibili.com/x/web-interface/history/cursor
 /// 鉴权：cookie（无需 WBI 签名）
@@ -53,7 +44,7 @@ pub async fn get_watch_history(
     max_view_at: Option<i64>,
     credential: &Credential,
 ) -> Result<PagedResult<HistoryItem>> {
-    let client = bilibili_client()?;
+    let client = api_client();
     let page_size = 20i64;
 
     // 按 bilibili-API-collect 文档：首页不带游标；翻页用上次最后一条的 view_at。

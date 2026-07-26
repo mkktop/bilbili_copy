@@ -1,7 +1,6 @@
 use crate::bilibili::credential::Credential;
-use crate::bilibili::{PagedResult, REFERER, USER_AGENT, http_to_https};
+use crate::bilibili::{PagedResult, REFERER, api_client, http_to_https};
 use anyhow::{Context, Result};
-use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -15,19 +14,11 @@ pub struct FollowingItem {
     pub sign: String,
 }
 
-fn bilibili_client() -> Result<Client> {
-    Client::builder()
-        .user_agent(USER_AGENT)
-        .cookie_store(false)
-        .build()
-        .context("创建 HTTP 客户端失败")
-}
-
 /// 获取当前登录用户的关注列表（分页）
 /// API: GET https://api.bilibili.com/x/relation/followings?vmid=&pn=&ps=
 /// 鉴权：cookie（无需 WBI 签名）
 pub async fn get_followings(page: u32, credential: &Credential) -> Result<PagedResult<FollowingItem>> {
-    let client = bilibili_client()?;
+    let client = api_client();
     let vmid = &credential.dedeuserid;
 
     let resp_text = client

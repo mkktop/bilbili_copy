@@ -9,8 +9,12 @@
 /** 解析历史 / 下载历史的每页条数（与后端 PAGE_SIZE 对齐） */
 export const HISTORY_PAGE_SIZE = 20;
 
-/** 下载进度落库节流间隔（ms）：每个任务至少间隔这么久才写一次 DB 进度 */
+/** 下载进度 UI 更新节流间隔（ms）：每个任务至少间隔这么久才刷新一次进度条 */
 export const DOWNLOAD_PROGRESS_THROTTLE_MS = 1200;
+
+/** 下载进度落库节流间隔（ms）：比 UI 更稀疏——中途进度仅供重启后恢复时展示，
+ *  无需高频写 SQLite（状态变更 complete/error/paused 不受此节流影响，实时落库） */
+export const DOWNLOAD_DB_WRITE_MS = 5000;
 
 /** toast 默认自动消失时长（ms） */
 export const TOAST_DURATION_MS = 3500;

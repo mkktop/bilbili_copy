@@ -1,22 +1,12 @@
 use crate::bilibili::credential::Credential;
-use crate::bilibili::{REFERER, USER_AGENT, VideoListItem, http_to_https};
+use crate::bilibili::{REFERER, VideoListItem, api_client, http_to_https};
 use anyhow::{Context, Result};
-use reqwest::Client;
 use serde_json::Value;
-
-/// 创建 HTTP 客户端（沿用 favorite.rs 的模式：不启用 cookie jar，手动塞 Cookie 头）
-fn bilibili_client() -> Result<Client> {
-    Client::builder()
-        .user_agent(USER_AGENT)
-        .cookie_store(false)
-        .build()
-        .context("创建 HTTP 客户端失败")
-}
 
 /// 获取当前用户的稍后再看列表
 /// API: GET https://api.bilibili.com/x/v2/history/toview
 pub async fn get_watch_later(credential: &Credential) -> Result<Vec<VideoListItem>> {
-    let client = bilibili_client()?;
+    let client = api_client();
 
     let resp_text = client
         .get("https://api.bilibili.com/x/v2/history/toview")

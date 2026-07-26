@@ -23,7 +23,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; img-src * data: blob:; media-src 'self' blob: data:; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src * biliproxy:"
+      "csp": "default-src 'self'; img-src * data: blob:; media-src 'self' blob: data:; script-src 'self' https://*.geetest.com; style-src 'self' 'unsafe-inline'; connect-src 'self' ipc: http://ipc.localhost biliproxy: http://biliproxy.localhost https://*.geetest.com"
     }
   },
   "plugins": {

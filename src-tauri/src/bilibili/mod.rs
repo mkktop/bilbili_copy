@@ -1,4 +1,3 @@
-pub mod client;
 pub mod video;
 pub mod credential;
 pub mod passport;
@@ -102,4 +101,25 @@ pub fn api_client() -> reqwest::Client {
         .timeout(API_TIMEOUT)
         .build()
         .unwrap_or_else(|_| reqwest::Client::new())
+}
+
+/// 构建模拟浏览器的 API 请求头（UA / Referer / Origin / sec-ch-* 全套）。
+/// wbi / playurl / subtitle 等需要完整浏览器指纹的调用共用此函数，
+/// B站改 header 要求时只需改这一处。
+pub fn create_api_headers() -> reqwest::header::HeaderMap {
+    use reqwest::header::{HeaderMap, HeaderValue};
+    let mut headers = HeaderMap::new();
+    headers.insert("User-Agent", HeaderValue::from_static(USER_AGENT));
+    headers.insert("Accept", HeaderValue::from_static("*/*"));
+    headers.insert("Accept-Language", HeaderValue::from_static("zh-CN,zh;q=0.9,en;q=0.8"));
+    headers.insert("Referer", HeaderValue::from_static(REFERER));
+    headers.insert("Origin", HeaderValue::from_static(ORIGIN));
+    headers.insert("sec-ch-ua", HeaderValue::from_static(
+        "\"Chromium\";v=\"140\", \"Not=A?Brand\";v=\"24\", \"Google Chrome\";v=\"140\""));
+    headers.insert("sec-ch-ua-mobile", HeaderValue::from_static("?0"));
+    headers.insert("sec-ch-ua-platform", HeaderValue::from_static("\"Windows\""));
+    headers.insert("sec-fetch-dest", HeaderValue::from_static("empty"));
+    headers.insert("sec-fetch-mode", HeaderValue::from_static("cors"));
+    headers.insert("sec-fetch-site", HeaderValue::from_static("cross-site"));
+    headers
 }

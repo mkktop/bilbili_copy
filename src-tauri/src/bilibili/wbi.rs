@@ -1,32 +1,15 @@
 use crate::bilibili::credential::Credential;
-use crate::bilibili::{USER_AGENT, REFERER, ORIGIN};
+use crate::bilibili::USER_AGENT;
+// header 构建已上提到 bilibili::create_api_headers，这里 re-export 保持 wbi::create_api_headers 调用点不变
+pub use crate::bilibili::create_api_headers;
 use anyhow::{Context, Result};
 use md5::{Digest, Md5};
-use reqwest::header::{HeaderMap, HeaderValue};
 use reqwest::Client;
 use serde::Deserialize;
 use once_cell::sync::Lazy;
 use std::sync::{OnceLock, RwLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::sync::Mutex as AsyncMutex;
-
-/// 构建模拟浏览器的 API 请求头
-pub fn create_api_headers() -> HeaderMap {
-    let mut headers = HeaderMap::new();
-    headers.insert("User-Agent", HeaderValue::from_static(USER_AGENT));
-    headers.insert("Accept", HeaderValue::from_static("*/*"));
-    headers.insert("Accept-Language", HeaderValue::from_static("zh-CN,zh;q=0.9,en;q=0.8"));
-    headers.insert("Referer", HeaderValue::from_static(REFERER));
-    headers.insert("Origin", HeaderValue::from_static(ORIGIN));
-    headers.insert("sec-ch-ua", HeaderValue::from_static(
-        "\"Chromium\";v=\"140\", \"Not=A?Brand\";v=\"24\", \"Google Chrome\";v=\"140\""));
-    headers.insert("sec-ch-ua-mobile", HeaderValue::from_static("?0"));
-    headers.insert("sec-ch-ua-platform", HeaderValue::from_static("\"Windows\""));
-    headers.insert("sec-fetch-dest", HeaderValue::from_static("empty"));
-    headers.insert("sec-fetch-mode", HeaderValue::from_static("cors"));
-    headers.insert("sec-fetch-site", HeaderValue::from_static("cross-site"));
-    headers
-}
 
 /// WBI签名用的64位置换表
 const MIXIN_KEY_ENC_TAB: [usize; 64] = [

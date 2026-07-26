@@ -1,8 +1,7 @@
 use crate::bilibili::credential::Credential;
 use crate::bilibili::wbi;
-use crate::bilibili::{REFERER, USER_AGENT, PagedResult, VideoListItem, http_to_https};
+use crate::bilibili::{REFERER, PagedResult, VideoListItem, api_client, http_to_https};
 use anyhow::{Context, Result};
-use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -24,18 +23,10 @@ pub struct UpperInfo {
     pub archive_count: i64,
 }
 
-fn bilibili_client() -> Result<Client> {
-    Client::builder()
-        .user_agent(USER_AGENT)
-        .cookie_store(false)
-        .build()
-        .context("创建 HTTP 客户端失败")
-}
-
 /// 获取 UP 主卡片信息（头像/名字/签名/粉丝数/投稿数）
 /// API: GET https://api.bilibili.com/x/web-interface/card?mid=
 pub async fn get_upper_info(mid: i64, credential: Option<&Credential>) -> Result<UpperInfo> {
-    let client = bilibili_client()?;
+    let client = api_client();
     let mut request = client
         .get("https://api.bilibili.com/x/web-interface/card")
         .header("Referer", REFERER)
@@ -83,7 +74,7 @@ pub async fn get_submission_videos(
     keyword: Option<&str>,
     credential: &Credential,
 ) -> Result<PagedResult<VideoListItem>> {
-    let client = bilibili_client()?;
+    let client = api_client();
     let mixin_key = wbi::get_mixin_key_cached(credential)
         .await
         .context("获取 WBI 签名密钥失败")?;

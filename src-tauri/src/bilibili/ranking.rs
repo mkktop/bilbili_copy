@@ -1,7 +1,6 @@
 use crate::bilibili::credential::Credential;
-use crate::bilibili::{REFERER, USER_AGENT, http_to_https};
+use crate::bilibili::{REFERER, api_client, http_to_https};
 use anyhow::{Context, Result};
-use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -33,14 +32,6 @@ pub struct RankingItem {
     pub like: i64,
 }
 
-fn bilibili_client() -> Result<Client> {
-    Client::builder()
-        .user_agent(USER_AGENT)
-        .cookie_store(false)
-        .build()
-        .context("创建 HTTP 客户端失败")
-}
-
 /// 获取排行榜视频列表（公开接口，无需登录）
 /// API: GET https://api.bilibili.com/x/web-interface/ranking/v2
 ///   rid=0 全站，否则为分区 tid
@@ -55,7 +46,7 @@ pub async fn get_ranking(
     rid: u32,
     credential: Option<&Credential>,
 ) -> Result<Vec<RankingItem>> {
-    let client = bilibili_client()?;
+    let client = api_client();
 
     // query 元组需类型一致（&str 与 &String 不能混），故先取 &str 引用
     let rid_s = rid.to_string();

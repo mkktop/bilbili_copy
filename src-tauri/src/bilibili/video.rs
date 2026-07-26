@@ -1,5 +1,5 @@
 use crate::bilibili::credential::Credential;
-use crate::bilibili::{USER_AGENT, REFERER, BilibiliResponse, http_to_https};
+use crate::bilibili::{REFERER, BilibiliResponse, api_client, http_to_https};
 use anyhow::{Context, Result};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -161,15 +161,6 @@ fn extract_ep_from_redirect(resp_json: &serde_json::Value) -> Option<u64> {
     None
 }
 
-/// 创建 HTTP 客户端
-fn bilibili_client() -> Result<Client> {
-    Client::builder()
-        .user_agent(USER_AGENT)
-        .cookie_store(false)
-        .build()
-        .context("创建 HTTP 客户端失败")
-}
-
 /// 获取视频标签列表（普通 UGC 视频用，番剧用 season API 的 styles）。
 /// 失败返回空 vec（不致命，NFO 的 <genre> 块会跳过）。
 /// API: https://api.bilibili.com/x/tag/archive/tags?bvid=xxx → data[].tag_name
@@ -222,7 +213,7 @@ pub async fn get_video_info(
     media_id: Option<u64>,
     credential: Option<&Credential>,
 ) -> Result<VideoInfo> {
-    let client = bilibili_client()?;
+    let client = api_client();
 
     // media_id 需要先解析为 season_id
     let resolved_season_id = if season_id.is_none() {

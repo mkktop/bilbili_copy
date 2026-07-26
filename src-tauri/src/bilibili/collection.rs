@@ -1,8 +1,7 @@
 use crate::bilibili::credential::Credential;
 use crate::bilibili::wbi;
-use crate::bilibili::{REFERER, USER_AGENT, PagedResult, VideoListItem, http_to_https};
+use crate::bilibili::{REFERER, PagedResult, VideoListItem, api_client, http_to_https};
 use anyhow::{Context, Result};
-use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -40,14 +39,6 @@ pub struct SubscribedCollection {
     pub upper_mid: i64,
 }
 
-fn bilibili_client() -> Result<Client> {
-    Client::builder()
-        .user_agent(USER_AGENT)
-        .cookie_store(false)
-        .build()
-        .context("创建 HTTP 客户端失败")
-}
-
 /// 从 meta JSON 对象提取合集/系列封面（cover 优先，回退 square_cover/horizontal_cover）
 fn meta_cover(meta: &Value) -> String {
     meta["cover"]
@@ -61,7 +52,7 @@ fn meta_cover(meta: &Value) -> String {
 /// 获取 UP 主的全部合集与系列列表（自动遍历分页）
 /// API: GET https://api.bilibili.com/x/polymer/web-space/seasons_series_list
 pub async fn get_upper_collections(mid: i64, credential: Option<&Credential>) -> Result<Vec<CollectionInfo>> {
-    let client = bilibili_client()?;
+    let client = api_client();
     let mut all = Vec::new();
     let mut total_count: i64 = 0;
     let page_size: i64 = 20;
@@ -170,7 +161,7 @@ pub async fn get_collection_videos(
     page: u32,
     credential: &Credential,
 ) -> Result<PagedResult<VideoListItem>> {
-    let client = bilibili_client()?;
+    let client = api_client();
     let mixin_key = wbi::get_mixin_key_cached(credential)
         .await
         .context("获取 WBI 签名密钥失败")?;
@@ -277,7 +268,7 @@ pub async fn get_collection_videos(
 /// 获取当前用户订阅的合集与收藏夹列表（自动遍历分页）
 /// API: GET https://api.bilibili.com/x/v3/fav/folder/collected/list
 pub async fn get_subscribed_collections(credential: &Credential) -> Result<Vec<SubscribedCollection>> {
-    let client = bilibili_client()?;
+    let client = api_client();
     let uid = &credential.dedeuserid;
     let mut all = Vec::new();
     let page_size = 20;

@@ -1,62 +1,38 @@
 import { getVersion } from "@tauri-apps/api/app";
-import { useEffect, useRef, useState, useCallback } from "react";
+import { lazy, Suspense, useEffect, useState, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { revealItemInDir, openPath } from "@tauri-apps/plugin-opener";
 import { DownloadInput } from "./components/DownloadInput";
 import { DownloadList } from "./components/DownloadList";
 import { ParseList } from "./components/ParseList";
 import { VideoDetail } from "./components/VideoDetail";
-import { SettingsPage } from "./components/SettingsPage";
 import { LoginDialog } from "./components/LoginDialog";
 import { CaptchaDialog } from "./components/CaptchaDialog";
 import { UserProfilePage } from "./components/UserProfilePage";
 import { UpperHomePage } from "./components/UpperHomePage";
-import { VideoPlayer } from "./components/VideoPlayer";
 import { ExplorePage } from "./components/ExplorePage";
 import { RankingPage } from "./components/RankingPage";
 import { RecommendPage } from "./components/RecommendPage";
 import { RegionPage } from "./components/RegionPage";
-import { StatsPanel } from "./components/StatsPanel";
 import { useToast } from "./components/Toast";
 import { useUpdate } from "./contexts/UpdateContext";
 import { useSettings } from "./hooks/useSettings";
 import { useLogin } from "./hooks/useLogin";
+import { useDownloadEvents } from "./hooks/useDownloadEvents";
 import { Settings, Download, Search, Trophy, Sparkles, LayoutGrid, Sun, Moon, BarChart3 } from "lucide-react";
 import type { AppSettings } from "./hooks/useSettings";
 import { useThemeApplier, type ThemeMode } from "./hooks/useTheme";
 import type { ParsedItem, DownloadTask, ParsedVideoInfo, ParseHistoryEntry, DownloadHistoryEntry, VideoMeta, VideoPage } from "./types";
 import { dbToParsedItem, dbToDownloadTask } from "./types";
 import { friendlyError } from "./lib/errors";
-import { DOWNLOAD_PROGRESS_THROTTLE_MS } from "./lib/constants";
+
+// 非首屏组件懒加载：设置页/统计页/在线播放器体积较大（播放器含 MSE 逻辑），
+// 拆出独立 chunk，首屏 bundle 不再包含它们。三者均为命名导出，需转成 default。
+const SettingsPage = lazy(() => import("./components/SettingsPage").then((m) => ({ default: m.SettingsPage })));
+const StatsPanel = lazy(() => import("./components/StatsPanel").then((m) => ({ default: m.StatsPanel })));
+const VideoPlayer = lazy(() => import("./components/VideoPlayer").then((m) => ({ default: m.VideoPlayer })));
 
 type View = "main" | "settings" | "detail" | "downloads" | "stats" | "profile" | "explore" | "ranking" | "recommend" | "region";
-
-interface DownloadProgress {
-  id: string;
-  label: string;
-  downloaded: number;
-  total: number;
-  percent: number;
-}
-
-interface DownloadComplete {
-  id: string;
-  output_path: string;
-  /** 最终文件字节数（统计用，后端在 finalize_outcome 中由 std::fs::metadata 计算） */
-  size: number;
-}
-
-interface DownloadError {
-  id: string;
-  error: string;
-}
-
-/** download://state 事件载荷：任务状态变化（queued/downloading/paused/cancelled） */
-interface DownloadStateChange {
-  id: string;
-  status: "queued" | "downloading" | "paused" | "cancelled";
-}
 
 /** 视图枚举 → 面包屑来源中文名（详情页/UP 主主页头部用，back 回到该来源） */
 function viewLabel(view: View): string {
@@ -88,10 +64,6 @@ export default function App() {
   const [playingItem, setPlayingItem] = useState<{
     bvid: string; cid: number; epId?: number; duration: number; title: string; pages?: VideoPage[];
   } | null>(null);
-  const downloadingIds = useRef<Set<string>>(new Set());
-  // 每个下载任务最近一次进度落库的时间戳，用于节流，避免高频争抢 SQLite 锁
-  const lastProgressWrite = useRef<Map<string, number>>(new Map());
-
   // 分页 state
   const [parsePage, setParsePage] = useState(1);
   const [parseTotal, setParseTotal] = useState(0);
@@ -148,101 +120,15 @@ export default function App() {
     loadDownloadPage(1);
   }, []);
 
-  // 下载事件监听（使用 mounted ref 防止卸载后更新状态）
-  useEffect(() => {
-    let cancelled = false;
-    const unlisteners: UnlistenFn[] = [];
-
-    const setup = async () => {
-      const fns = await Promise.all([
-        listen<DownloadProgress>("download://progress", (event) => {
-          if (cancelled) return;
-          const { id, percent, label } = event.payload;
-          const phase = label === "audio" ? "audio" as const : "video" as const;
-          // 节流：UI 更新与写库同频（每 id 约 1.2s 一次）。
-          // 后端虽按 512KB 节流发射 progress，但并行分片仍会产生每秒数十次事件；
-          // 这里再把 setDownloads 纳入节流，避免每个事件都全量重渲染整个 App（downloads 在顶层 state）。
-          // 下载完成由独立的 complete 监听器负责最终落库与置 100%，不受此节流影响。
-          const now = Date.now();
-          const last = lastProgressWrite.current.get(id) ?? 0;
-          if (now - last < DOWNLOAD_PROGRESS_THROTTLE_MS) return;
-          lastProgressWrite.current.set(id, now);
-          setDownloads((prev) =>
-            prev.map((d) =>
-              d.id === id ? { ...d, status: "downloading" as const, progress: percent, phase } : d
-            )
-          );
-          invoke("update_download_status", { id, status: "downloading", progress: percent, phase, errorMsg: null, outputPath: null }).catch(() => {});
-        }),
-        listen<DownloadComplete>("download://complete", (event) => {
-          if (cancelled) return;
-          const { id, output_path, size } = event.payload;
-          downloadingIds.current.delete(id);
-          lastProgressWrite.current.delete(id);
-          setDownloads((prev) =>
-            prev.map((d) =>
-              d.id === id ? { ...d, status: "done" as const, progress: 100, outputPath: output_path } : d
-            )
-          );
-          invoke("update_download_status", { id, status: "done", progress: 100, phase: null, errorMsg: null, outputPath: output_path, size }).catch(() => {});
-        }),
-        listen<DownloadError>("download://error", (event) => {
-          if (cancelled) return;
-          const { id, error } = event.payload;
-          downloadingIds.current.delete(id);
-          lastProgressWrite.current.delete(id);
-          setDownloads((prev) =>
-            prev.map((d) =>
-              d.id === id ? { ...d, status: "error" as const, errorMsg: error } : d
-            )
-          );
-          invoke("update_download_status", { id, status: "error", progress: null, phase: null, errorMsg: error, outputPath: null }).catch(() => {});
-          toast.error(`下载失败：${error}`);
-        }),
-        listen<{ v_voucher: string }>("download://risk_control", (event) => {
-          if (cancelled) return;
-          console.warn("[risk] 收到风控事件");
-          setCaptchaVoucher(event.payload.v_voucher);
-          toast.error("触发风控验证，请完成验证后重试");
-        }),
-        listen<DownloadStateChange>("download://state", (event) => {
-          if (cancelled) return;
-          const { id, status } = event.payload;
-          if (status === "downloading") {
-            // dispatcher 拿到 permit 开始执行：UI 从 queued → downloading
-            setDownloads((prev) =>
-              prev.map((d) => (d.id === id ? { ...d, status: "downloading" as const } : d))
-            );
-            invoke("update_download_status", { id, status: "downloading", progress: null, phase: null, errorMsg: null, outputPath: null }).catch(() => {});
-          } else if (status === "paused") {
-            downloadingIds.current.delete(id);
-            lastProgressWrite.current.delete(id);
-            setDownloads((prev) =>
-              prev.map((d) => (d.id === id ? { ...d, status: "paused" as const } : d))
-            );
-            invoke("update_download_status", { id, status: "paused", progress: null, phase: null, errorMsg: null, outputPath: null }).catch(() => {});
-          } else if (status === "cancelled") {
-            downloadingIds.current.delete(id);
-            lastProgressWrite.current.delete(id);
-            // 取消即从列表移除（.tmp 已被后端清理，记录也删除）
-            setDownloads((prev) => prev.filter((d) => d.id !== id));
-            invoke("delete_download_history", { id }).catch(() => {});
-          }
-        }),
-      ]);
-      if (cancelled) {
-        fns.forEach((fn) => fn());
-      } else {
-        unlisteners.push(...fns);
-      }
-    };
-
-    setup();
-    return () => {
-      cancelled = true;
-      unlisteners.forEach((fn) => fn());
-    };
-  }, [toast]);
+  // 下载事件监听（订阅 + 双层节流 + 落库逻辑已抽到 hook）
+  const { downloadingIds } = useDownloadEvents({
+    setDownloads,
+    onRiskControl: (vVoucher) => {
+      setCaptchaVoucher(vVoucher);
+      toast.error("触发风控验证，请完成验证后重试");
+    },
+    onDownloadError: (error) => toast.error(`下载失败：${error}`),
+  });
 
   const hasUpdate = phase === "available" && updateInfo;
   const activeDownloads = downloads.filter(
@@ -533,6 +419,24 @@ export default function App() {
     setUpperViewMid(null);
   };
 
+  // 各来源页（我的/发现/排行榜/推荐/分区）点开视频卡片 → 详情覆盖层的公共跳转逻辑。
+  // idPrefix 区分来源避免 item id 碰撞；source 记录来源视图，返回时回到该页。
+  const openDetail = (videoInfo: ParsedVideoInfo, source: View, idPrefix: string) => {
+    const item: ParsedItem = {
+      id: `${idPrefix}-${videoInfo.bvid}`,
+      url: videoInfo.bvid ? `https://www.bilibili.com/video/${videoInfo.bvid}` : "",
+      title: videoInfo.title,
+      status: "pending",
+      videoInfo,
+    };
+    if (videoInfo.bvid) {
+      invoke("touch_parse_history", { bvid: videoInfo.bvid }).catch(() => {});
+    }
+    setSelectedItem(item);
+    setPreviousView(source);
+    setCurrentView("detail");
+  };
+
   // 视频详情覆盖层：无论当前在哪个视图都叠在最上层。
   // 关键：来源页组件保持挂载不被卸载，返回时其 state（搜索结果、UP 主投稿列表、
   // 收藏夹视频等）完整保留，避免返回后回到空白初始页。
@@ -562,17 +466,19 @@ export default function App() {
             />
           </div>
         )}
-        {/* 在线播放覆盖层：MSE 播放器，最上层 z-[70] */}
+        {/* 在线播放覆盖层：MSE 播放器，最上层 z-[70]（懒加载，chunk 加载期间不渲染） */}
         {playingItem && (
-          <VideoPlayer
-            bvid={playingItem.bvid}
-            cid={playingItem.cid}
-            epId={playingItem.epId}
-            duration={playingItem.duration}
-            title={playingItem.title}
-            pages={playingItem.pages}
-            onBack={() => setPlayingItem(null)}
-          />
+          <Suspense fallback={null}>
+            <VideoPlayer
+              bvid={playingItem.bvid}
+              cid={playingItem.cid}
+              epId={playingItem.epId}
+              duration={playingItem.duration}
+              title={playingItem.title}
+              pages={playingItem.pages}
+              onBack={() => setPlayingItem(null)}
+            />
+          </Suspense>
         )}
       </div>
     ) : null;
@@ -582,13 +488,15 @@ export default function App() {
     return (
       <>
         <div className="flex flex-col h-screen bg-base text-ink">
-          <SettingsPage
-            settings={settings}
-            onSave={handleSaveSettings}
-            onBack={() => setCurrentView("main")}
-            onClearParse={() => loadParsePage(1)}
-            onClearDownload={() => loadDownloadPage(1)}
-          />
+          <Suspense fallback={null}>
+            <SettingsPage
+              settings={settings}
+              onSave={handleSaveSettings}
+              onBack={() => setCurrentView("main")}
+              onClearParse={() => loadParsePage(1)}
+              onClearDownload={() => loadDownloadPage(1)}
+            />
+          </Suspense>
         </div>
         {detailOverlay}
       </>
@@ -646,7 +554,9 @@ export default function App() {
   if (currentView === "stats" || (currentView === "detail" && previousView === "stats")) {
     return (
       <>
-        <StatsPanel onBack={() => setCurrentView("main")} />
+        <Suspense fallback={null}>
+          <StatsPanel onBack={() => setCurrentView("main")} />
+        </Suspense>
         {detailOverlay}
       </>
     );
@@ -668,22 +578,7 @@ export default function App() {
           onLogout={logout}
           onBack={() => setCurrentView("main")}
           onParseVideo={handleParse}
-          onSelectItem={(videoInfo: ParsedVideoInfo) => {
-            // 直接用解析好的 videoInfo 跳转详情
-            const item: ParsedItem = {
-              id: `fav-${videoInfo.bvid}`,
-              url: `https://www.bilibili.com/video/${videoInfo.bvid}`,
-              title: videoInfo.title,
-              status: "pending",
-              videoInfo,
-            };
-            if (videoInfo.bvid) {
-              invoke("touch_parse_history", { bvid: videoInfo.bvid }).catch(() => {});
-            }
-            setSelectedItem(item);
-            setPreviousView("profile");
-            setCurrentView("detail");
-          }}
+          onSelectItem={(videoInfo: ParsedVideoInfo) => openDetail(videoInfo, "profile", "fav")}
         />
         {detailOverlay}
       </>
@@ -699,23 +594,7 @@ export default function App() {
         <ExplorePage
           onBack={() => setCurrentView("main")}
           onParseVideo={handleParse}
-          onSelectItem={(videoInfo: ParsedVideoInfo) => {
-            const item: ParsedItem = {
-              id: `explore-${videoInfo.bvid}`,
-              url: videoInfo.bvid
-                ? `https://www.bilibili.com/video/${videoInfo.bvid}`
-                : "",
-              title: videoInfo.title,
-              status: "pending",
-              videoInfo,
-            };
-            if (videoInfo.bvid) {
-              invoke("touch_parse_history", { bvid: videoInfo.bvid }).catch(() => {});
-            }
-            setSelectedItem(item);
-            setPreviousView("explore");
-            setCurrentView("detail");
-          }}
+          onSelectItem={(videoInfo: ParsedVideoInfo) => openDetail(videoInfo, "explore", "explore")}
         />
         {detailOverlay}
       </>
@@ -731,23 +610,7 @@ export default function App() {
         <RankingPage
           onBack={() => setCurrentView("main")}
           onParseVideo={handleParse}
-          onSelectItem={(videoInfo: ParsedVideoInfo) => {
-            const item: ParsedItem = {
-              id: `ranking-${videoInfo.bvid}`,
-              url: videoInfo.bvid
-                ? `https://www.bilibili.com/video/${videoInfo.bvid}`
-                : "",
-              title: videoInfo.title,
-              status: "pending",
-              videoInfo,
-            };
-            if (videoInfo.bvid) {
-              invoke("touch_parse_history", { bvid: videoInfo.bvid }).catch(() => {});
-            }
-            setSelectedItem(item);
-            setPreviousView("ranking");
-            setCurrentView("detail");
-          }}
+          onSelectItem={(videoInfo: ParsedVideoInfo) => openDetail(videoInfo, "ranking", "ranking")}
         />
         {detailOverlay}
       </>
@@ -765,23 +628,7 @@ export default function App() {
           onLogin={() => setLoginDialogOpen(true)}
           onBack={() => setCurrentView("main")}
           onParseVideo={handleParse}
-          onSelectItem={(videoInfo: ParsedVideoInfo) => {
-            const item: ParsedItem = {
-              id: `recommend-${videoInfo.bvid}`,
-              url: videoInfo.bvid
-                ? `https://www.bilibili.com/video/${videoInfo.bvid}`
-                : "",
-              title: videoInfo.title,
-              status: "pending",
-              videoInfo,
-            };
-            if (videoInfo.bvid) {
-              invoke("touch_parse_history", { bvid: videoInfo.bvid }).catch(() => {});
-            }
-            setSelectedItem(item);
-            setPreviousView("recommend");
-            setCurrentView("detail");
-          }}
+          onSelectItem={(videoInfo: ParsedVideoInfo) => openDetail(videoInfo, "recommend", "recommend")}
         />
         {detailOverlay}
       </>
@@ -797,23 +644,7 @@ export default function App() {
         <RegionPage
           onBack={() => setCurrentView("main")}
           onParseVideo={handleParse}
-          onSelectItem={(videoInfo: ParsedVideoInfo) => {
-            const item: ParsedItem = {
-              id: `region-${videoInfo.bvid}`,
-              url: videoInfo.bvid
-                ? `https://www.bilibili.com/video/${videoInfo.bvid}`
-                : "",
-              title: videoInfo.title,
-              status: "pending",
-              videoInfo,
-            };
-            if (videoInfo.bvid) {
-              invoke("touch_parse_history", { bvid: videoInfo.bvid }).catch(() => {});
-            }
-            setSelectedItem(item);
-            setPreviousView("region");
-            setCurrentView("detail");
-          }}
+          onSelectItem={(videoInfo: ParsedVideoInfo) => openDetail(videoInfo, "region", "region")}
         />
         {detailOverlay}
       </>

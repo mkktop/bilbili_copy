@@ -1,34 +1,15 @@
 use crate::bilibili::credential::Credential;
 use crate::bilibili::risk_control;
 use crate::bilibili::wbi;
-use crate::bilibili::{USER_AGENT, REFERER, ORIGIN};
+use crate::bilibili::USER_AGENT;
 use anyhow::{Context, Result};
 use reqwest::header::{HeaderMap, HeaderValue};
 use reqwest::Client;
 use serde::Deserialize;
 
-/// 构建模拟浏览器的 API 请求头
+/// 构建模拟浏览器的 API 请求头（公共头 + playurl 专属的 gaia_vtoken）
 fn create_api_headers() -> HeaderMap {
-    let mut headers = HeaderMap::new();
-    headers.insert("User-Agent", HeaderValue::from_static(USER_AGENT));
-    headers.insert("Accept", HeaderValue::from_static("*/*"));
-    headers.insert("Accept-Language", HeaderValue::from_static("zh-CN,zh;q=0.9,en;q=0.8"));
-    headers.insert("Referer", HeaderValue::from_static(REFERER));
-    headers.insert("Origin", HeaderValue::from_static(ORIGIN));
-    headers.insert(
-        "sec-ch-ua",
-        HeaderValue::from_static(
-            "\"Chromium\";v=\"140\", \"Not=A?Brand\";v=\"24\", \"Google Chrome\";v=\"140\"",
-        ),
-    );
-    headers.insert("sec-ch-ua-mobile", HeaderValue::from_static("?0"));
-    headers.insert(
-        "sec-ch-ua-platform",
-        HeaderValue::from_static("\"Windows\""),
-    );
-    headers.insert("sec-fetch-dest", HeaderValue::from_static("empty"));
-    headers.insert("sec-fetch-mode", HeaderValue::from_static("cors"));
-    headers.insert("sec-fetch-site", HeaderValue::from_static("cross-site"));
+    let mut headers = crate::bilibili::create_api_headers();
     // 如果有缓存的 gaia_vtoken，带上
     if let Some(token) = risk_control::get_gaia_vtoken() {
         if let Ok(val) = HeaderValue::from_str(&token) {
