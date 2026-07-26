@@ -194,6 +194,10 @@ pub struct AppSettings {
     // 字幕导出格式 "srt" | "vtt"
     #[serde(default = "default_subtitle_format")]
     pub subtitle_format: String,
+    /// 文件名模板：download_dir 下的相对路径，`/` 分隔子目录。
+    /// 占位符 {title} {video_title} {bvid} {ep} {cid} {up}；空 = 默认 `{video_title}/{title}`（历史布局）。
+    #[serde(default)]
+    pub filename_template: String,
     // 附加下载 - NFO 元数据刮削（生成 Kodi/Jellyfin/Emby 兼容的 .nfo + 封面图）
     #[serde(default)]
     pub download_nfo: bool,
@@ -242,6 +246,7 @@ impl Default for AppSettings {
             danmaku_block_top: false,
             danmaku_block_bottom: false,
             subtitle_format: default_subtitle_format(),
+            filename_template: String::new(),
             download_nfo: false,
             nfo_include_genre: default_nfo_include_genre(),
             nfo_include_actor: default_nfo_include_actor(),
@@ -292,6 +297,7 @@ impl From<LegacySettings> for AppSettings {
             danmaku_block_top: false,
             danmaku_block_bottom: false,
             subtitle_format: default_subtitle_format(),
+            filename_template: String::new(),
             download_nfo: false,
             nfo_include_genre: default_nfo_include_genre(),
             nfo_include_actor: default_nfo_include_actor(),

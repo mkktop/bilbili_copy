@@ -8,6 +8,7 @@ use tauri::command;
 use crate::bilibili::credential::Credential;
 use crate::bilibili::danmaku::{self, Danmu, DanmuType};
 use crate::bilibili::mp4_seek;
+use crate::bilibili::subtitle::{self, SubtitleCue};
 use crate::bilibili::{api_client, playurl};
 use crate::commands::settings::load_settings;
 use serde::Serialize;
@@ -167,6 +168,52 @@ pub async fn get_danmaku_json(cid: i64, aid: u64, duration: u64) -> Result<Vec<D
         .await
         .map_err(|e| format!("获取弹幕失败: {e}"))?;
     Ok(list.into_iter().map(danmu_to_item).collect())
+}
+
+/// 字幕轨道（供播放器字幕菜单）
+#[derive(Serialize)]
+pub struct SubtitleTrackDto {
+    pub lan: String,
+    pub lan_doc: String,
+    /// AI 自动生成字幕（播放器里带标注展示；很多视频只有这种）
+    pub is_ai: bool,
+    /// 字幕 JSON URL（仅回传给 get_subtitle_cues，前端不直接拉取）
+    pub subtitle_url: String,
+}
+
+/// 获取视频字幕轨道列表（含 AI 字幕 —— 播放场景不过滤；下载路径仍过滤，互不影响）。
+/// 未登录或无字幕时返回错误（前端据此禁用字幕菜单）。
+#[command]
+pub async fn get_subtitle_list(bvid: String, cid: i64, aid: u64) -> Result<Vec<SubtitleTrackDto>, String> {
+    let credential = Credential::load()
+        .map_err(|e| format!("读取登录信息失败: {e}"))?
+        .ok_or_else(|| "未登录，请先登录".to_string())?;
+    let client = api_client();
+    let list = subtitle::get_subtitle_urls_all(&client, &credential, cid, &bvid, aid)
+        .await
+        .map_err(|e| format!("获取字幕列表失败: {e}"))?;
+    Ok(list
+        .into_iter()
+        .map(|s| {
+            let is_ai = s.is_ai_sub(); // 先判定：下面逐字段 move 后 s 不可再借用
+            SubtitleTrackDto {
+                lan: s.lan,
+                lan_doc: s.lan_doc,
+                is_ai,
+                subtitle_url: s.subtitle_url,
+            }
+        })
+        .collect())
+}
+
+/// 拉取单条字幕并解析为 cue 列表（播放器覆盖层按 timeupdate 渲染）。
+/// URL 前缀补全（`//` → `https:`）在 Rust 侧完成，前端无需处理。
+#[command]
+pub async fn get_subtitle_cues(subtitle_url: String) -> Result<Vec<SubtitleCue>, String> {
+    let client = api_client();
+    subtitle::fetch_subtitle_cues(&client, &subtitle_url)
+        .await
+        .map_err(|e| format!("获取字幕内容失败: {e}"))
 }
 
 /// 在线播放器精准拖动索引：解析 video/audio 两条流的 moov，返回 时间→字节 索引。

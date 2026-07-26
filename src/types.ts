@@ -39,6 +39,19 @@ export interface VideoPage {
   ep_id?: number;
 }
 
+/** 在线播放会话参数：VideoDetail「在线播放」→ App playingItem → VideoPlayer 的共享载荷。
+ *  aid 为字幕列表 API 必填（player v2），随播放会话一起穿线。 */
+export interface PlayingItem {
+  bvid: string;
+  aid: number;
+  cid: number;
+  epId?: number;
+  duration: number;
+  title: string;
+  /** 正片分P列表：多分P时播放器顶栏显示「选集」菜单 */
+  pages?: VideoPage[];
+}
+
 export interface ParsedVideoInfo {
   bvid: string;
   aid: number;
@@ -104,6 +117,8 @@ export interface DownloadTask {
   quality?: number | null;
   /** 合集名（恢复时作为 video_title 传入以重建下载目录） */
   videoTitle?: string;
+  /** UP 主名（文件名模板 {up}；恢复/重试时回传后端重建输出路径） */
+  ownerName?: string;
   duration?: number;
   /** 下载完成后的文件绝对路径（done 状态才有；用于「打开所在目录」） */
   outputPath?: string;
@@ -175,6 +190,8 @@ export interface DownloadHistoryEntry {
   size?: number | null;
   /** 视频时长（秒，v4 schema 新增，旧记录/未知为 null） */
   duration?: number | null;
+  /** UP 主名（v6 schema 新增，旧记录为 null）：文件名模板 {up} 用 */
+  owner_name?: string | null;
 }
 
 /** 下载统计聚合（对应后端 DownloadStats，仅 done 项累加大小/时长） */
@@ -216,6 +233,7 @@ export function dbToDownloadTask(entry: DownloadHistoryEntry): DownloadTask {
     epId: entry.ep_id,
     quality: entry.quality ?? null,
     videoTitle: entry.video_title ?? undefined,
+    ownerName: entry.owner_name ?? undefined,
     outputPath: entry.output_path ?? undefined,
     duration: entry.duration ?? undefined,
   };

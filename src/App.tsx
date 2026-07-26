@@ -1,5 +1,5 @@
 import { getVersion } from "@tauri-apps/api/app";
-import { lazy, Suspense, useEffect, useState, useCallback } from "react";
+import { lazy, Suspense, useEffect, useRef, useState, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { revealItemInDir, openPath } from "@tauri-apps/plugin-opener";
 import { DownloadInput } from "./components/DownloadInput";
@@ -19,10 +19,11 @@ import { useUpdate } from "./contexts/UpdateContext";
 import { useSettings } from "./hooks/useSettings";
 import { useLogin } from "./hooks/useLogin";
 import { useDownloadEvents } from "./hooks/useDownloadEvents";
+import { useUrlIntake } from "./hooks/useUrlIntake";
 import { Settings, Download, Search, Trophy, Sparkles, LayoutGrid, Sun, Moon, BarChart3 } from "lucide-react";
 import type { AppSettings } from "./hooks/useSettings";
 import { useThemeApplier, type ThemeMode } from "./hooks/useTheme";
-import type { ParsedItem, DownloadTask, ParsedVideoInfo, ParseHistoryEntry, DownloadHistoryEntry, VideoMeta, VideoPage } from "./types";
+import type { ParsedItem, DownloadTask, ParsedVideoInfo, ParseHistoryEntry, DownloadHistoryEntry, VideoMeta, VideoPage, PlayingItem } from "./types";
 import { dbToParsedItem, dbToDownloadTask } from "./types";
 import { friendlyError } from "./lib/errors";
 
@@ -61,9 +62,7 @@ export default function App() {
   // UP 主主页覆盖层：从详情页点头像进入，叠加在详情之上。null=未打开。
   const [upperViewMid, setUpperViewMid] = useState<number | null>(null);
   // 在线播放覆盖层：从详情页「在线播放」进入，最上层。null=未打开。
-  const [playingItem, setPlayingItem] = useState<{
-    bvid: string; cid: number; epId?: number; duration: number; title: string; pages?: VideoPage[];
-  } | null>(null);
+  const [playingItem, setPlayingItem] = useState<PlayingItem | null>(null);
   // 分页 state
   const [parsePage, setParsePage] = useState(1);
   const [parseTotal, setParseTotal] = useState(0);
@@ -130,6 +129,23 @@ export default function App() {
     onDownloadError: (error) => toast.error(`下载失败：${error}`),
   });
 
+  // 解析输入框（受控：剪贴板/拖放识别到的链接从这里填入）
+  const [inputUrl, setInputUrl] = useState("");
+  // currentView 镜像进 ref：useUrlIntake 监听器只注册一次，经 ref 读最新视图
+  const currentViewRef = useRef(currentView);
+  currentViewRef.current = currentView;
+
+  // 剪贴板/拖放链接感知：识别到新链接自动填入解析输入框。
+  // 拖放从任意视图生效（跳回主页）；剪贴板探测仅主页生效（避免其他视图被打断）。
+  const handleUrlIntake = useCallback((url: string) => {
+    setCurrentView((v) => (v === "main" ? v : "main"));
+    setInputUrl(url);
+  }, []);
+  useUrlIntake({
+    onUrl: handleUrlIntake,
+    clipboardEnabled: () => currentViewRef.current === "main",
+  });
+
   const hasUpdate = phase === "available" && updateInfo;
   const activeDownloads = downloads.filter(
     (d) => d.status === "downloading" || d.status === "queued"
@@ -170,6 +186,7 @@ export default function App() {
           }
         })
         .catch(() => {});
+      setInputUrl(""); // 解析成功清空输入框（失败分支保留文本供用户编辑）
       return videoInfo;
     } catch (err) {
       setParsedItems((prev) =>
@@ -198,11 +215,15 @@ export default function App() {
     pic?: string,
     subtitleOnly?: boolean,
     audioOnly?: boolean,
-    videoMeta?: VideoMeta
+    videoMeta?: VideoMeta,
+    ownerName?: string
   ) => {
     // 用 ref 防止重复提交（queued/downloading 都算活跃，禁止重复）
     if (downloadingIds.current.has(id)) return;
     downloadingIds.current.add(id);
+
+    // UP 主名：显式参数优先（恢复/重试从 DB 回传），其次取 videoMeta 透传（新提交）
+    const owner = ownerName ?? videoMeta?.owner_name;
 
     // 先加入 UI 列表（显示为 queued，dispatcher 拿到 permit 后会 emit downloading）。
     // 同时填充恢复/重试所需的原始参数。
@@ -210,7 +231,7 @@ export default function App() {
       const filtered = prev.filter((d) => d.id !== id);
       return [{
         id, title, status: "queued" as const, progress: 0, pic,
-        bvid, cid, epId: epId ?? null, videoTitle, duration,
+        bvid, cid, epId: epId ?? null, videoTitle, duration, ownerName: owner,
       }, ...filtered];
     });
 
@@ -224,13 +245,14 @@ export default function App() {
         pic: pic ?? null, created_at: new Date().toISOString(),
         quality: null, video_title: videoTitle || null,
         duration: duration ?? null,
+        owner_name: owner ?? null,
       }
     }).catch(() => {});
 
     // 提交到调度器（立即返回；下载中途状态/进度/完成/失败全走事件）。
     // 命令返回的 Err 仅代表提交阶段失败（如未登录）。
     try {
-      await invoke("download_video", { id, bvid, cid, title, videoTitle, epId, duration, subtitleOnly, audioOnly, videoMeta });
+      await invoke("download_video", { id, bvid, cid, title, videoTitle, epId, duration, subtitleOnly, audioOnly, videoMeta, ownerName: owner ?? null });
       // downloadingIds 在 download://complete/error/state(cancelled) 中清理
     } catch (err) {
       downloadingIds.current.delete(id);
@@ -301,7 +323,8 @@ export default function App() {
     }
     handleDownload(
       item.id, item.bvid, item.cid, item.title, item.videoTitle || item.title,
-      item.epId ?? undefined, item.duration, item.pic
+      item.epId ?? undefined, item.duration, item.pic,
+      undefined, undefined, undefined, item.ownerName
     );
   };
 
@@ -313,7 +336,8 @@ export default function App() {
     }
     handleDownload(
       item.id, item.bvid, item.cid, item.title, item.videoTitle || item.title,
-      item.epId ?? undefined, item.duration, item.pic
+      item.epId ?? undefined, item.duration, item.pic,
+      undefined, undefined, undefined, item.ownerName
     );
   };
 
@@ -398,7 +422,7 @@ export default function App() {
   };
 
   // 从详情页点击「在线播放」→ 打开 MSE 播放器覆盖层（最上层 z-[70]）
-  const handlePlay = (p: { bvid: string; cid: number; epId?: number; duration: number; title: string; pages?: VideoPage[] }) => {
+  const handlePlay = (p: PlayingItem) => {
     setPlayingItem(p);
   };
 
@@ -471,6 +495,7 @@ export default function App() {
           <Suspense fallback={null}>
             <VideoPlayer
               bvid={playingItem.bvid}
+              aid={playingItem.aid}
               cid={playingItem.cid}
               epId={playingItem.epId}
               duration={playingItem.duration}
@@ -771,7 +796,7 @@ export default function App() {
 
       {/* URL 输入区 */}
       <div className="px-6 py-3 bg-panel border-b border-line">
-        <DownloadInput onParse={handleParse} isParsing={isParsing} />
+        <DownloadInput value={inputUrl} onChange={setInputUrl} onParse={handleParse} isParsing={isParsing} />
       </div>
 
       {/* 解析列表 */}

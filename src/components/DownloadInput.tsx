@@ -1,16 +1,17 @@
 import { Search, Loader2 } from "lucide-react";
 
 interface DownloadInputProps {
+  /** 受控输入值（App 持有，剪贴板/拖放识别到的链接从这里填入） */
+  value: string;
+  onChange: (v: string) => void;
   onParse: (url: string) => void;
   isParsing: boolean;
 }
 
-export function DownloadInput({ onParse, isParsing }: DownloadInputProps) {
+export function DownloadInput({ value, onChange, onParse, isParsing }: DownloadInputProps) {
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    const form = e.currentTarget;
-    const input = form.elements.namedItem("url") as HTMLInputElement;
-    const url = input.value.trim();
+    const url = value.trim();
     if (url) {
       onParse(url);
     }
@@ -21,7 +22,9 @@ export function DownloadInput({ onParse, isParsing }: DownloadInputProps) {
       <input
         name="url"
         type="text"
-        placeholder="请输入B站视频链接..."
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder="请输入B站视频链接（复制后切回窗口自动填入）..."
         disabled={isParsing}
         className="flex-1 px-3 py-2 text-sm border border-line-2 rounded-lg bg-panel text-ink-2 placeholder:text-ink-3 focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent disabled:opacity-50"
       />

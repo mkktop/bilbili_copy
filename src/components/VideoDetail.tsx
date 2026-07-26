@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { ArrowLeft, Download, Clock, CheckCircle2, Eye, MessageSquare, ArrowUpDown, ChevronRight, Play } from "lucide-react";
-import type { ParsedItem, VideoPage, VideoMeta } from "../types";
+import type { ParsedItem, VideoPage, VideoMeta, PlayingItem } from "../types";
 import { formatDuration } from "../types";
 import { cn } from "../lib/utils";
 import { formatCount } from "./VideoCard";
@@ -18,7 +18,7 @@ interface VideoDetailProps {
   onOpenUpper?: (mid: number) => void;
   /** 在线播放（在线强制 H.264；下载仍用用户 codec 设置，互不影响）。
    *  pages=正片分P列表，多分P时播放器顶部显示「选集」菜单可切换。 */
-  onPlay?: (p: { bvid: string; cid: number; epId?: number; duration: number; title: string; pages?: VideoPage[] }) => void;
+  onPlay?: (p: PlayingItem) => void;
   onDownload: (
     id: string,
     bvid: string,
@@ -243,6 +243,7 @@ export function VideoDetail({ entry, sourceLabel, onBack, onOpenUpper, onPlay, o
               onClick={() =>
                 onPlay({
                   bvid: info.bvid,
+                  aid: info.aid,
                   cid: info.pages[0].cid,
                   epId: info.ep_id,
                   duration: info.duration,

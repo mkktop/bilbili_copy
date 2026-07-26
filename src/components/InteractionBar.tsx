@@ -7,6 +7,7 @@ import {
   Loader2,
   ChevronDown,
   Check,
+  Zap,
 } from "lucide-react";
 import type { FavoriteFolder } from "../types";
 import { formatCount } from "./VideoCard";
@@ -21,7 +22,7 @@ interface Props {
   likeCount?: number;
 }
 
-type ActionKind = "like" | "coin" | "favorite";
+type ActionKind = "like" | "coin" | "favorite" | "triple";
 
 export function InteractionBar({ bvid, aid, likeCount }: Props) {
   const { userInfo } = useLogin();
@@ -31,6 +32,8 @@ export function InteractionBar({ bvid, aid, likeCount }: Props) {
   const [showFolders, setShowFolders] = useState(false);
   const [folders, setFolders] = useState<FavoriteFolder[]>([]);
   const [loadingFolders, setLoadingFolders] = useState(false);
+  // 本次挂载内用户显式选过的收藏夹：一键三连优先用它，否则回退收藏夹列表第一项（默认收藏夹）
+  const [lastFolderId, setLastFolderId] = useState<number | null>(null);
 
   // 未登录：按钮整体禁用，提示登录
   const loggedIn = !!userInfo;
@@ -90,12 +93,93 @@ export function InteractionBar({ bvid, aid, likeCount }: Props) {
   const handleFavorite = (folder: FavoriteFolder) =>
     run("favorite", async () => {
       await invoke("favorite_video", { aid, folderId: folder.id });
+      setLastFolderId(folder.id);
       setShowFolders(false);
       toast.success(`已收藏到「${folder.title}」`);
     });
 
+  /**
+   * 一键三连：点赞 + 投 1 币 + 收藏。三步独立 try/catch——投币失败（如今日已投/币不足）
+   * 不阻断收藏，最后汇总 toast。不走 run() 包装器（它首个失败即中断，策略不符）。
+   */
+  const handleTriple = async () => {
+    if (!loggedIn) {
+      toast.error("请先登录后再操作");
+      return;
+    }
+    if (busy) return;
+    setBusy("triple");
+    try {
+      const ok: string[] = [];
+      const fail: string[] = [];
+
+      // 1) 点赞（幂等：已赞过会在汇总里报失败，不影响后两步）
+      try {
+        await invoke("like_video", { bvid, like: 1 });
+        setLiked(true);
+        ok.push("点赞");
+      } catch (e) {
+        fail.push(`点赞：${friendlyError(e)}`);
+      }
+
+      // 2) 投币（1 枚，select_like=0 避免与点赞状态冲突）
+      try {
+        await invoke("coin_video", { bvid, multiply: 1, selectLike: 0 });
+        ok.push("投币");
+      } catch (e) {
+        fail.push(`投币：${friendlyError(e)}`);
+      }
+
+      // 3) 收藏：优先本次显式选过的收藏夹，否则懒加载列表取第一项（B站默认收藏夹排首）
+      try {
+        let folderId = lastFolderId;
+        if (folderId == null) {
+          let list = folders;
+          if (list.length === 0) {
+            list = await invoke<FavoriteFolder[]>("get_favorite_folders");
+            setFolders(list);
+          }
+          folderId = list[0]?.id ?? null;
+        }
+        if (folderId == null) {
+          fail.push("收藏：无可用收藏夹");
+        } else {
+          await invoke("favorite_video", { aid, folderId });
+          ok.push("收藏");
+        }
+      } catch (e) {
+        fail.push(`收藏：${friendlyError(e)}`);
+      }
+
+      if (fail.length === 0) {
+        toast.success("三连完成");
+      } else if (ok.length === 0) {
+        toast.error(`三连失败：${fail.join("；")}`);
+      } else {
+        toast.success(`${ok.join("、")}成功；${fail.join("；")}`);
+      }
+    } finally {
+      setBusy(null);
+    }
+  };
+
   return (
     <div className="flex items-center gap-2 bg-panel-2 rounded-xl p-2">
+      {/* 一键三连（点赞 + 1 币 + 收藏） */}
+      <button
+        onClick={handleTriple}
+        disabled={busy !== null}
+        title="点赞 + 投 1 币 + 收藏（收藏夹优先用你这次选过的，否则默认收藏夹）"
+        className="flex items-center gap-1 px-3 py-1.5 text-xs rounded-lg border bg-gradient-to-r from-pink-50 to-amber-50 border-pink-200 text-pink-600 hover:from-pink-100 hover:to-amber-100 transition-colors disabled:opacity-50"
+      >
+        {busy === "triple" ? (
+          <Loader2 size={13} className="animate-spin" />
+        ) : (
+          <Zap size={13} />
+        )}
+        三连
+      </button>
+
       {/* 点赞 */}
       <button
         onClick={handleLike}

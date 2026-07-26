@@ -1,4 +1,4 @@
-import { Download, Zap, Layers, Server, FileText, Sliders, GaugeCircle, Music } from "lucide-react";
+import { Download, Zap, Layers, Server, FileText, Sliders, GaugeCircle, Music, FolderTree } from "lucide-react";
 import { SettingCard, SegmentedControl, ToggleRow, ToggleSwitch, NumberInput } from "./shared";
 
 interface DownloadTabProps {
@@ -14,6 +14,9 @@ interface DownloadTabProps {
   // 仅音频输出格式
   audioFormat: string;
   onAudioFormatChange: (v: string) => void;
+  // 文件名模板
+  filenameTemplate: string;
+  onFilenameTemplateChange: (v: string) => void;
   // NFO 元数据刮削
   downloadNfo: boolean;
   onDownloadNfoChange: (v: boolean) => void;
@@ -42,6 +45,8 @@ export function DownloadTab({
   onMaxDownloadSpeedKbpsChange,
   audioFormat,
   onAudioFormatChange,
+  filenameTemplate,
+  onFilenameTemplateChange,
   downloadNfo,
   onDownloadNfoChange,
   nfoIncludeGenre,
@@ -54,6 +59,15 @@ export function DownloadTab({
   saved,
   onSave,
 }: DownloadTabProps) {
+  // 模板实时预览（占位符替换为示例值，未知占位符置空——与后端渲染规则一致）
+  const preview = (filenameTemplate.trim() || "{video_title}/{title}")
+    .replace(/\{title\}/g, "视频标题")
+    .replace(/\{video_title\}/g, "合集名")
+    .replace(/\{bvid\}/g, "BV1xx411x7xx")
+    .replace(/\{ep\}/g, "1234")
+    .replace(/\{cid\}/g, "12345")
+    .replace(/\{up\}/g, "UP主名")
+    .replace(/\{[a-zA-Z_][a-zA-Z0-9_]*\}/g, "");
   return (
     <div className="space-y-4 max-w-lg">
       <SettingCard
@@ -140,6 +154,29 @@ export function DownloadTab({
           value={audioFormat}
           onChange={onAudioFormatChange}
         />
+      </SettingCard>
+
+      {/* 文件名模板 */}
+      <SettingCard
+        icon={FolderTree}
+        title="文件名模板"
+        description="下载产物的保存路径与文件名（相对下载目录），/ 表示创建子目录。留空使用默认 {video_title}/{title}（即历史目录结构：每视频一个文件夹）。"
+      >
+        <input
+          type="text"
+          value={filenameTemplate}
+          onChange={(e) => onFilenameTemplateChange(e.target.value)}
+          placeholder="{video_title}/{title}"
+          spellCheck={false}
+          className="w-full px-3 py-2 text-sm font-mono border border-line-2 rounded-lg bg-panel-2 text-ink focus:outline-none focus:border-blue-500 transition-colors"
+        />
+        <p className="text-xs text-ink-3 mt-2 leading-relaxed">
+          可用占位符：{"{title}"} 标题（多P时即 Pn 分P名）· {"{video_title}"} 合集/视频名 · {"{bvid}"} · {"{ep}"} 剧集号（非番剧为空，EP{"{ep}"} 会残留 EP 前缀）· {"{cid}"} · {"{up}"} UP 主名。
+          非法字符与路径穿越自动清理，总路径过长时仅裁剪文件名段。
+        </p>
+        <p className="text-xs text-ink-2 mt-1.5 font-mono break-all">
+          预览：{preview}.mp4
+        </p>
       </SettingCard>
 
       {/* NFO 元数据刮削区块标题 */}

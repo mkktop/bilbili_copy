@@ -25,6 +25,7 @@ pub mod comment;
 pub mod interaction;
 pub mod throttle;
 pub mod mp4_seek;
+pub mod filename;
 
 // ==================== 共享常量 ====================
 

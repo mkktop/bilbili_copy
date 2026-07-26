@@ -62,10 +62,37 @@ struct SubtitleItem {
 
 // ==================== 公开 API ====================
 
-/// 从 `/x/player/wbi/v2` 获取可用字幕列表
+/// 从 `/x/player/wbi/v2` 获取可用字幕列表（**过滤 AI 字幕** —— 下载路径用：
+/// 用户下载时通常优先人工字幕；在线播放路径用 `get_subtitle_urls_all`）。
 ///
 /// 需要 WBI 签名，参数: cid, bvid, aid
 pub async fn get_subtitle_urls(
+    client: &reqwest::Client,
+    credential: &Credential,
+    cid: i64,
+    bvid: &str,
+    aid: u64,
+) -> anyhow::Result<Vec<SubtitleInfo>> {
+    let all = fetch_subtitle_list(client, credential, cid, bvid, aid).await?;
+    let subtitles: Vec<SubtitleInfo> = all.into_iter().filter(|v| !v.is_ai_sub()).collect();
+    log::info!("[subtitle] 获取到 {} 条字幕（已过滤AI字幕）", subtitles.len());
+    Ok(subtitles)
+}
+
+/// 获取全部可用字幕（**含 AI 生成**）—— 在线播放器路径用。
+/// 很多视频只有 AI 字幕，播放场景下过滤掉等于没有字幕可选。
+pub async fn get_subtitle_urls_all(
+    client: &reqwest::Client,
+    credential: &Credential,
+    cid: i64,
+    bvid: &str,
+    aid: u64,
+) -> anyhow::Result<Vec<SubtitleInfo>> {
+    fetch_subtitle_list(client, credential, cid, bvid, aid).await
+}
+
+/// 列表抓取主体（不过滤）：WBI 签名 + 412/-404 刷新密钥重试一次。
+async fn fetch_subtitle_list(
     client: &reqwest::Client,
     credential: &Credential,
     cid: i64,
@@ -121,17 +148,31 @@ pub async fn get_subtitle_urls(
             .map(|s| s.subtitles)
             .unwrap_or_default();
 
-        // 过滤掉 AI 生成的字幕
-        let subtitles: Vec<SubtitleInfo> = subtitles
-            .into_iter()
-            .filter(|v| !v.is_ai_sub())
-            .collect();
-
-        log::info!("[subtitle] 获取到 {} 条字幕（已过滤AI字幕）", subtitles.len());
+        log::info!("[subtitle] 获取到 {} 条字幕", subtitles.len());
         return Ok(subtitles);
     }
 
     anyhow::bail!("WBI签名重试后仍然失败")
+}
+
+/// 字幕 cue（在线播放器覆盖层渲染用：结构化时间轴，不经 SRT/VTT 文本中转）
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SubtitleCue {
+    pub from: f64,
+    pub to: f64,
+    pub content: String,
+}
+
+/// 下载单条字幕并解析为 cue 列表（播放器字幕覆盖层用）
+pub async fn fetch_subtitle_cues(
+    client: &reqwest::Client,
+    subtitle_url: &str,
+) -> anyhow::Result<Vec<SubtitleCue>> {
+    let items = fetch_subtitle_content(client, subtitle_url).await?;
+    Ok(items
+        .into_iter()
+        .map(|it| SubtitleCue { from: it.from, to: it.to, content: it.content })
+        .collect())
 }
 
 /// 下载单条字幕并转换为 SRT 格式

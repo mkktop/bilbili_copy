@@ -116,8 +116,20 @@ fn migrate_schema(conn: &Connection) -> anyhow::Result<()> {
         version = 5;
     }
 
-    if version > 5 {
-        log::warn!("[db] schema_version={} 高于当前代码已知的最新版本(5)", version);
+    // v6: download_history 增加 owner_name（UP 主名）列。
+    //     文件名模板的 {up} 占位符依赖它：恢复/重试场景前端只从 DB 回传此字段，
+    //     而非完整 video_meta（后者仅 NFO 开启时透传且字段全部必填，无法局部重建）。
+    if version < 6 {
+        if !column_exists(conn, "download_history", "owner_name")? {
+            conn.execute("ALTER TABLE download_history ADD COLUMN owner_name TEXT", [])?;
+            log::info!("[db] 迁移 v6: 已为 download_history 添加 owner_name 列");
+        }
+        set_schema_version(conn, 6)?;
+        version = 6;
+    }
+
+    if version > 6 {
+        log::warn!("[db] schema_version={} 高于当前代码已知的最新版本(6)", version);
     }
     Ok(())
 }
@@ -173,6 +185,9 @@ pub struct DownloadHistoryEntry {
     /// 视频时长（秒，v4 schema 新增）：提交下载时写入，用于统计总时长。旧记录/未知为 None。
     #[serde(default)]
     pub duration: Option<i64>,
+    /// UP 主名（v6 schema 新增）：文件名模板 {up} 占位符用，恢复/重试时重建输出路径。旧记录为 None。
+    #[serde(default)]
+    pub owner_name: Option<String>,
 }
 
 // ==================== CRUD ====================
@@ -244,8 +259,8 @@ pub fn clear_all_parses(conn: &Connection) -> anyhow::Result<()> {
 
 pub fn insert_download(conn: &Connection, entry: &DownloadHistoryEntry) -> anyhow::Result<()> {
     conn.execute(
-        "INSERT OR REPLACE INTO download_history (id, title, bvid, cid, ep_id, status, progress, phase, error_msg, output_path, pic, quality, video_title, size, duration) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
-        params![entry.id, entry.title, entry.bvid, entry.cid, entry.ep_id, entry.status, entry.progress, entry.phase, entry.error_msg, entry.output_path, entry.pic, entry.quality, entry.video_title, entry.size, entry.duration],
+        "INSERT OR REPLACE INTO download_history (id, title, bvid, cid, ep_id, status, progress, phase, error_msg, output_path, pic, quality, video_title, size, duration, owner_name) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+        params![entry.id, entry.title, entry.bvid, entry.cid, entry.ep_id, entry.status, entry.progress, entry.phase, entry.error_msg, entry.output_path, entry.pic, entry.quality, entry.video_title, entry.size, entry.duration, entry.owner_name],
     )?;
     Ok(())
 }
@@ -287,7 +302,7 @@ pub fn get_download_row_status(
 
 pub fn get_all_downloads(conn: &Connection, limit: u32, offset: u32) -> anyhow::Result<Vec<DownloadHistoryEntry>> {
     let mut stmt = conn.prepare(
-        "SELECT id, title, bvid, cid, ep_id, status, progress, phase, error_msg, output_path, pic, created_at, quality, video_title, size, duration FROM download_history ORDER BY created_at DESC LIMIT ?1 OFFSET ?2",
+        "SELECT id, title, bvid, cid, ep_id, status, progress, phase, error_msg, output_path, pic, created_at, quality, video_title, size, duration, owner_name FROM download_history ORDER BY created_at DESC LIMIT ?1 OFFSET ?2",
     )?;
     let rows = stmt.query_map(params![limit, offset], |row| {
         Ok(DownloadHistoryEntry {
@@ -307,6 +322,7 @@ pub fn get_all_downloads(conn: &Connection, limit: u32, offset: u32) -> anyhow::
             video_title: row.get(13)?,
             size: row.get(14)?,
             duration: row.get(15)?,
+            owner_name: row.get(16)?,
         })
     })?;
     Ok(rows.filter_map(|r| r.ok()).collect())
@@ -435,7 +451,8 @@ CREATE TABLE IF NOT EXISTS download_history (
     quality INTEGER,
     video_title TEXT,
     size INTEGER,
-    duration INTEGER
+    duration INTEGER,
+    owner_name TEXT
 );
 
 CREATE TABLE IF NOT EXISTS download_stats (
@@ -484,9 +501,9 @@ mod tests {
 
         migrate_schema(&conn).unwrap();
 
-        // 迁移后 pic 列存在，版本一路升到最新（当前为 5）
+        // 迁移后 pic 列存在，版本一路升到最新（当前为 6）
         assert!(column_exists(&conn, "download_history", "pic").unwrap());
-        assert_eq!(current_schema_version(&conn), 5);
+        assert_eq!(current_schema_version(&conn), 6);
     }
 
     #[test]
@@ -507,7 +524,7 @@ mod tests {
 
         assert!(column_exists(&conn, "download_history", "quality").unwrap());
         assert!(column_exists(&conn, "download_history", "video_title").unwrap());
-        assert_eq!(current_schema_version(&conn), 5);
+        assert_eq!(current_schema_version(&conn), 6);
     }
 
     #[test]
@@ -516,7 +533,7 @@ mod tests {
         migrate_schema(&conn).unwrap();
         // 再次执行迁移不应报错（version 已是 3，跳过 ALTER）
         migrate_schema(&conn).unwrap();
-        assert_eq!(current_schema_version(&conn), 5);
+        assert_eq!(current_schema_version(&conn), 6);
         assert!(column_exists(&conn, "download_history", "pic").unwrap());
     }
 
@@ -526,14 +543,15 @@ mod tests {
         let conn = Connection::open_in_memory().unwrap();
         conn.execute_batch(SCHEMA_SQL).unwrap();
         assert_eq!(current_schema_version(&conn), 0);
-        // 建表语句已含 pic / quality / video_title 列
+        // 建表语句已含 pic / quality / video_title / owner_name 列
         assert!(column_exists(&conn, "download_history", "pic").unwrap());
         assert!(column_exists(&conn, "download_history", "quality").unwrap());
         assert!(column_exists(&conn, "download_history", "video_title").unwrap());
+        assert!(column_exists(&conn, "download_history", "owner_name").unwrap());
 
         migrate_schema(&conn).unwrap();
-        // 全新库经 migrate_schema 走完所有迁移分支（列已存在则跳过 ALTER，但仍记录 version 到最新 5）
-        assert_eq!(current_schema_version(&conn), 5);
+        // 全新库经 migrate_schema 走完所有迁移分支（列已存在则跳过 ALTER，但仍记录 version 到最新 6）
+        assert_eq!(current_schema_version(&conn), 6);
     }
 
     #[test]
@@ -551,6 +569,7 @@ mod tests {
         assert_eq!(rows[0].title, "测试视频");
         assert_eq!(rows[0].quality, Some(80));
         assert_eq!(rows[0].video_title.as_deref(), Some("合集名"));
+        assert_eq!(rows[0].owner_name.as_deref(), Some("某UP"), "owner_name 必须能往返落库（文件名模板 {{up}} 依赖它）");
     }
 
     #[test]
@@ -571,6 +590,33 @@ mod tests {
         assert_eq!(rows[0].pic, None);
         assert_eq!(rows[0].quality, None);
         assert_eq!(rows[0].video_title, None);
+        assert_eq!(rows[0].owner_name, None);
+    }
+
+    #[test]
+    fn migrate_v6_adds_owner_name() {
+        // 构造停在 v5（有 pic/quality/video_title/size/duration，无 owner_name）的老库
+        let conn = legacy_v1_db();
+        for col in ["pic TEXT", "quality INTEGER", "video_title TEXT", "size INTEGER", "duration INTEGER"] {
+            conn.execute(&format!("ALTER TABLE download_history ADD COLUMN {col}"), []).unwrap();
+        }
+        conn.execute("INSERT OR REPLACE INTO schema_version (version) VALUES (5)", []).unwrap();
+        assert_eq!(current_schema_version(&conn), 5);
+        assert!(!column_exists(&conn, "download_history", "owner_name").unwrap());
+
+        // v5 → v6：补 owner_name 列
+        migrate_schema(&conn).unwrap();
+        assert!(column_exists(&conn, "download_history", "owner_name").unwrap(), "v6 迁移必须补出 owner_name 列");
+        assert_eq!(current_schema_version(&conn), 6);
+
+        // 老记录 owner_name 读出为 NULL（None），不会因补列破坏既有数据
+        conn.execute(
+            "INSERT INTO download_history (id, title, bvid, cid, status, progress, created_at)
+             VALUES ('v5-1', '老视频', 'BV0yy', 1, 'done', 100.0, '2026-01-01T00:00:00Z')",
+            [],
+        ).unwrap();
+        let rows = get_all_downloads(&conn, 10, 0).unwrap();
+        assert_eq!(rows[0].owner_name, None, "v5 时代的老记录 owner_name 必须为 None");
     }
 
     /// 辅助：构造一个带全部 v3 字段的下载记录
@@ -592,6 +638,7 @@ mod tests {
             video_title: Some("合集名".into()),
             size: None,
             duration: Some(360),
+            owner_name: Some("某UP".into()),
         }
     }
 }

@@ -109,6 +109,9 @@ pub struct DownloadParams {
     pub audio_only: bool,
     /// NFO 元数据快照（前端透传，用于生成 .nfo 和下载封面）。None = 不生成 NFO。
     pub video_meta: Option<VideoMeta>,
+    /// UP 主名（文件名模板 `{up}` 占位符用）。一等参数而非仅取自 video_meta：
+    /// NFO 关闭时 video_meta 会被丢弃，且恢复/重试场景 DB 只回传它而非完整 meta。
+    pub owner_name: Option<String>,
 }
 
 /// `download://state` 事件载荷：通知前端任务状态变化（queued/downloading/paused/cancelled）。
@@ -510,6 +513,7 @@ mod tests {
             subtitle_only: false,
             audio_only: false,
             video_meta: None,
+            owner_name: None,
         }
     }
 

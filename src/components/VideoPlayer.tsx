@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { ArrowLeft, Loader2, AlertCircle, Settings2, Check, ListVideo } from "lucide-react";
+import { ArrowLeft, Loader2, AlertCircle, Settings2, Check, ListVideo, Gauge, Subtitles } from "lucide-react";
 import type { VideoPage } from "../types";
 
 interface Props {
   bvid: string;
+  /** 稿件 aid：字幕列表 API（player v2）必填 */
+  aid: number;
   cid: number;
   epId?: number;
   duration: number;
@@ -13,6 +15,25 @@ interface Props {
   pages?: VideoPage[];
   onBack: () => void;
 }
+
+/** 字幕轨道（get_subtitle_list 返回） */
+interface SubtitleTrack {
+  lan: string;
+  lan_doc: string;
+  /** AI 自动生成字幕（很多视频只有这种） */
+  is_ai: boolean;
+  subtitle_url: string;
+}
+
+/** 字幕 cue（get_subtitle_cues 返回，秒） */
+interface SubtitleCue {
+  from: number;
+  to: number;
+  content: string;
+}
+
+/** 倍速档位（WebView2 原生控件不暴露倍速菜单，只能自建） */
+const SPEED_OPTIONS = [0.5, 0.75, 1, 1.25, 1.5, 2];
 
 interface PlayQuality {
   qn: number;
@@ -42,6 +63,9 @@ interface SeekPlan {
 
 /** 记住本会话上次手动选择的画质，下次打开沿用（播放器单实例） */
 let lastChosenQn: number | null = null;
+
+/** 记住本会话上次手动选择的倍速，下次打开沿用 */
+let lastChosenRate = 1;
 
 /** B站流 URL → biliproxy 代理 URL（base64url 编码进路径，绕跨域 + 补 Referer）。
  *  Windows WebView2 下自定义协议地址形如 http://biliproxy.localhost/<path> */
@@ -251,7 +275,7 @@ function waitForBuffered(video: HTMLVideoElement, target: number, signal: AbortS
   });
 }
 
-export function VideoPlayer({ bvid, cid, epId, duration, title, pages, onBack }: Props) {
+export function VideoPlayer({ bvid, aid, cid, epId, duration, title, pages, onBack }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
 
   // 多分P：当前播放的分P（初始为 props.cid 对应的P）。切换分P → 派生值变化 →
@@ -270,6 +294,16 @@ export function VideoPlayer({ bvid, cid, epId, duration, title, pages, onBack }:
   const [error, setError] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [episodeMenuOpen, setEpisodeMenuOpen] = useState(false); // 分P选集菜单
+  const [speedMenuOpen, setSpeedMenuOpen] = useState(false);     // 倍速菜单
+  const [subtitleMenuOpen, setSubtitleMenuOpen] = useState(false); // 字幕菜单
+  // 倍速：模块级记忆 + 每次 src 重建后重设（赋 src 会触发媒体加载算法把 playbackRate 复位）
+  const [playbackRate, setPlaybackRate] = useState(lastChosenRate);
+  // 字幕：轨道列表（随 bvid/cid 拉取）+ 选中轨道的 cues + 当前显示文本
+  const [subTracks, setSubTracks] = useState<SubtitleTrack[]>([]);
+  const [selectedSubLan, setSelectedSubLan] = useState<string | null>(null);
+  const [cues, setCues] = useState<SubtitleCue[]>([]);
+  const [activeCue, setActiveCue] = useState("");
+  const cueReqRef = useRef(0); // cues 请求序号：丢弃过期响应（快速切轨道/切P）
   const freezeCanvasRef = useRef<HTMLCanvasElement | null>(null); // 精准 seek 重建期的冻结帧 overlay（canvas 同步绘制，盖住黑屏）
 
   // MSE 生命周期（初始打开 / 画质切换 / 精准 seek / 卸载清理 共用）
@@ -288,6 +322,84 @@ export function VideoPlayer({ bvid, cid, epId, duration, title, pages, onBack }:
     invoke("log_player_error", { msg }).catch(() => {});
     setError(msg);
   }, []);
+
+  /** 顶栏四个下拉菜单（选集/画质/倍速/字幕）互斥 */
+  const closeMenus = useCallback(() => {
+    setMenuOpen(false);
+    setEpisodeMenuOpen(false);
+    setSpeedMenuOpen(false);
+    setSubtitleMenuOpen(false);
+  }, []);
+
+  /** 应用倍速：记忆 + 立即生效（defaultPlaybackRate 保证后续 src 重建也沿用） */
+  const applySpeed = useCallback((rate: number) => {
+    lastChosenRate = rate;
+    setPlaybackRate(rate);
+    closeMenus();
+    const video = videoRef.current;
+    if (video) {
+      video.defaultPlaybackRate = rate;
+      video.playbackRate = rate;
+    }
+  }, [closeMenus]);
+
+  /** 字幕列表：随 bvid/cid 变化重拉（切P换轨道）；画质切换不重置（同 cid 同内容，保留用户选择）。
+   *  无字幕/未登录 → 空列表 → 菜单禁用。 */
+  useEffect(() => {
+    let active = true;
+    cueReqRef.current++; // 切P/换稿件：让上一P在途的 get_subtitle_cues 响应过期（其 req 不再等于当前值）
+    setSubTracks([]);
+    setSelectedSubLan(null);
+    setCues([]);
+    setActiveCue("");
+    invoke<SubtitleTrack[]>("get_subtitle_list", { bvid, cid: currentCid, aid })
+      .then((list) => { if (active) setSubTracks(list); })
+      .catch(() => { /* 无字幕或异常：菜单禁用即可，不打断播放 */ });
+    return () => { active = false; };
+  }, [bvid, currentCid, aid]);
+
+  /** 选择字幕轨道：null = 关闭。cues 拉取按序号丢弃过期响应。 */
+  const selectSubtitle = useCallback(async (lan: string | null) => {
+    closeMenus();
+    setSelectedSubLan(lan);
+    if (!lan) {
+      cueReqRef.current++;
+      setCues([]);
+      setActiveCue("");
+      return;
+    }
+    const track = subTracks.find((t) => t.lan === lan);
+    if (!track) return;
+    const req = ++cueReqRef.current;
+    try {
+      const list = await invoke<SubtitleCue[]>("get_subtitle_cues", { subtitleUrl: track.subtitle_url });
+      if (cueReqRef.current === req) setCues(list);
+    } catch {
+      if (cueReqRef.current === req) {
+        setCues([]);
+        setSelectedSubLan(null);
+        setActiveCue(""); // 与「关闭」分支一致：失败时也不能留下上一轨的残影字幕
+      }
+    }
+  }, [subTracks, closeMenus]);
+
+  /** 当前 cue 显示：timeupdate（~4Hz）线性扫描。无 op 时不 setState（防无谓重渲染）。 */
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || cues.length === 0) {
+      setActiveCue((p) => (p ? "" : p)); // 防御：cues 清空路径若漏清 activeCue，这里兜底
+      return;
+    }
+    const onTime = () => {
+      const t = video.currentTime;
+      const cue = cues.find((c) => t >= c.from && t < c.to);
+      const text = cue?.content ?? "";
+      setActiveCue((prev) => (prev === text ? prev : text));
+    };
+    video.addEventListener("timeupdate", onTime);
+    onTime();
+    return () => video.removeEventListener("timeupdate", onTime);
+  }, [cues]);
 
   /** 异步加载精准拖动索引（非阻塞，失败静默） */
   const loadSeekIndex = useCallback(async (videoUrl: string, audioUrl: string) => {
@@ -342,6 +454,10 @@ export function VideoPlayer({ bvid, cid, epId, duration, title, pages, onBack }:
     const switching = resumeTime > 0.5; // 画质切换 或 精准 seek 都走「追帧 + 续播」
     video.autoplay = !switching;
     video.src = objectUrlRef.current;
+    // 赋 src 触发媒体加载算法会把 playbackRate 复位为 defaultPlaybackRate：两者一起重设，
+    // 保证画质切换 / 精准 seek 重建流后倍速不丢。
+    video.defaultPlaybackRate = lastChosenRate;
+    video.playbackRate = lastChosenRate;
     if (switching) {
       try { video.pause(); } catch { /* 防止 autoPlay 从 0 开始播 */ }
     }
@@ -543,7 +659,7 @@ export function VideoPlayer({ bvid, cid, epId, duration, title, pages, onBack }:
         {multiPage && pages && (
           <div className="relative">
             <button
-              onClick={() => { setEpisodeMenuOpen(v => !v); setMenuOpen(false); }}
+              onClick={() => { const next = !episodeMenuOpen; closeMenus(); setEpisodeMenuOpen(next); }}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm text-white bg-white/10 hover:bg-white/20 transition-colors"
             >
               <ListVideo size={15} />
@@ -575,7 +691,7 @@ export function VideoPlayer({ bvid, cid, epId, duration, title, pages, onBack }:
         {/* 画质选择 */}
         <div className="relative">
           <button
-            onClick={() => { setMenuOpen(v => !v); setEpisodeMenuOpen(false); }}
+            onClick={() => { const next = !menuOpen; closeMenus(); setMenuOpen(next); }}
             disabled={qualities.length === 0}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm text-white bg-white/10 hover:bg-white/20 transition-colors disabled:opacity-40"
           >
@@ -600,6 +716,77 @@ export function VideoPlayer({ bvid, cid, epId, duration, title, pages, onBack }:
             </>
           )}
         </div>
+
+        {/* 倍速（WebView2 原生控件无倍速菜单，自建） */}
+        <div className="relative">
+          <button
+            onClick={() => { const next = !speedMenuOpen; closeMenus(); setSpeedMenuOpen(next); }}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm text-white bg-white/10 hover:bg-white/20 transition-colors"
+          >
+            <Gauge size={15} />
+            <span>{playbackRate === 1 ? "倍速" : `${playbackRate}x`}</span>
+          </button>
+          {speedMenuOpen && (
+            <>
+              <div className="fixed inset-0 z-20" onClick={closeMenus} />
+              <div className="absolute right-0 top-full z-30 mt-1 min-w-[110px] rounded-lg bg-zinc-900/95 border border-white/10 shadow-xl py-1">
+                {SPEED_OPTIONS.map((rate) => (
+                  <button
+                    key={rate}
+                    onClick={() => applySpeed(rate)}
+                    className="w-full flex items-center justify-between gap-3 px-3 py-2 text-sm text-white hover:bg-white/10 transition-colors"
+                  >
+                    <span>{rate === 1 ? "正常" : `${rate}x`}</span>
+                    {rate === playbackRate && <Check size={14} className="text-emerald-400" />}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* 字幕（无轨道时禁用；AI 字幕带标注） */}
+        <div className="relative">
+          <button
+            onClick={() => { const next = !subtitleMenuOpen; closeMenus(); setSubtitleMenuOpen(next); }}
+            disabled={subTracks.length === 0}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm text-white bg-white/10 hover:bg-white/20 transition-colors disabled:opacity-40"
+          >
+            <Subtitles size={15} />
+            <span>
+              {selectedSubLan
+                ? (subTracks.find((t) => t.lan === selectedSubLan)?.lan_doc ?? "字幕")
+                : "字幕"}
+            </span>
+          </button>
+          {subtitleMenuOpen && (
+            <>
+              <div className="fixed inset-0 z-20" onClick={closeMenus} />
+              <div className="absolute right-0 top-full z-30 mt-1 min-w-[180px] rounded-lg bg-zinc-900/95 border border-white/10 shadow-xl py-1 max-h-[60vh] overflow-auto">
+                <button
+                  onClick={() => selectSubtitle(null)}
+                  className="w-full flex items-center justify-between gap-3 px-3 py-2 text-sm text-white hover:bg-white/10 transition-colors"
+                >
+                  <span>关闭</span>
+                  {!selectedSubLan && <Check size={14} className="text-emerald-400" />}
+                </button>
+                {subTracks.map((t) => (
+                  <button
+                    key={t.lan}
+                    onClick={() => selectSubtitle(t.lan)}
+                    className="w-full flex items-center justify-between gap-3 px-3 py-2 text-sm text-white hover:bg-white/10 transition-colors"
+                  >
+                    <span className="flex items-center gap-1.5">
+                      {t.lan_doc}
+                      {t.is_ai && <span className="text-[10px] text-white/40 border border-white/20 rounded px-1">AI</span>}
+                    </span>
+                    {t.lan === selectedSubLan && <Check size={14} className="text-emerald-400" />}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
       </div>
 
       {/* 视频区。min-h-0 关键：flex 子项默认 min-height:auto 不允许收缩，
@@ -612,6 +799,15 @@ export function VideoPlayer({ bvid, cid, epId, duration, title, pages, onBack }:
           ref={freezeCanvasRef}
           className="absolute inset-0 w-full h-full object-contain pointer-events-none"
         />
+        {/* 字幕覆盖层：pointer-events-none 保证原生控件可点；bottom-[8%] 避开底部控件条。
+            React state 驱动安全（与 canvas 不同，无 ref 控制的 display 状态）。 */}
+        {activeCue && (
+          <div className="absolute bottom-[8%] left-1/2 -translate-x-1/2 z-10 pointer-events-none max-w-[80%] text-center">
+            <span className="inline-block px-3 py-1 rounded bg-black/60 text-white text-base leading-relaxed whitespace-pre-wrap">
+              {activeCue}
+            </span>
+          </div>
+        )}
         {loading && (
           <div className="absolute inset-0 flex items-center justify-center gap-2 text-white/80 pointer-events-none">
             <Loader2 size={24} className="animate-spin" />

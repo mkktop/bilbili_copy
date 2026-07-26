@@ -154,6 +154,7 @@ pub async fn download_video(
     subtitle_only: Option<bool>,
     audio_only: Option<bool>,
     video_meta: Option<VideoMeta>,
+    owner_name: Option<String>,
 ) -> Result<(), String> {
     let download_id = sanitize_download_id(&id)?;
 
@@ -166,6 +167,14 @@ pub async fn download_video(
 
     // 前置校验：settings 可读（dispatcher 会重新读，但这里早失败更友好）
     let settings = get_settings().map_err(|e| e.to_string())?;
+
+    // UP 主名（文件名模板 {up}）：优先取 video_meta 里的完整透传；
+    // NFO 关闭（video_meta 被下文的门控丢弃）或恢复/重试（DB 只回传 owner_name）时用独立参数。
+    let owner_name = video_meta
+        .as_ref()
+        .map(|m| m.owner_name.trim().to_string())
+        .filter(|n| !n.is_empty())
+        .or_else(|| owner_name.map(|n| n.trim().to_string()).filter(|n| !n.is_empty()));
 
     // 若用户未开启 NFO，丢弃前端透传的 video_meta 节省内存（调度器保存到任务队列里）
     let video_meta = if settings.download_nfo { video_meta } else { None };
@@ -182,6 +191,7 @@ pub async fn download_video(
         subtitle_only: subtitle_only.unwrap_or(false),
         audio_only: audio_only.unwrap_or(false),
         video_meta,
+        owner_name,
     };
 
     match manager().submit(params, 0) {
@@ -233,6 +243,7 @@ pub async fn execute_download(
         subtitle_only,
         audio_only,
         video_meta,
+        owner_name,
     } = params;
     let download_id = match sanitize_download_id(&id) {
         Ok(s) => s,
@@ -294,20 +305,39 @@ pub async fn execute_download(
         dir
     };
 
-    // 4. 构建输出文件路径（每个视频独立文件夹）
-    let folder_name = if video_title.is_empty() { &title } else { &video_title };
-    let video_folder = download_dir.join(sanitize_filename(folder_name));
-    if let Err(e) = std::fs::create_dir_all(&video_folder) {
-        return ExecOutcome::Failed(format!("创建视频目录失败: {}", e));
-    }
+    // 4. 构建输出文件路径（文件名模板渲染；默认模板 {video_title}/{title} 精确复刻历史布局）
     // 仅音频模式：输出 .m4a/.mp3（按设置）；其余 .mp4
     let ext = if audio_only && !subtitle_only {
         if settings.audio_format == "mp3" { "mp3" } else { "m4a" }
     } else {
         "mp4"
     };
-    let filename = format!("{}.{}", sanitize_filename(&title), ext);
-    let output_path = video_folder.join(&filename);
+    // video_title 为空时回退 title —— 历史行为（旧 video_folder 逻辑），在构建 ctx 时保留
+    let folder_name = if video_title.is_empty() { title.as_str() } else { video_title.as_str() };
+    let template_ctx = crate::bilibili::filename::TemplateCtx {
+        title: &title,
+        video_title: folder_name,
+        bvid: &bvid,
+        ep: ep_id,
+        cid,
+        up: owner_name.as_deref(),
+    };
+    let rel = crate::bilibili::filename::render_filename_template(&settings.filename_template, &template_ctx);
+    // 防 Windows MAX_PATH：总长超限时只裁剪最后一段（文件名）
+    let rel = crate::bilibili::filename::truncate_to_fit(
+        &rel,
+        download_dir.to_string_lossy().chars().count(),
+        ext.len(),
+        240,
+    );
+    // 注意：不能用 with_extension —— 它会把标题里的点（"foo.bar"）误当扩展名替换
+    let output_path = download_dir.join(format!("{rel}.{ext}"));
+    // 一次性建好父目录（模板可能引入多级子目录；也修复了无音频 rename 路径不建父目录的问题）
+    if let Some(parent) = output_path.parent() {
+        if let Err(e) = std::fs::create_dir_all(parent) {
+            return ExecOutcome::Failed(format!("创建视频目录失败: {}", e));
+        }
+    }
 
     // 全局限速：KB/s → B/s（0 = 无限制）
     let max_bps = settings.max_download_speed_kbps.saturating_mul(1024) / 8;
@@ -318,13 +348,15 @@ pub async fn execute_download(
         log::info!("[download] 字幕库模式：跳过视频下载，仅下载字幕: id={}", download_id);
         let aid = url::bvid_to_aid(&bvid);
         let dur = duration.unwrap_or(0);
-        let base_path = video_folder.join(sanitize_filename(&title));
+        let base_path = download_dir.join(&rel);
         download_subtitle_only(
             &download_id, &bvid, cid, aid, dur, &credential,
             &base_path, settings.download_danmaku, &settings,
         ).await;
         cleanup_video_semaphore(&bvid);
-        return ExecOutcome::Done(video_folder.to_string_lossy().to_string());
+        // 与历史语义一致：字幕库模式返回字幕所在目录（output_path 的父目录）
+        let containing = output_path.parent().unwrap_or(&download_dir);
+        return ExecOutcome::Done(containing.to_string_lossy().to_string());
     }
 
     // 防风控指纹参数

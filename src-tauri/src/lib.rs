@@ -26,7 +26,7 @@ use commands::recommend::get_recommend;
 use commands::region::get_region;
 use commands::comment::get_video_comments;
 use commands::interaction::{like_video, coin_video, favorite_video};
-use commands::player::{get_play_streams, get_danmaku_json, log_player_error, get_seek_index};
+use commands::player::{get_play_streams, get_danmaku_json, get_subtitle_list, get_subtitle_cues, log_player_error, get_seek_index};
 use download_manager::manager;
 
 /// Read Windows system proxy settings and set HTTPS_PROXY env var
@@ -204,6 +204,7 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(db_state)
         // biliproxy：B站流代理协议。前端经它拉取流字节喂给 MSE（补 Referer、绕跨域、透传 Range）
@@ -328,6 +329,8 @@ pub fn run() {
             favorite_video,
             get_play_streams,
             get_danmaku_json,
+            get_subtitle_list,
+            get_subtitle_cues,
             log_player_error,
             get_seek_index,
         ])

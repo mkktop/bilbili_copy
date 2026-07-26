@@ -45,6 +45,9 @@ export interface AppSettings {
   danmaku_block_bottom: boolean;
   // 字幕导出格式 "srt" | "vtt"
   subtitle_format: string;
+  // 文件名模板：download_dir 下的相对路径，/ 分隔子目录。
+  // 占位符 {title} {video_title} {bvid} {ep} {cid} {up}；空 = 默认 "{video_title}/{title}"（历史布局）
+  filename_template: string;
   // 附加下载 - NFO 元数据刮削（生成 Kodi/Jellyfin/Emby 兼容 .nfo + 封面图）
   download_nfo: boolean;
   // NFO 详细选项 - 写入标签 <genre>（视频 tag / 番剧 style）
@@ -88,6 +91,7 @@ export function useSettings() {
     danmaku_block_top: false,
     danmaku_block_bottom: false,
     subtitle_format: "srt",
+    filename_template: "",
     download_nfo: false,
     nfo_include_genre: true,
     nfo_include_actor: true,

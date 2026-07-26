@@ -52,6 +52,8 @@ export function SettingsPage({ settings, onSave, onBack, onClearParse, onClearDo
   const [dmBlockBottom, setDmBlockBottom] = useState(settings.danmaku_block_bottom);
   // 字幕格式
   const [subtitleFormat, setSubtitleFormat] = useState(settings.subtitle_format);
+  // 文件名模板
+  const [filenameTemplate, setFilenameTemplate] = useState(settings.filename_template);
   // NFO 元数据刮削
   const [downloadNfo, setDownloadNfo] = useState(settings.download_nfo);
   const [nfoIncludeGenre, setNfoIncludeGenre] = useState(settings.nfo_include_genre);
@@ -90,6 +92,7 @@ export function SettingsPage({ settings, onSave, onBack, onClearParse, onClearDo
     setDmBlockTop(settings.danmaku_block_top);
     setDmBlockBottom(settings.danmaku_block_bottom);
     setSubtitleFormat(settings.subtitle_format);
+    setFilenameTemplate(settings.filename_template);
     setDownloadNfo(settings.download_nfo);
     setNfoIncludeGenre(settings.nfo_include_genre);
     setNfoIncludeActor(settings.nfo_include_actor);
@@ -131,6 +134,7 @@ export function SettingsPage({ settings, onSave, onBack, onClearParse, onClearDo
         danmaku_block_top: dmBlockTop,
         danmaku_block_bottom: dmBlockBottom,
         subtitle_format: subtitleFormat,
+        filename_template: filenameTemplate,
         download_nfo: downloadNfo,
         nfo_include_genre: nfoIncludeGenre,
         nfo_include_actor: nfoIncludeActor,
@@ -231,6 +235,8 @@ export function SettingsPage({ settings, onSave, onBack, onClearParse, onClearDo
             onMaxDownloadSpeedKbpsChange={(v) => { setMaxDownloadSpeedKbps(v); setSaved(false); }}
             audioFormat={audioFormat}
             onAudioFormatChange={(v) => { setAudioFormat(v); setSaved(false); }}
+            filenameTemplate={filenameTemplate}
+            onFilenameTemplateChange={(v) => { setFilenameTemplate(v); setSaved(false); }}
             downloadNfo={downloadNfo}
             onDownloadNfoChange={(v) => { setDownloadNfo(v); setSaved(false); }}
             nfoIncludeGenre={nfoIncludeGenre}
