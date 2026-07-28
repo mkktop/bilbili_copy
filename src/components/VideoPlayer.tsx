@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { ArrowLeft, Loader2, AlertCircle, Settings2, Check, ListVideo, Gauge, Subtitles } from "lucide-react";
+import {
+  ArrowLeft, Loader2, AlertCircle, Settings2, Check, ListVideo, Gauge, Subtitles,
+  MessageSquare, MessageSquareOff, PictureInPicture2, Minimize2, Maximize2, X,
+} from "lucide-react";
 import type { VideoPage } from "../types";
 
 interface Props {
@@ -34,6 +37,80 @@ interface SubtitleCue {
 
 /** 倍速档位（WebView2 原生控件不暴露倍速菜单，只能自建） */
 const SPEED_OPTIONS = [0.5, 0.75, 1, 1.25, 1.5, 2];
+
+// ---- 弹幕渲染（canvas 覆盖层，get_danmaku_json 返回）----
+interface DanmakuItem {
+  /** 出现时间（秒） */
+  time: number;
+  text: string;
+  /** 1=滚动 4=底部 5=顶部 6=逆向 */
+  mode: number;
+  /** hex 颜色 "#rrggbb" */
+  color: string;
+}
+/** 预布局后的弹幕：lane<0 表示通道占满被丢弃（与官方「太密少显示几条」体验一致） */
+interface LaidDanmaku extends DanmakuItem {
+  lane: number;
+  /** 文本像素宽（按 DM_FONT_SIZE 测量） */
+  width: number;
+}
+
+const DM_FONT_SIZE = 24;
+const DM_LANE_H = DM_FONT_SIZE + 8;
+const DM_SCROLL_DUR = 12; // 滚动弹幕跨屏时长（秒）
+const DM_FIXED_DUR = 5;   // 顶部/底部固定弹幕显示时长（秒）
+const DM_GAP = 24;        // 同通道前后弹幕最小间距（px）
+const DM_VIRTUAL_W = 1280; // 布局用虚拟画布宽（渲染时位置按实际宽度推导，轻微缩放无感）
+const DM_OPACITY = 0.85;
+const DM_FONT = `bold ${DM_FONT_SIZE}px "Microsoft YaHei", sans-serif`;
+
+/** 记住本会话弹幕开关（与画质/倍速同策略） */
+let lastDanmakuOn = true;
+
+/** 预布局：按时间顺序给每条弹幕分配通道。确定性布局 → seek 后位置可复现，
+ *  碰撞规则与后端 ASS 布局（danmaku.rs Lane::available_for）同源简化。 */
+function layoutDanmaku(items: DanmakuItem[], measure: (text: string) => number): LaidDanmaku[] {
+  const scrollLanes = Array.from({ length: 14 }, () => ({ time: -1e9, width: 0 }));
+  const topLanes: number[] = new Array(5).fill(-1e9);    // 通道占用截止时刻
+  const bottomLanes: number[] = new Array(5).fill(-1e9);
+
+  const placeScroll = (it: DanmakuItem, w: number): number => {
+    for (let i = 0; i < scrollLanes.length; i++) {
+      const lane = scrollLanes[i];
+      const v1 = (DM_VIRTUAL_W + lane.width) / DM_SCROLL_DUR;
+      const v2 = (DM_VIRTUAL_W + w) / DM_SCROLL_DUR;
+      const dt = it.time - lane.time;
+      const dx = v1 * dt - lane.width; // 前一条尾部已越过右边缘的距离
+      if (dx < DM_GAP) continue;
+      // 后一条更快时检查追尾：前一条离场前，后一条前端不能追进 GAP 内
+      if (w > lane.width) {
+        const pos = v2 * (DM_SCROLL_DUR - dt);
+        if (pos > DM_VIRTUAL_W - DM_GAP) continue;
+      }
+      scrollLanes[i] = { time: it.time, width: w };
+      return i;
+    }
+    return -1;
+  };
+  const placeFixed = (it: DanmakuItem, lanes: number[]): number => {
+    for (let i = 0; i < lanes.length; i++) {
+      if (it.time >= lanes[i]) {
+        lanes[i] = it.time + DM_FIXED_DUR;
+        return i;
+      }
+    }
+    return -1;
+  };
+
+  return items.map((it) => {
+    const width = measure(it.text);
+    let lane: number;
+    if (it.mode === 5) lane = placeFixed(it, topLanes);
+    else if (it.mode === 4) lane = placeFixed(it, bottomLanes);
+    else lane = placeScroll(it, width); // mode 1/6 统一按滚动处理
+    return { ...it, lane, width };
+  });
+}
 
 interface PlayQuality {
   qn: number;
@@ -304,6 +381,15 @@ export function VideoPlayer({ bvid, aid, cid, epId, duration, title, pages, onBa
   const [cues, setCues] = useState<SubtitleCue[]>([]);
   const [activeCue, setActiveCue] = useState("");
   const cueReqRef = useRef(0); // cues 请求序号：丢弃过期响应（快速切轨道/切P）
+  // 弹幕：本会话开关记忆 + 预布局列表（ref 持有，rAF 直绘不走 React state）
+  const [danmakuOn, setDanmakuOn] = useState(lastDanmakuOn);
+  const [danmakuCount, setDanmakuCount] = useState(0); // 已加载弹幕数（0=未加载/无弹幕 → 按钮禁用）
+  const danmakuListRef = useRef<LaidDanmaku[]>([]);
+  const danmakuCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const dmReqRef = useRef(0); // 弹幕请求序号：切P时丢弃过期响应
+  // 迷你窗口模式（应用内小窗；系统级悬浮用画中画 PiP）
+  const [miniMode, setMiniMode] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null); // 根容器：F 全屏对象（含弹幕/字幕覆盖层）
   const freezeCanvasRef = useRef<HTMLCanvasElement | null>(null); // 精准 seek 重建期的冻结帧 overlay（canvas 同步绘制，盖住黑屏）
 
   // MSE 生命周期（初始打开 / 画质切换 / 精准 seek / 卸载清理 共用）
@@ -400,6 +486,158 @@ export function VideoPlayer({ bvid, aid, cid, epId, duration, title, pages, onBa
     onTime();
     return () => video.removeEventListener("timeupdate", onTime);
   }, [cues]);
+
+  /** 弹幕列表：随 bvid/cid 变化重拉（切P换弹幕；画质切换不重拉）。
+   *  拉取后一次性预布局（确定性通道分配），rAF 渲染时只按时间窗口查表直绘。
+   *  无弹幕/未登录 → 空列表 → 开关按钮禁用。 */
+  useEffect(() => {
+    const req = ++dmReqRef.current;
+    danmakuListRef.current = [];
+    setDanmakuCount(0);
+    invoke<DanmakuItem[]>("get_danmaku_json", { cid: currentCid, aid, duration: currentDuration })
+      .then((list) => {
+        if (dmReqRef.current !== req) return;
+        // 离屏 canvas 测量文本宽（与渲染字体一致，保证碰撞布局准确）
+        const ctx = document.createElement("canvas").getContext("2d");
+        if (!ctx) return;
+        ctx.font = DM_FONT;
+        const laid = layoutDanmaku(list, (t) => ctx.measureText(t).width).filter((d) => d.lane >= 0);
+        danmakuListRef.current = laid;
+        setDanmakuCount(laid.length);
+      })
+      .catch(() => { /* 无弹幕或异常：按钮禁用即可，不打断播放 */ });
+  }, [bvid, currentCid, aid, currentDuration]);
+
+  /** 弹幕渲染：rAF 循环直绘 canvas（不走 React state，避免高频重渲染）。
+   *  开关关闭/无弹幕时清屏并停表；暂停时画面静止（currentTime 不变）。 */
+  useEffect(() => {
+    const canvas = danmakuCanvasRef.current;
+    const video = videoRef.current;
+    if (!canvas || !video) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    if (!danmakuOn || danmakuCount === 0) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      return;
+    }
+    let raf = 0;
+    const draw = () => {
+      raf = requestAnimationFrame(draw);
+      const W = canvas.clientWidth, H = canvas.clientHeight;
+      if (W === 0 || H === 0) return;
+      if (canvas.width !== W) canvas.width = W;
+      if (canvas.height !== H) canvas.height = H;
+      ctx.clearRect(0, 0, W, H);
+      const list = danmakuListRef.current;
+      if (list.length === 0) return;
+      const t = video.currentTime;
+      ctx.font = DM_FONT;
+      ctx.textBaseline = "top";
+      ctx.globalAlpha = DM_OPACITY;
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = "rgba(0,0,0,0.8)";
+      // 二分找第一条可能在屏的弹幕（列表按 time 升序；窗口取滚动/固定时长较大者）
+      const win = Math.max(DM_SCROLL_DUR, DM_FIXED_DUR);
+      let lo = 0, hi = list.length;
+      while (lo < hi) { const mid = (lo + hi) >> 1; if (list[mid].time <= t - win) lo = mid + 1; else hi = mid; }
+      for (let i = lo; i < list.length; i++) {
+        const d = list[i];
+        if (d.time > t) break;
+        const age = t - d.time;
+        let x: number, y: number;
+        if (d.mode === 5 || d.mode === 4) {
+          if (age > DM_FIXED_DUR) continue;
+          x = (W - d.width) / 2;
+          y = d.mode === 5 ? 8 + d.lane * DM_LANE_H : H - 8 - (d.lane + 1) * DM_LANE_H;
+        } else {
+          if (age > DM_SCROLL_DUR) continue;
+          // 碰撞布局按虚拟宽 1280 计算，渲染按实际宽度推导位置：同通道速度同比缩放，重叠风险可忽略
+          x = W - (age / DM_SCROLL_DUR) * (W + d.width);
+          if (x + d.width < 0 || x > W) continue;
+          y = 8 + d.lane * DM_LANE_H;
+        }
+        if (y < 0 || y + DM_FONT_SIZE > H) continue; // 迷你窗口等矮容器：超出可视区的通道直接不画
+        ctx.strokeText(d.text, x, y);
+        ctx.fillStyle = d.color;
+        ctx.fillText(d.text, x, y);
+      }
+    };
+    raf = requestAnimationFrame(draw);
+    return () => cancelAnimationFrame(raf);
+  }, [danmakuOn, danmakuCount]);
+
+  /** 弹幕开关：本会话记忆（与画质/倍速同策略） */
+  const toggleDanmaku = useCallback(() => {
+    setDanmakuOn((prev) => { lastDanmakuOn = !prev; return !prev; });
+  }, []);
+
+  /** 系统画中画：WebView2(Chromium) 原生 PiP，小窗置顶悬浮于所有应用之上。
+   *  弹幕/字幕是 DOM 覆盖层，不会进入 PiP 小窗（原生限制）。 */
+  const togglePip = useCallback(async () => {
+    const video = videoRef.current;
+    if (!video) return;
+    try {
+      const doc = document as Document & { pictureInPictureElement?: Element | null; exitPictureInPicture?: () => Promise<void> };
+      if (doc.pictureInPictureElement) await doc.exitPictureInPicture?.();
+      else await (video as HTMLVideoElement & { requestPictureInPicture?: () => Promise<unknown> }).requestPictureInPicture?.();
+    } catch { /* webview 不支持或被拒绝：静默 */ }
+  }, []);
+
+  /** 快捷键：空格 播放/暂停，←/→ 快退快进 5s，↑/↓ 音量，M 静音，D 弹幕，F 全屏，Esc 关菜单/退出 */
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const video = videoRef.current;
+      if (!video) return;
+      // 输入类控件聚焦时不拦截（当前播放器无输入框，防御未来扩展）
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA") return;
+      switch (e.key) {
+        case " ":
+          e.preventDefault(); // 阻止滚动/聚焦按钮被空格重复触发
+          if (video.paused) void video.play().catch(() => {});
+          else video.pause();
+          break;
+        case "ArrowLeft":
+          e.preventDefault();
+          video.currentTime = Math.max(0, video.currentTime - 5);
+          break;
+        case "ArrowRight":
+          e.preventDefault();
+          video.currentTime = Math.min(video.duration || currentDuration, video.currentTime + 5);
+          break;
+        case "ArrowUp":
+          e.preventDefault();
+          video.volume = Math.min(1, video.volume + 0.1);
+          break;
+        case "ArrowDown":
+          e.preventDefault();
+          video.volume = Math.max(0, video.volume - 0.1);
+          break;
+        case "m": case "M":
+          video.muted = !video.muted;
+          break;
+        case "d": case "D":
+          toggleDanmaku();
+          break;
+        case "f": case "F": {
+          // 全屏切换：全屏根容器（含弹幕/字幕覆盖层），而非只全屏 video
+          const el = containerRef.current;
+          if (!el) break;
+          if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
+          else void el.requestFullscreen().catch(() => {});
+          break;
+        }
+        case "Escape":
+          // 菜单开着先关菜单；原生全屏的 Esc 由 webview 先消费；否则退出播放器
+          if (menuOpen || episodeMenuOpen || speedMenuOpen || subtitleMenuOpen) closeMenus();
+          else if (!document.fullscreenElement) onBack();
+          break;
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [toggleDanmaku, closeMenus, onBack, currentDuration, menuOpen, episodeMenuOpen, speedMenuOpen, subtitleMenuOpen]);
+
 
   /** 异步加载精准拖动索引（非阻塞，失败静默） */
   const loadSeekIndex = useCallback(async (videoUrl: string, audioUrl: string) => {
@@ -647,8 +885,37 @@ export function VideoPlayer({ bvid, aid, cid, epId, duration, title, pages, onBa
   const currentLabel = qualities.find(q => q.qn === selectedQn)?.label ?? "画质";
 
   return (
-    <div className="fixed inset-0 z-[70] bg-black flex flex-col">
-      {/* 顶部：返回 + 标题 + 画质 */}
+    <div
+      ref={containerRef}
+      className={
+        miniMode
+          ? "fixed bottom-4 right-4 z-[70] w-[480px] max-w-[60vw] rounded-xl overflow-hidden shadow-2xl border border-white/15 bg-black flex flex-col"
+          : "fixed inset-0 z-[70] bg-black flex flex-col"
+      }
+    >
+      {/* 迷你模式顶栏：还原 + 标题 + 关闭（完整菜单栏隐藏；video 元素不重建，MSE 流不中断） */}
+      {miniMode && (
+        <div className="flex items-center gap-2 px-2 py-1.5 bg-zinc-900/95 border-b border-white/10">
+          <button
+            onClick={() => setMiniMode(false)}
+            title="还原"
+            className="p-1.5 rounded-lg text-white hover:bg-white/10 transition-colors"
+          >
+            <Maximize2 size={14} />
+          </button>
+          <h1 className="text-xs font-medium text-white truncate flex-1">{title}</h1>
+          <button
+            onClick={onBack}
+            title="关闭"
+            className="p-1.5 rounded-lg text-white hover:bg-white/10 transition-colors"
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
+      {/* 顶部：返回 + 标题 + 选集/画质/倍速/字幕/弹幕/画中画/迷你 */}
+      {!miniMode && (
       <div className="relative z-30 flex items-center gap-3 px-4 py-3 bg-gradient-to-b from-black/70 to-transparent">
         <button onClick={onBack} className="p-2 rounded-lg text-white hover:bg-white/10 transition-colors">
           <ArrowLeft size={20} />
@@ -787,17 +1054,56 @@ export function VideoPlayer({ bvid, aid, cid, epId, duration, title, pages, onBa
             </>
           )}
         </div>
+
+        {/* 弹幕开关（无弹幕时禁用；快捷键 D） */}
+        <button
+          onClick={toggleDanmaku}
+          disabled={danmakuCount === 0}
+          title={danmakuOn ? `关闭弹幕（${danmakuCount} 条）` : `开启弹幕（${danmakuCount} 条）`}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm text-white bg-white/10 hover:bg-white/20 transition-colors disabled:opacity-40"
+        >
+          {danmakuOn ? <MessageSquare size={15} /> : <MessageSquareOff size={15} />}
+          <span>弹幕</span>
+        </button>
+
+        {/* 系统画中画（置顶小窗悬浮于所有应用之上） */}
+        <button
+          onClick={togglePip}
+          title="画中画"
+          className="p-2 rounded-lg text-white bg-white/10 hover:bg-white/20 transition-colors"
+        >
+          <PictureInPicture2 size={15} />
+        </button>
+
+        {/* 迷你窗口（应用内右下角小窗，可边看边浏览其他页面） */}
+        <button
+          onClick={() => { closeMenus(); setMiniMode(true); }}
+          title="迷你窗口"
+          className="p-2 rounded-lg text-white bg-white/10 hover:bg-white/20 transition-colors"
+        >
+          <Minimize2 size={15} />
+        </button>
       </div>
+      )}
 
       {/* 视频区。min-h-0 关键：flex 子项默认 min-height:auto 不允许收缩，
-          竖屏视频原生很高会把本区撑到视口外，导致下半部分被裁掉看不到。 */}
-      <div className="flex-1 min-h-0 flex items-center justify-center relative overflow-hidden">
+          竖屏视频原生很高会把本区撑到视口外，导致下半部分被裁掉看不到。
+          迷你模式改为固定 16:9 高度。 */}
+      <div className={miniMode
+        ? "h-[270px] flex items-center justify-center relative overflow-hidden"
+        : "flex-1 min-h-0 flex items-center justify-center relative overflow-hidden"}>
         <video ref={videoRef} controls autoPlay className="max-w-full max-h-full object-contain" />
         {/* 冻结帧 overlay：canvas 默认透明（不可见）；seek 时 drawImage 画出帧并 display:block。
             不能在 JSX 里写 style.display —— play() 的 setLoading 会触发 re-render 把它重置回默认，导致 overlay 被 React 抹掉、黑屏复发。显示态完全由 ref 控制。 */}
         <canvas
           ref={freezeCanvasRef}
           className="absolute inset-0 w-full h-full object-contain pointer-events-none"
+        />
+        {/* 弹幕覆盖层：rAF 直绘 canvas（显示内容完全由渲染 effect 控制，不走 React state）。
+            盖在冻结帧之上、字幕（z-10）之下；pointer-events-none 保证原生控件可点。 */}
+        <canvas
+          ref={danmakuCanvasRef}
+          className="absolute inset-0 w-full h-full pointer-events-none"
         />
         {/* 字幕覆盖层：pointer-events-none 保证原生控件可点；bottom-[8%] 避开底部控件条。
             React state 驱动安全（与 canvas 不同，无 ref 控制的 display 状态）。 */}

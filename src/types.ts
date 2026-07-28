@@ -312,6 +312,33 @@ export interface RegionItem {
   like: number;
 }
 
+/** 关注动态视频条目（web-dynamic feed/all type=video，需登录） */
+export interface DynamicItem {
+  bvid: string;
+  title: string;
+  cover: string;
+  upper_name: string;
+  upper_mid: number;
+  upper_face: string;
+  /** 发布时间（unix 秒） */
+  pub_ts: number;
+  /** 动态动作文案（如「投稿了视频」） */
+  pub_action: string;
+  /** 播放量展示文本（接口返回字符串，如「10.2万」） */
+  play_text: string;
+  /** 弹幕数展示文本 */
+  danmaku_text: string;
+  /** 时长展示文本（如「12:34」） */
+  duration_text: string;
+}
+
+/** 动态流分页结果（cursor 分页：下一页把 offset 原样传回） */
+export interface DynamicFeedResult {
+  items: DynamicItem[];
+  offset: string;
+  has_more: boolean;
+}
+
 /** 视频评论条目（x/v2/reply，公开接口） */
 export interface CommentItem {
   /** 评论 rpid（唯一 id） */

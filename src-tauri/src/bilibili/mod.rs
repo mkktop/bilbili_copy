@@ -22,6 +22,7 @@ pub mod pgc;
 pub mod recommend;
 pub mod region;
 pub mod comment;
+pub mod dynamic;
 pub mod interaction;
 pub mod throttle;
 pub mod mp4_seek;

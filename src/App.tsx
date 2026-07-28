@@ -13,6 +13,7 @@ import { UpperHomePage } from "./components/UpperHomePage";
 import { ExplorePage } from "./components/ExplorePage";
 import { RankingPage } from "./components/RankingPage";
 import { RecommendPage } from "./components/RecommendPage";
+import { DynamicPage } from "./components/DynamicPage";
 import { RegionPage } from "./components/RegionPage";
 import { useToast } from "./components/Toast";
 import { useUpdate } from "./contexts/UpdateContext";
@@ -20,7 +21,7 @@ import { useSettings } from "./hooks/useSettings";
 import { useLogin } from "./hooks/useLogin";
 import { useDownloadEvents } from "./hooks/useDownloadEvents";
 import { useUrlIntake } from "./hooks/useUrlIntake";
-import { Settings, Download, Search, Trophy, Sparkles, LayoutGrid, Sun, Moon, BarChart3 } from "lucide-react";
+import { Settings, Download, Search, Trophy, Sparkles, LayoutGrid, Sun, Moon, BarChart3, Rss } from "lucide-react";
 import type { AppSettings } from "./hooks/useSettings";
 import { useThemeApplier, type ThemeMode } from "./hooks/useTheme";
 import type { ParsedItem, DownloadTask, ParsedVideoInfo, ParseHistoryEntry, DownloadHistoryEntry, VideoMeta, VideoPage, PlayingItem } from "./types";
@@ -33,7 +34,7 @@ const SettingsPage = lazy(() => import("./components/SettingsPage").then((m) => 
 const StatsPanel = lazy(() => import("./components/StatsPanel").then((m) => ({ default: m.StatsPanel })));
 const VideoPlayer = lazy(() => import("./components/VideoPlayer").then((m) => ({ default: m.VideoPlayer })));
 
-type View = "main" | "settings" | "detail" | "downloads" | "stats" | "profile" | "explore" | "ranking" | "recommend" | "region";
+type View = "main" | "settings" | "detail" | "downloads" | "stats" | "profile" | "explore" | "ranking" | "recommend" | "region" | "dynamic";
 
 /** 视图枚举 → 面包屑来源中文名（详情页/UP 主主页头部用，back 回到该来源） */
 function viewLabel(view: View): string {
@@ -43,6 +44,7 @@ function viewLabel(view: View): string {
     case "ranking": return "排行榜";
     case "recommend": return "推荐";
     case "region": return "分区";
+    case "dynamic": return "动态";
     case "profile": return "我的";
     case "downloads": return "下载";
     case "stats": return "统计";
@@ -676,6 +678,24 @@ export default function App() {
     );
   }
 
+  // Dynamic view
+  // detail 状态下若来源是 dynamic，仍渲染 DynamicPage（被详情覆盖层遮挡），
+  // 保证返回时 DynamicPage 的 state（动态列表与游标）不丢失。
+  if (currentView === "dynamic" || (currentView === "detail" && previousView === "dynamic")) {
+    return (
+      <>
+        <DynamicPage
+          userInfo={userInfo}
+          onLogin={() => setLoginDialogOpen(true)}
+          onBack={() => setCurrentView("main")}
+          onParseVideo={handleParse}
+          onSelectItem={(videoInfo: ParsedVideoInfo) => openDetail(videoInfo, "dynamic", "dynamic")}
+        />
+        {detailOverlay}
+      </>
+    );
+  }
+
   // Main view
   return (
     <div className="flex flex-col h-screen bg-base text-ink">
@@ -735,6 +755,15 @@ export default function App() {
             className="p-1 rounded-md text-ink-3 hover:text-ink-2 hover:bg-panel-2 transition-colors"
           >
             <Sparkles size={16} />
+          </button>
+
+          {/* 关注动态入口 */}
+          <button
+            onClick={() => setCurrentView("dynamic")}
+            title="关注动态"
+            className="p-1 rounded-md text-ink-3 hover:text-ink-2 hover:bg-panel-2 transition-colors"
+          >
+            <Rss size={16} />
           </button>
 
           {/* 分区浏览入口 */}

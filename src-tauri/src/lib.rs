@@ -25,6 +25,7 @@ use commands::pgc::get_pgc_rank;
 use commands::recommend::get_recommend;
 use commands::region::get_region;
 use commands::comment::get_video_comments;
+use commands::dynamic::get_dynamic_feed;
 use commands::interaction::{like_video, coin_video, favorite_video};
 use commands::player::{get_play_streams, get_danmaku_json, get_subtitle_list, get_subtitle_cues, log_player_error, get_seek_index};
 use download_manager::manager;
@@ -324,6 +325,7 @@ pub fn run() {
             get_recommend,
             get_region,
             get_video_comments,
+            get_dynamic_feed,
             like_video,
             coin_video,
             favorite_video,
