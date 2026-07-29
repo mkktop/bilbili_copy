@@ -380,6 +380,50 @@ export interface PgcRankItem {
   danmaku: number;
 }
 
+/** 追番/追剧条目（x/space/bangumi/follow/list，需登录） */
+export interface BangumiFollowItem {
+  /** 番剧季 ID（解析 ss{season_id} 进详情） */
+  season_id: number;
+  title: string;
+  cover: string;
+  /** 内容形态名（番剧/电影/纪录片…） */
+  season_type_name: string;
+  /** 状态角标（如「会员专享」） */
+  badge: string;
+  /** 更新状态文案（如「更新至第12话」「全26话」） */
+  new_ep_show: string;
+  /** 观看进度文案（如「看到第3话」，未看过为空） */
+  progress: string;
+  /** 评分（如 9.7；无评分为 0） */
+  score: number;
+  is_finish: boolean;
+}
+
+/** 追番/追剧分页结果 */
+export interface BangumiFollowResult {
+  items: BangumiFollowItem[];
+  total: number;
+  has_more: boolean;
+  page: number;
+}
+
+/** 专栏文章数据（get_article_content 返回，content_html 需前端净化后渲染） */
+export interface ArticleData {
+  /** 传统专栏 cv 号（opus 图文时为 0） */
+  cvid: number;
+  /** opus 图文 id（字符串：19 位数超 JS 安全整数）；传统专栏为空串 */
+  opus_id: string;
+  title: string;
+  author_name: string;
+  author_mid: number;
+  /** 发布时间（unix 秒） */
+  publish_time: number;
+  /** 字数（可能为 0） */
+  words: number;
+  banner_url: string;
+  content_html: string;
+}
+
 /** 通用分页结果 */
 export interface PagedResult<T> {
   items: T[];

@@ -33,6 +33,20 @@ import { friendlyError } from "./lib/errors";
 const SettingsPage = lazy(() => import("./components/SettingsPage").then((m) => ({ default: m.SettingsPage })));
 const StatsPanel = lazy(() => import("./components/StatsPanel").then((m) => ({ default: m.StatsPanel })));
 const VideoPlayer = lazy(() => import("./components/VideoPlayer").then((m) => ({ default: m.VideoPlayer })));
+const ArticleReaderPage = lazy(() => import("./components/ArticleReaderPage").then((m) => ({ default: m.ArticleReaderPage })));
+
+/** 专栏/图文引用：cv 号或 opus id（二选一） */
+type ArticleRef = { cvid: number; opusId?: undefined } | { cvid: 0; opusId: string };
+
+/** 从文本提取专栏引用（read/cv 链接、裸 cv 号或 opus 链接），非专栏返回 null。
+ *  opus id 保持字符串：19 位数超出 JS 安全整数，Number 会丢精度。 */
+function extractArticleRef(text: string): ArticleRef | null {
+  const opus = /bilibili\.com\/opus\/(\d+)/i.exec(text);
+  if (opus) return { cvid: 0, opusId: opus[1] };
+  const cv = /\bcv(\d{4,})\b/i.exec(text);
+  if (cv) return { cvid: Number(cv[1]) };
+  return null;
+}
 
 type View = "main" | "settings" | "detail" | "downloads" | "stats" | "profile" | "explore" | "ranking" | "recommend" | "region" | "dynamic";
 
@@ -65,6 +79,8 @@ export default function App() {
   const [upperViewMid, setUpperViewMid] = useState<number | null>(null);
   // 在线播放覆盖层：从详情页「在线播放」进入，最上层。null=未打开。
   const [playingItem, setPlayingItem] = useState<PlayingItem | null>(null);
+  // 专栏阅读覆盖层：解析输入 cv/opus 链接时打开。null=未打开。
+  const [articleRef, setArticleRef] = useState<ArticleRef | null>(null);
   // 分页 state
   const [parsePage, setParsePage] = useState(1);
   const [parseTotal, setParseTotal] = useState(0);
@@ -137,9 +153,15 @@ export default function App() {
   const currentViewRef = useRef(currentView);
   currentViewRef.current = currentView;
 
-  // 剪贴板/拖放链接感知：识别到新链接自动填入解析输入框。
+  // 剪贴板/拖放链接感知：识别到新链接自动填入解析输入框；专栏链接直接打开阅读页。
   // 拖放从任意视图生效（跳回主页）；剪贴板探测仅主页生效（避免其他视图被打断）。
   const handleUrlIntake = useCallback((url: string) => {
+    const ref = extractArticleRef(url);
+    if (ref != null) {
+      setCurrentView((v) => (v === "main" ? v : "main"));
+      setArticleRef(ref);
+      return;
+    }
     setCurrentView((v) => (v === "main" ? v : "main"));
     setInputUrl(url);
   }, []);
@@ -265,6 +287,18 @@ export default function App() {
       );
       toast.error(`下载失败：${friendlyError(err)}`);
     }
+  };
+
+  // 解析输入框入口：专栏/图文链接（cv 号或 opus）直接打开阅读页，其余走视频解析。
+  // 其他页面的 onParseVideo 不经过此入口（它们只传视频/番剧链接）。
+  const handleParseFromInput = (url: string) => {
+    const ref = extractArticleRef(url);
+    if (ref != null) {
+      setArticleRef(ref);
+      setInputUrl("");
+      return;
+    }
+    void handleParse(url).catch(() => { /* 错误已在 handleParse 内 toast */ });
   };
 
   const handleSelectItem = (item: ParsedItem) => {
@@ -825,7 +859,7 @@ export default function App() {
 
       {/* URL 输入区 */}
       <div className="px-6 py-3 bg-panel border-b border-line">
-        <DownloadInput value={inputUrl} onChange={setInputUrl} onParse={handleParse} isParsing={isParsing} />
+        <DownloadInput value={inputUrl} onChange={setInputUrl} onParse={handleParseFromInput} isParsing={isParsing} />
       </div>
 
       {/* 解析列表 */}
@@ -855,6 +889,13 @@ export default function App() {
         onSuccess={() => setCaptchaVoucher(null)}
         onCancel={() => setCaptchaVoucher(null)}
       />
+
+      {/* 专栏/图文阅读覆盖层（最上层 z-[80]，懒加载） */}
+      {articleRef != null && (
+        <Suspense fallback={null}>
+          <ArticleReaderPage cvid={articleRef.cvid} opusId={articleRef.opusId} onBack={() => setArticleRef(null)} />
+        </Suspense>
+      )}
 
       {detailOverlay}
     </div>

@@ -160,3 +160,30 @@ pub fn clear_download_history(db: State<'_, db::DbState>) -> Result<(), String> 
     let conn = db.0.lock().map_err(|e| format!("获取数据库锁失败: {}", e))?;
     db::clear_all_downloads(&conn).map_err(|e| format!("清空下载历史失败: {}", e))
 }
+
+/// 读取在线播放进度（秒），无记录返回 null
+#[tauri::command]
+pub fn get_play_progress(db: State<'_, db::DbState>, cid: i64) -> Result<Option<f64>, String> {
+    let conn = db.0.lock().map_err(|e| format!("获取数据库锁失败: {}", e))?;
+    db::get_play_progress(&conn, cid).map_err(|e| format!("读取播放进度失败: {}", e))
+}
+
+/// 保存在线播放进度。接近结尾（剩余 <15s 或 ≥95%）视为看完 → 删除记录，下次从头播。
+#[tauri::command]
+pub fn save_play_progress(
+    db: State<'_, db::DbState>,
+    cid: i64,
+    bvid: String,
+    position: f64,
+    duration: i64,
+) -> Result<(), String> {
+    let conn = db.0.lock().map_err(|e| format!("获取数据库锁失败: {}", e))?;
+    let dur = duration as f64;
+    let finished = dur > 0.0 && (dur - position < 15.0 || position / dur >= 0.95);
+    if finished {
+        db::delete_play_progress(&conn, cid).map_err(|e| format!("清除播放进度失败: {}", e))
+    } else {
+        db::upsert_play_progress(&conn, cid, &bvid, position, duration)
+            .map_err(|e| format!("保存播放进度失败: {}", e))
+    }
+}

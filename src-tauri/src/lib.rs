@@ -12,6 +12,7 @@ use commands::risk_control::{captcha_register, captcha_validate};
 use commands::history::{
     get_parse_history, save_parse_history, delete_parse_history, get_parse_count, clear_parse_history, touch_parse_history,
     get_download_history, save_download_entry, update_download_status, delete_download_history, get_download_count, clear_download_history, get_download_stats,
+    get_play_progress, save_play_progress,
 };
 use commands::favorite::{get_favorite_folders, get_favorite_videos};
 use commands::watch_later::get_watch_later;
@@ -21,11 +22,12 @@ use commands::collection::{get_upper_collections, get_collection_videos, get_sub
 use commands::following::get_followings;
 use commands::history_cmd::get_watch_history;
 use commands::ranking::get_ranking;
-use commands::pgc::get_pgc_rank;
+use commands::pgc::{get_pgc_rank, get_bangumi_follow};
 use commands::recommend::get_recommend;
 use commands::region::get_region;
 use commands::comment::get_video_comments;
 use commands::dynamic::get_dynamic_feed;
+use commands::article::{get_article_content, export_article_markdown};
 use commands::interaction::{like_video, coin_video, favorite_video};
 use commands::player::{get_play_streams, get_danmaku_json, get_subtitle_list, get_subtitle_cues, log_player_error, get_seek_index};
 use download_manager::manager;
@@ -322,10 +324,15 @@ pub fn run() {
             get_watch_history,
             get_ranking,
             get_pgc_rank,
+            get_bangumi_follow,
             get_recommend,
             get_region,
             get_video_comments,
             get_dynamic_feed,
+            get_article_content,
+            export_article_markdown,
+            get_play_progress,
+            save_play_progress,
             like_video,
             coin_video,
             favorite_video,

@@ -17,11 +17,13 @@ import {
   Crown,
   Bookmark,
   History,
+  Tv,
 } from "lucide-react";
 import type { UserInfo } from "../hooks/useLogin";
 import { WatchLaterTab } from "./tabs/WatchLaterTab";
 import { WatchHistoryTab } from "./tabs/WatchHistoryTab";
 import { SubscriptionsTab } from "./tabs/SubscriptionsTab";
+import { BangumiTab } from "./tabs/BangumiTab";
 import { FollowingsTab } from "./tabs/FollowingsTab";
 import { UpperView } from "./tabs/UpperView";
 import { formatCount } from "./VideoCard";
@@ -77,9 +79,9 @@ export function UserProfilePage({
   // 我的关注 tab 中选中的 UP 主 mid（null = 关注列表，非 null = 该 UP 主主页）
   const [selectedUpperMid, setSelectedUpperMid] = useState<number | null>(null);
 
-  // Tab 切换：收藏夹 / 观看历史 / 稍后再看 / 我的关注 / 我的订阅
+  // Tab 切换：收藏夹 / 观看历史 / 稍后再看 / 我的关注 / 我的订阅 / 追番追剧
   const [tab, setTab] = useState<
-    "favorites" | "history" | "watch_later" | "followings" | "subscriptions"
+    "favorites" | "history" | "watch_later" | "followings" | "subscriptions" | "bangumi"
   >("favorites");
 
   const toast = useToast();
@@ -218,6 +220,7 @@ export function UserProfilePage({
                 { key: "watch_later", label: "稍后再看", Icon: Clock },
                 { key: "followings", label: "我的关注", Icon: Users },
                 { key: "subscriptions", label: "我的订阅", Icon: Bookmark },
+                { key: "bangumi", label: "追番追剧", Icon: Tv },
               ] as const
             ).map(({ key, label, Icon }) => (
               <button
@@ -411,6 +414,14 @@ export function UserProfilePage({
         {/* 我的订阅视图 */}
         {!selectedFolder && selectedUpperMid === null && tab === "subscriptions" && (
           <SubscriptionsTab
+            onParseVideo={onParseVideo}
+            onSelectItem={onSelectItem}
+          />
+        )}
+
+        {/* 追番追剧视图 */}
+        {!selectedFolder && selectedUpperMid === null && tab === "bangumi" && (
+          <BangumiTab
             onParseVideo={onParseVideo}
             onSelectItem={onSelectItem}
           />

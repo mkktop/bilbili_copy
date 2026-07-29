@@ -1,4 +1,5 @@
 pub mod video;
+pub mod article;
 pub mod credential;
 pub mod passport;
 pub mod url;

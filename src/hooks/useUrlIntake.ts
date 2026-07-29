@@ -8,6 +8,8 @@ import { readText } from "@tauri-apps/plugin-clipboard-manager";
 const URL_PATTERNS: RegExp[] = [
   /https?:\/\/(?:www\.|m\.)?bilibili\.com\/video\/(?:BV[0-9A-Za-z]{10,}|av\d+)/i,
   /https?:\/\/(?:www\.)?bilibili\.com\/bangumi\/play\/(?:ep|ss)\d+/i,
+  /https?:\/\/(?:www\.)?bilibili\.com\/read\/cv\d+/i,
+  /https?:\/\/(?:www\.)?bilibili\.com\/opus\/\d+/i,
   /https?:\/\/b23\.tv\/[0-9A-Za-z]+/i,
   /\bBV[0-9A-Za-z]{10,}/,
 ];

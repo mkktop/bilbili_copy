@@ -1,4 +1,5 @@
 pub mod settings;
+pub mod article;
 pub mod video;
 pub mod download;
 pub mod login;

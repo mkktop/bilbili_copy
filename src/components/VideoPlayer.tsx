@@ -2,9 +2,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
   ArrowLeft, Loader2, AlertCircle, Settings2, Check, ListVideo, Gauge, Subtitles,
-  MessageSquare, MessageSquareOff, PictureInPicture2, Minimize2, Maximize2, X,
+  MessageSquare, MessageSquareOff, PictureInPicture2, Minimize2, Maximize2, X, History,
 } from "lucide-react";
 import type { VideoPage } from "../types";
+import { formatDuration } from "../types";
 
 interface Props {
   bvid: string;
@@ -389,6 +390,8 @@ export function VideoPlayer({ bvid, aid, cid, epId, duration, title, pages, onBa
   const dmReqRef = useRef(0); // 弹幕请求序号：切P时丢弃过期响应
   // 迷你窗口模式（应用内小窗；系统级悬浮用画中画 PiP）
   const [miniMode, setMiniMode] = useState(false);
+  // 续播：上次看到的位置（秒），非 null 时显示「继续观看」提示条
+  const [resumeHint, setResumeHint] = useState<number | null>(null);
   const containerRef = useRef<HTMLDivElement>(null); // 根容器：F 全屏对象（含弹幕/字幕覆盖层）
   const freezeCanvasRef = useRef<HTMLCanvasElement | null>(null); // 精准 seek 重建期的冻结帧 overlay（canvas 同步绘制，盖住黑屏）
 
@@ -638,6 +641,54 @@ export function VideoPlayer({ bvid, aid, cid, epId, duration, title, pages, onBa
     return () => window.removeEventListener("keydown", onKey);
   }, [toggleDanmaku, closeMenus, onBack, currentDuration, menuOpen, episodeMenuOpen, speedMenuOpen, subtitleMenuOpen]);
 
+
+  /** 续播提示：打开/切P 时查上次进度，>5s 则显示提示条（12s 无操作自动隐藏）。
+   *  不自动 seek：避免精准 seek 索引未就绪时的启动竞态，由用户点击触发（与 B站 web 端一致）。 */
+  useEffect(() => {
+    let active = true;
+    setResumeHint(null);
+    invoke<number | null>("get_play_progress", { cid: currentCid })
+      .then((pos) => {
+        if (active && pos != null && pos > 5) setResumeHint(pos);
+      })
+      .catch(() => { /* 进度读取失败不影响播放 */ });
+    const hide = setTimeout(() => { if (active) setResumeHint(null); }, 12000);
+    return () => { active = false; clearTimeout(hide); };
+  }, [currentCid]);
+
+  /** 进度保存：timeupdate 每 5s 节流落库；关闭/切P 时补存一次。
+   *  看到接近结尾时后端自动删记录（下次从头播）。 */
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    let lastSave = 0;
+    const save = () => {
+      const t = video.currentTime;
+      if (t < 5) return; // 刚开头不值得记
+      invoke("save_play_progress", {
+        cid: currentCid, bvid, position: t, duration: Math.round(currentDuration),
+      }).catch(() => {});
+    };
+    const onTime = () => {
+      const now = Date.now();
+      if (now - lastSave < 5000) return;
+      lastSave = now;
+      save();
+    };
+    video.addEventListener("timeupdate", onTime);
+    return () => {
+      video.removeEventListener("timeupdate", onTime);
+      save(); // 卸载/切P 补存，保证退出时进度不丢
+    };
+  }, [bvid, currentCid, currentDuration]);
+
+  /** 点击续播：原生 seek 到记忆位置（未缓冲处由既有 seeking 监听触发精准 seek） */
+  const resumePlayback = useCallback(() => {
+    const video = videoRef.current;
+    if (!video || resumeHint == null) return;
+    video.currentTime = resumeHint;
+    setResumeHint(null);
+  }, [resumeHint]);
 
   /** 异步加载精准拖动索引（非阻塞，失败静默） */
   const loadSeekIndex = useCallback(async (videoUrl: string, audioUrl: string) => {
@@ -1112,6 +1163,25 @@ export function VideoPlayer({ bvid, aid, cid, epId, duration, title, pages, onBa
             <span className="inline-block px-3 py-1 rounded bg-black/60 text-white text-base leading-relaxed whitespace-pre-wrap">
               {activeCue}
             </span>
+          </div>
+        )}
+        {/* 续播提示条：左下角浮层，避开底部原生控件；点主体续播，点 X 关闭 */}
+        {resumeHint != null && !loading && (
+          <div className="absolute left-4 bottom-[14%] z-20 flex items-center gap-1 rounded-lg bg-black/75 border border-white/20 text-white text-xs overflow-hidden">
+            <button
+              onClick={resumePlayback}
+              className="flex items-center gap-1.5 pl-3 pr-1.5 py-2 hover:bg-white/10 transition-colors"
+            >
+              <History size={13} className="shrink-0" />
+              <span>上次看到 {formatDuration(Math.floor(resumeHint))}，点击续播</span>
+            </button>
+            <button
+              onClick={() => setResumeHint(null)}
+              className="p-2 hover:bg-white/10 transition-colors"
+              title="关闭"
+            >
+              <X size={12} />
+            </button>
           </div>
         )}
         {loading && (

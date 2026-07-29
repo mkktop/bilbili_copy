@@ -128,8 +128,25 @@ fn migrate_schema(conn: &Connection) -> anyhow::Result<()> {
         version = 6;
     }
 
-    if version > 6 {
-        log::warn!("[db] schema_version={} 高于当前代码已知的最新版本(6)", version);
+    // v7: 新建 play_progress 表（在线播放进度记忆）。cid 主键：每个分P独立记进度。
+    if version < 7 {
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS play_progress (
+                cid INTEGER PRIMARY KEY,
+                bvid TEXT NOT NULL,
+                position REAL NOT NULL,
+                duration INTEGER NOT NULL DEFAULT 0,
+                updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )",
+            [],
+        )?;
+        log::info!("[db] 迁移 v7: 已创建 play_progress 表");
+        set_schema_version(conn, 7)?;
+        version = 7;
+    }
+
+    if version > 7 {
+        log::warn!("[db] schema_version={} 高于当前代码已知的最新版本(7)", version);
     }
     Ok(())
 }
@@ -419,6 +436,49 @@ pub fn clear_all_downloads(conn: &Connection) -> anyhow::Result<()> {
     Ok(())
 }
 
+// ---- Play Progress ----
+
+/// 保存/更新播放进度（cid 主键 upsert）
+pub fn upsert_play_progress(
+    conn: &Connection,
+    cid: i64,
+    bvid: &str,
+    position: f64,
+    duration: i64,
+) -> anyhow::Result<()> {
+    conn.execute(
+        "INSERT INTO play_progress (cid, bvid, position, duration, updated_at) VALUES (?1, ?2, ?3, ?4, datetime('now')) \
+         ON CONFLICT(cid) DO UPDATE SET position = ?3, duration = ?4, updated_at = datetime('now')",
+        params![cid, bvid, position, duration],
+    )?;
+    // 轻量容量控制：只保留最近 500 条，更早的进度记录淡出（避免无限增长）
+    conn.execute(
+        "DELETE FROM play_progress WHERE cid NOT IN (SELECT cid FROM play_progress ORDER BY updated_at DESC LIMIT 500)",
+        [],
+    )?;
+    Ok(())
+}
+
+/// 读取播放进度（秒），无记录返回 None
+pub fn get_play_progress(conn: &Connection, cid: i64) -> anyhow::Result<Option<f64>> {
+    let row = conn.query_row(
+        "SELECT position FROM play_progress WHERE cid = ?1",
+        params![cid],
+        |r| r.get::<_, f64>(0),
+    );
+    match row {
+        Ok(v) => Ok(Some(v)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) => Err(e.into()),
+    }
+}
+
+/// 删除播放进度（看完时清除，下次从头播）
+pub fn delete_play_progress(conn: &Connection, cid: i64) -> anyhow::Result<()> {
+    conn.execute("DELETE FROM play_progress WHERE cid = ?1", params![cid])?;
+    Ok(())
+}
+
 // ==================== Schema SQL ====================
 
 const SCHEMA_SQL: &str = "
@@ -462,6 +522,14 @@ CREATE TABLE IF NOT EXISTS download_stats (
     done_duration INTEGER NOT NULL DEFAULT 0
 );
 
+CREATE TABLE IF NOT EXISTS play_progress (
+    cid INTEGER PRIMARY KEY,
+    bvid TEXT NOT NULL,
+    position REAL NOT NULL,
+    duration INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE INDEX IF NOT EXISTS idx_download_created ON download_history(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_parse_parsed ON parse_history(parsed_at DESC);
 ";
@@ -501,9 +569,9 @@ mod tests {
 
         migrate_schema(&conn).unwrap();
 
-        // 迁移后 pic 列存在，版本一路升到最新（当前为 6）
+        // 迁移后 pic 列存在，版本一路升到最新（当前为 7）
         assert!(column_exists(&conn, "download_history", "pic").unwrap());
-        assert_eq!(current_schema_version(&conn), 6);
+        assert_eq!(current_schema_version(&conn), 7);
     }
 
     #[test]
@@ -524,7 +592,7 @@ mod tests {
 
         assert!(column_exists(&conn, "download_history", "quality").unwrap());
         assert!(column_exists(&conn, "download_history", "video_title").unwrap());
-        assert_eq!(current_schema_version(&conn), 6);
+        assert_eq!(current_schema_version(&conn), 7);
     }
 
     #[test]
@@ -533,7 +601,7 @@ mod tests {
         migrate_schema(&conn).unwrap();
         // 再次执行迁移不应报错（version 已是 3，跳过 ALTER）
         migrate_schema(&conn).unwrap();
-        assert_eq!(current_schema_version(&conn), 6);
+        assert_eq!(current_schema_version(&conn), 7);
         assert!(column_exists(&conn, "download_history", "pic").unwrap());
     }
 
@@ -550,8 +618,8 @@ mod tests {
         assert!(column_exists(&conn, "download_history", "owner_name").unwrap());
 
         migrate_schema(&conn).unwrap();
-        // 全新库经 migrate_schema 走完所有迁移分支（列已存在则跳过 ALTER，但仍记录 version 到最新 6）
-        assert_eq!(current_schema_version(&conn), 6);
+        // 全新库经 migrate_schema 走完所有迁移分支（列已存在则跳过 ALTER，但仍记录 version 到最新 7）
+        assert_eq!(current_schema_version(&conn), 7);
     }
 
     #[test]
@@ -607,7 +675,7 @@ mod tests {
         // v5 → v6：补 owner_name 列
         migrate_schema(&conn).unwrap();
         assert!(column_exists(&conn, "download_history", "owner_name").unwrap(), "v6 迁移必须补出 owner_name 列");
-        assert_eq!(current_schema_version(&conn), 6);
+        assert_eq!(current_schema_version(&conn), 7);
 
         // 老记录 owner_name 读出为 NULL（None），不会因补列破坏既有数据
         conn.execute(

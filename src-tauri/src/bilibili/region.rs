@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-/// 分区视频条目（dynamic/region 最新视频流）
+/// 分区视频条目（newlist 最新视频流）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RegionItem {
     pub bvid: String,
@@ -29,12 +29,13 @@ pub struct RegionItem {
 }
 
 /// 获取分区最新视频列表（公开接口，无需登录）
-/// API: GET https://api.bilibili.com/x/web-interface/dynamic/region
+/// API: GET https://api.bilibili.com/x/web-interface/newlist
 ///   rid：分区 tid（1=动画 3=音乐 4=游戏 ...，见前端 TID_OPTIONS）
-///   ps：页大小（默认 30）
+///   pn/ps：页码 / 页大小
 ///
-/// 注：region 接口的数据在 data.archives（区别于排行榜的 data.list、推荐流的 data.item）。
-/// 此接口返回该分区最新发布的视频（非排行），适合"按分区浏览最新内容"场景。
+/// 注：旧的 dynamic/region 接口已被 B站 下线（返回 -404「啥都木有」），
+/// 改用 newlist。两者数据结构一致（都在 data.archives，字段名相同），只需换 URL + 加 pn 参数。
+/// 同样返回该分区最新发布的视频（非排行）。
 ///
 /// @param rid 分区 id
 /// @param ps 每页数量
@@ -51,10 +52,11 @@ pub async fn get_region(
     let rid_s = rid.to_string();
     let ps_s = ps.to_string();
     let mut req = client
-        .get("https://api.bilibili.com/x/web-interface/dynamic/region")
+        .get("https://api.bilibili.com/x/web-interface/newlist")
         .header("Referer", REFERER)
         .query(&[
             ("rid", rid_s.as_str()),
+            ("pn", "1"),
             ("ps", ps_s.as_str()),
         ]);
     if let Some(cred) = credential {
@@ -80,7 +82,7 @@ pub async fn get_region(
         );
     }
 
-    // region 接口数据在 data.archives（注意字段名与排行榜/推荐流都不同）
+    // newlist 与旧 region 接口一致，数据均在 data.archives
     let list = resp["data"]["archives"]
         .as_array()
         .cloned()
