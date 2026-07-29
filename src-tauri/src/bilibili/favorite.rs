@@ -1,5 +1,5 @@
 use crate::bilibili::credential::Credential;
-use crate::bilibili::{BilibiliResponse, REFERER, USER_AGENT, http_to_https};
+use crate::bilibili::{BilibiliResponse, REFERER, http_to_https};
 use anyhow::{Context, Result};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -109,12 +109,9 @@ struct FavResourceData {
 
 // ==================== HTTP 客户端 ====================
 
+// 共享 api_client()：配置相同（UA + 无 jar）且额外带超时，连接池跨请求复用
 fn bilibili_client() -> Result<Client> {
-    Client::builder()
-        .user_agent(USER_AGENT)
-        .cookie_store(false)
-        .build()
-        .context("创建 HTTP 客户端失败")
+    Ok(crate::bilibili::api_client())
 }
 
 // ==================== 公开 API 函数 ====================

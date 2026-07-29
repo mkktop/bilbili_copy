@@ -96,15 +96,22 @@ pub fn http_to_https(url: &str) -> String {
     }
 }
 
-/// 创建带超时的通用 B站 API 客户端（不启用 cookie jar）。
-/// 所有短小的 API 调用都应使用此客户端，避免某个挂起的连接永久阻塞异步任务。
-pub fn api_client() -> reqwest::Client {
+/// 进程级共享的通用 B站 API 客户端（不启用 cookie jar，Cookie 全部按请求手动带）。
+/// keep-alive 连接池跨调用复用：同 host（api.bilibili.com 等）的连续请求不再每次
+/// 重新 TCP+TLS 握手（旧版每次调用新建 client，单次多 ~100-300ms，走代理时更明显）。
+static API_CLIENT: once_cell::sync::Lazy<reqwest::Client> = once_cell::sync::Lazy::new(|| {
     reqwest::Client::builder()
         .user_agent(USER_AGENT)
         .cookie_store(false)
         .timeout(API_TIMEOUT)
         .build()
         .unwrap_or_else(|_| reqwest::Client::new())
+});
+
+/// 获取带超时的通用 B站 API 客户端（共享实例的廉价 clone，内部是 Arc）。
+/// 所有短小的 API 调用都应使用此客户端：超时防挂起 + 连接池复用提速。
+pub fn api_client() -> reqwest::Client {
+    API_CLIENT.clone()
 }
 
 /// 构建模拟浏览器的 API 请求头（UA / Referer / Origin / sec-ch-* 全套）。

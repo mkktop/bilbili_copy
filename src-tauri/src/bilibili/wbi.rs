@@ -1,10 +1,8 @@
 use crate::bilibili::credential::Credential;
-use crate::bilibili::USER_AGENT;
 // header 构建已上提到 bilibili::create_api_headers，这里 re-export 保持 wbi::create_api_headers 调用点不变
 pub use crate::bilibili::create_api_headers;
 use anyhow::{Context, Result};
 use md5::{Digest, Md5};
-use reqwest::Client;
 use serde::Deserialize;
 use once_cell::sync::Lazy;
 use std::sync::{OnceLock, RwLock};
@@ -120,12 +118,8 @@ pub fn sign_params(params: &mut Vec<(String, String)>, mixin_key: &str) {
 
 /// 获取WBI签名密钥（带缓存）
 async fn fetch_wbi_keys(credential: &Credential) -> Result<WbiKeys> {
-    let client = Client::builder()
-        .user_agent(USER_AGENT)
-        .cookie_store(false)
-        .timeout(crate::bilibili::API_TIMEOUT)
-        .build()
-        .context("创建HTTP客户端失败")?;
+    // 共享 api_client()：密钥刷新请求复用连接池
+    let client = crate::bilibili::api_client();
 
     let resp: NavResponse = client
         .get("https://api.bilibili.com/x/web-interface/nav")

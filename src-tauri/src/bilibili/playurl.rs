@@ -1,7 +1,6 @@
 use crate::bilibili::credential::Credential;
 use crate::bilibili::risk_control;
 use crate::bilibili::wbi;
-use crate::bilibili::USER_AGENT;
 use anyhow::{Context, Result};
 use reqwest::header::{HeaderMap, HeaderValue};
 use reqwest::Client;
@@ -155,12 +154,8 @@ pub async fn get_playurl(
     dm_img_inter: &str,
     request_delay_ms: u64,
 ) -> Result<SelectedStreams> {
-    let client = Client::builder()
-        .user_agent(USER_AGENT)
-        .cookie_store(false)
-        .timeout(crate::bilibili::API_TIMEOUT)
-        .build()
-        .context("创建HTTP客户端失败")?;
+    // 共享 api_client()：连接池复用，解析链路（view→playurl）不重复握手
+    let client = crate::bilibili::api_client();
 
     log::info!(
         "[playurl] 开始获取流地址: bvid={}, cid={}, ep_id={:?}, video_max={}, video_min={}, audio_max={}, audio_min={}",
