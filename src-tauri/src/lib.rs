@@ -16,7 +16,7 @@ use commands::history::{
 };
 use commands::favorite::{get_favorite_folders, get_favorite_videos};
 use commands::watch_later::get_watch_later;
-use commands::search::search_videos;
+use commands::search::{search_videos, get_hot_search, get_search_history, save_search_keyword, delete_search_keyword, clear_search_history};
 use commands::submission::{get_upper_info, get_submission_videos};
 use commands::collection::{get_upper_collections, get_collection_videos, get_subscribed_collections};
 use commands::following::get_followings;
@@ -316,6 +316,11 @@ pub fn run() {
             get_favorite_videos,
             get_watch_later,
             search_videos,
+            get_hot_search,
+            get_search_history,
+            save_search_keyword,
+            delete_search_keyword,
+            clear_search_history,
             get_upper_info,
             get_submission_videos,
             get_upper_collections,

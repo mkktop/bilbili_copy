@@ -145,8 +145,22 @@ fn migrate_schema(conn: &Connection) -> anyhow::Result<()> {
         version = 7;
     }
 
-    if version > 7 {
-        log::warn!("[db] schema_version={} 高于当前代码已知的最新版本(7)", version);
+    // v8: 新建 search_history 表（发现页搜索历史）。keyword 主键：同词重搜只刷新时间。
+    if version < 8 {
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS search_history (
+                keyword TEXT PRIMARY KEY,
+                searched_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )",
+            [],
+        )?;
+        log::info!("[db] 迁移 v8: 已创建 search_history 表");
+        set_schema_version(conn, 8)?;
+        version = 8;
+    }
+
+    if version > 8 {
+        log::warn!("[db] schema_version={} 高于当前代码已知的最新版本(8)", version);
     }
     Ok(())
 }
@@ -479,6 +493,43 @@ pub fn delete_play_progress(conn: &Connection, cid: i64) -> anyhow::Result<()> {
     Ok(())
 }
 
+// ---- Search History ----
+
+/// 保存搜索关键词（keyword 主键 upsert：重复搜索只刷新时间置顶），容量控制保留最近 50 条
+pub fn upsert_search_keyword(conn: &Connection, keyword: &str) -> anyhow::Result<()> {
+    conn.execute(
+        "INSERT INTO search_history (keyword, searched_at) VALUES (?1, datetime('now')) \
+         ON CONFLICT(keyword) DO UPDATE SET searched_at = datetime('now')",
+        params![keyword],
+    )?;
+    conn.execute(
+        "DELETE FROM search_history WHERE keyword NOT IN (SELECT keyword FROM search_history ORDER BY searched_at DESC LIMIT 50)",
+        [],
+    )?;
+    Ok(())
+}
+
+/// 读取最近搜索词（按时间降序，最多 limit 条）
+pub fn get_search_keywords(conn: &Connection, limit: u32) -> anyhow::Result<Vec<String>> {
+    let mut stmt = conn.prepare(
+        "SELECT keyword FROM search_history ORDER BY searched_at DESC LIMIT ?1",
+    )?;
+    let rows = stmt.query_map(params![limit], |row| row.get::<_, String>(0))?;
+    Ok(rows.filter_map(|r| r.ok()).collect())
+}
+
+/// 删除单条搜索词
+pub fn delete_search_keyword(conn: &Connection, keyword: &str) -> anyhow::Result<()> {
+    conn.execute("DELETE FROM search_history WHERE keyword = ?1", params![keyword])?;
+    Ok(())
+}
+
+/// 清空搜索历史
+pub fn clear_search_keywords(conn: &Connection) -> anyhow::Result<()> {
+    conn.execute("DELETE FROM search_history", [])?;
+    Ok(())
+}
+
 // ==================== Schema SQL ====================
 
 const SCHEMA_SQL: &str = "
@@ -530,6 +581,11 @@ CREATE TABLE IF NOT EXISTS play_progress (
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS search_history (
+    keyword TEXT PRIMARY KEY,
+    searched_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE INDEX IF NOT EXISTS idx_download_created ON download_history(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_parse_parsed ON parse_history(parsed_at DESC);
 ";
@@ -569,9 +625,9 @@ mod tests {
 
         migrate_schema(&conn).unwrap();
 
-        // 迁移后 pic 列存在，版本一路升到最新（当前为 7）
+        // 迁移后 pic 列存在，版本一路升到最新（当前为 8）
         assert!(column_exists(&conn, "download_history", "pic").unwrap());
-        assert_eq!(current_schema_version(&conn), 7);
+        assert_eq!(current_schema_version(&conn), 8);
     }
 
     #[test]
@@ -592,7 +648,7 @@ mod tests {
 
         assert!(column_exists(&conn, "download_history", "quality").unwrap());
         assert!(column_exists(&conn, "download_history", "video_title").unwrap());
-        assert_eq!(current_schema_version(&conn), 7);
+        assert_eq!(current_schema_version(&conn), 8);
     }
 
     #[test]
@@ -601,7 +657,7 @@ mod tests {
         migrate_schema(&conn).unwrap();
         // 再次执行迁移不应报错（version 已是 3，跳过 ALTER）
         migrate_schema(&conn).unwrap();
-        assert_eq!(current_schema_version(&conn), 7);
+        assert_eq!(current_schema_version(&conn), 8);
         assert!(column_exists(&conn, "download_history", "pic").unwrap());
     }
 
@@ -619,7 +675,7 @@ mod tests {
 
         migrate_schema(&conn).unwrap();
         // 全新库经 migrate_schema 走完所有迁移分支（列已存在则跳过 ALTER，但仍记录 version 到最新 7）
-        assert_eq!(current_schema_version(&conn), 7);
+        assert_eq!(current_schema_version(&conn), 8);
     }
 
     #[test]
@@ -675,7 +731,7 @@ mod tests {
         // v5 → v6：补 owner_name 列
         migrate_schema(&conn).unwrap();
         assert!(column_exists(&conn, "download_history", "owner_name").unwrap(), "v6 迁移必须补出 owner_name 列");
-        assert_eq!(current_schema_version(&conn), 7);
+        assert_eq!(current_schema_version(&conn), 8);
 
         // 老记录 owner_name 读出为 NULL（None），不会因补列破坏既有数据
         conn.execute(

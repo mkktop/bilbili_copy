@@ -474,6 +474,14 @@ export interface SearchResultList {
   page: number;
 }
 
+/** 热搜条目（get_hot_search 返回，公开接口） */
+export interface HotSearchItem {
+  /** 搜索词（点击时作为 keyword 发起搜索） */
+  keyword: string;
+  /** 展示文案（通常与 keyword 相同） */
+  show_name: string;
+}
+
 // ==================== UP 主 / 合集类型 ====================
 
 /** UP 主卡片信息 */

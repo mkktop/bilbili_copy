@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react";
-import { ArrowLeft, Download, Clock, CheckCircle2, Eye, MessageSquare, ArrowUpDown, ChevronRight, Play } from "lucide-react";
+import { writeText } from "@tauri-apps/plugin-clipboard-manager";
+import { ArrowLeft, Download, Clock, CheckCircle2, Eye, MessageSquare, ArrowUpDown, ChevronRight, Play, ChevronDown, Copy, Check } from "lucide-react";
 import type { ParsedItem, VideoPage, VideoMeta, PlayingItem } from "../types";
 import { formatDuration } from "../types";
 import { cn } from "../lib/utils";
@@ -42,6 +43,18 @@ export function VideoDetail({ entry, sourceLabel, onBack, onOpenUpper, onPlay, o
   const [sortAsc, setSortAsc] = useState(true);
   const [subtitleOnly, setSubtitleOnly] = useState(false);
   const [audioOnly, setAudioOnly] = useState(false);
+  // 简介：展开/收起（默认 3 行截断）与复制反馈（2s 后恢复图标）
+  const [descExpanded, setDescExpanded] = useState(false);
+  const [descCopied, setDescCopied] = useState(false);
+
+  // 复制简介全文到系统剪贴板（失败静默：剪贴板权限异常不打断浏览）
+  const copyDesc = async (text: string) => {
+    try {
+      await writeText(text);
+      setDescCopied(true);
+      setTimeout(() => setDescCopied(false), 2000);
+    } catch { /* 静默 */ }
+  };
 
   if (!info) {
     return (
@@ -265,11 +278,47 @@ export function VideoDetail({ entry, sourceLabel, onBack, onOpenUpper, onPlay, o
             likeCount={info.like_count}
           />
 
-          {/* 简介 */}
+          {/* 简介：默认 3 行截断，可展开全文；右上角一键复制 */}
           {info.desc && (
-            <p className="text-xs text-ink-3 leading-relaxed line-clamp-3 border-l-2 border-line pl-3">
-              {info.desc}
-            </p>
+            <div className="border-l-2 border-line pl-3">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[11px] font-medium text-ink-3">简介</span>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => copyDesc(info.desc)}
+                    title={descCopied ? "已复制" : "复制简介"}
+                    className="p-1 rounded text-ink-3 hover:text-ink-2 hover:bg-panel-2 transition-colors"
+                  >
+                    {descCopied ? <Check size={12} className="text-green-500" /> : <Copy size={12} />}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDescExpanded((v) => !v)}
+                    title={descExpanded ? "收起" : "展开"}
+                    className="p-1 rounded text-ink-3 hover:text-ink-2 hover:bg-panel-2 transition-colors"
+                  >
+                    <ChevronDown size={12} className={cn("transition-transform", descExpanded && "rotate-180")} />
+                  </button>
+                </div>
+              </div>
+              <p
+                className={cn(
+                  "text-xs text-ink-3 leading-relaxed whitespace-pre-wrap break-words",
+                  !descExpanded && "line-clamp-3"
+                )}
+              >
+                {info.desc}
+              </p>
+              {/* 展开/收起文字链接（长简介时更好点） */}
+              <button
+                type="button"
+                onClick={() => setDescExpanded((v) => !v)}
+                className="mt-1 text-[11px] text-accent hover:underline"
+              >
+                {descExpanded ? "收起" : "展开全文"}
+              </button>
+            </div>
           )}
         </div>
         </section>

@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
   Search,
@@ -12,12 +12,17 @@ import {
   MessageSquare,
   Clock,
   Users,
+  History,
+  Flame,
+  X,
+  Trash2,
 } from "lucide-react";
 import type {
   SearchResult,
   SearchResultList,
   SearchResultType,
   ParsedVideoInfo,
+  HotSearchItem,
 } from "../types";
 import { UpperHomePage } from "./UpperHomePage";
 import { formatCount } from "./VideoCard";
@@ -73,9 +78,30 @@ export function ExplorePage({ onBack, onParseVideo, onSelectItem }: Props) {
 
   const [upperMid, setUpperMid] = useState<number | null>(null);
   const [parsingKey, setParsingKey] = useState<string | null>(null);
+  // 搜索历史（本地 DB，最近 10 条）与热搜榜（公开 API）：未搜索时展示在结果区
+  const [history, setHistory] = useState<string[]>([]);
+  const [hotSearch, setHotSearch] = useState<HotSearchItem[]>([]);
   // 请求竞态控制：每次新搜索递增，响应回来时校验是否仍是最新请求，丢弃过期响应
   // 防止快速切换筛选器时旧响应覆盖新响应（结果错乱/累加）
   const searchReqId = useRef(0);
+
+  // 首次挂载：并行加载搜索历史与热搜榜（失败静默，不影响搜索主流程）
+  useEffect(() => {
+    invoke<string[]>("get_search_history", { limit: 10 })
+      .then(setHistory)
+      .catch(() => {});
+    invoke<HotSearchItem[]>("get_hot_search", { limit: 10 })
+      .then(setHotSearch)
+      .catch(() => {});
+  }, []);
+
+  // 落库搜索词 + 乐观更新本地历史（去重置顶，保留 10 条）
+  const recordKeyword = useCallback((kw: string) => {
+    const k = kw.trim();
+    if (!k) return;
+    invoke("save_search_keyword", { keyword: k }).catch(() => {});
+    setHistory((prev) => [k, ...prev.filter((x) => x !== k)].slice(0, 10));
+  }, []);
 
   const doSearch = useCallback(
     async (
@@ -124,7 +150,29 @@ export function ExplorePage({ onBack, onParseVideo, onSelectItem }: Props) {
     []
   );
 
-  const handleSearch = () => doSearch(keyword, searchType, 1, false, order, duration, tids);
+  const handleSearch = () => {
+    recordKeyword(keyword);
+    doSearch(keyword, searchType, 1, false, order, duration, tids);
+  };
+
+  // 点击历史词/热搜词：填入输入框并立即搜索（词作为参数传入，setState 异步不能依赖）
+  const searchKeyword = (kw: string) => {
+    setKeyword(kw);
+    recordKeyword(kw);
+    doSearch(kw, searchType, 1, false, order, duration, tids);
+  };
+
+  // 删除单条历史词（乐观更新 + 落库）
+  const removeHistoryItem = (kw: string) => {
+    setHistory((prev) => prev.filter((x) => x !== kw));
+    invoke("delete_search_keyword", { keyword: kw }).catch(() => {});
+  };
+
+  // 清空全部历史
+  const clearHistory = () => {
+    setHistory([]);
+    invoke("clear_search_history").catch(() => {});
+  };
 
   const handleTypeChange = (type: SearchResultType) => {
     setSearchType(type);
@@ -286,10 +334,80 @@ export function ExplorePage({ onBack, onParseVideo, onSelectItem }: Props) {
             <span className="text-sm">搜索中...</span>
           </div>
         ) : !searched ? (
-          <div className="flex flex-col items-center justify-center py-12 text-ink-3 gap-2">
-            <Search size={40} strokeWidth={1.5} />
-            <p className="text-sm">输入关键词开始搜索</p>
-          </div>
+          /* 未搜索：展示搜索历史（本地）+ 热搜榜（B站）；两者都空时回退引导文案 */
+          history.length === 0 && hotSearch.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-12 text-ink-3 gap-2">
+              <Search size={40} strokeWidth={1.5} />
+              <p className="text-sm">输入关键词开始搜索</p>
+            </div>
+          ) : (
+            <div className="space-y-5 pt-1">
+              {/* 搜索历史：chip 列表，悬停显示单条删除，右上角清空 */}
+              {history.length > 0 && (
+                <section>
+                  <div className="flex items-center justify-between mb-2">
+                    <h3 className="flex items-center gap-1.5 text-xs font-medium text-ink-2">
+                      <History size={13} />
+                      搜索历史
+                    </h3>
+                    <button
+                      onClick={clearHistory}
+                      className="flex items-center gap-1 text-xs text-ink-3 hover:text-red-500 transition-colors"
+                    >
+                      <Trash2 size={12} />
+                      清空
+                    </button>
+                  </div>
+                  <div className="flex gap-1.5 flex-wrap">
+                    {history.map((kw) => (
+                      <span
+                        key={kw}
+                        className="group inline-flex items-center gap-1 pl-2.5 pr-1.5 py-1 text-xs rounded-full bg-panel border border-line text-ink-2 hover:border-accent hover:text-accent transition-colors cursor-pointer"
+                        onClick={() => searchKeyword(kw)}
+                      >
+                        <span className="max-w-[160px] truncate">{kw}</span>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); removeHistoryItem(kw); }}
+                          title="删除"
+                          className="p-0.5 rounded-full text-ink-3 opacity-0 group-hover:opacity-100 hover:text-red-500 transition-all"
+                        >
+                          <X size={11} />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              {/* 热搜榜：带名次的双列列表，前 3 名红色高亮 */}
+              {hotSearch.length > 0 && (
+                <section>
+                  <h3 className="flex items-center gap-1.5 text-xs font-medium text-ink-2 mb-2">
+                    <Flame size={13} className="text-orange-500" />
+                    B站热搜
+                  </h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-1">
+                    {hotSearch.map((h, idx) => (
+                      <button
+                        key={h.keyword}
+                        onClick={() => searchKeyword(h.keyword)}
+                        className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-left hover:bg-panel-2 transition-colors"
+                      >
+                        <span
+                          className={`w-5 text-center text-xs font-bold shrink-0 ${
+                            idx < 3 ? "text-orange-500" : "text-ink-3"
+                          }`}
+                        >
+                          {idx + 1}
+                        </span>
+                        <span className="text-sm text-ink-2 truncate">{h.show_name}</span>
+                      </button>
+                    ))}
+                  </div>
+                </section>
+              )}
+            </div>
+          )
         ) : results.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-12 text-ink-3 gap-2">
             <Search size={40} strokeWidth={1.5} />

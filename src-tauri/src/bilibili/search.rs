@@ -258,3 +258,64 @@ fn parse_search_item(item: &Value, search_type: &str) -> Option<SearchResult> {
         _ => None,
     }
 }
+
+// ==================== 热搜榜 ====================
+
+/// 热搜条目（search/square 返回，公开接口）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HotSearchItem {
+    /// 搜索词（点击时作为 keyword 发起搜索）
+    pub keyword: String,
+    /// 展示文案（通常与 keyword 相同，个别条目带修饰）
+    pub show_name: String,
+}
+
+/// 获取 B站热搜榜（公开接口，无需登录）
+/// API: GET https://api.bilibili.com/x/web-interface/search/square?limit={n}
+/// 返回 data.trending.list：[{keyword, show_name, ...}]
+pub async fn get_hot_search(limit: u32, credential: Option<&Credential>) -> Result<Vec<HotSearchItem>> {
+    let client = api_client();
+    let limit_s = limit.to_string();
+    let mut req = client
+        .get("https://api.bilibili.com/x/web-interface/search/square")
+        .header("Referer", crate::bilibili::REFERER)
+        .query(&[("limit", limit_s.as_str()), ("platform", "web")]);
+    if let Some(cred) = credential {
+        req = req.header("Cookie", cred.cookie_header());
+    }
+
+    let resp_text = req.send().await?.text().await?;
+    let resp: Value = serde_json::from_str(&resp_text).context("热搜榜响应解析失败")?;
+
+    let code = resp["code"].as_i64().unwrap_or(-1);
+    if code != 0 {
+        anyhow::bail!(
+            "获取热搜榜失败: {}",
+            resp["message"].as_str().unwrap_or("未知错误")
+        );
+    }
+
+    let list = resp["data"]["trending"]["list"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+
+    let items: Vec<HotSearchItem> = list
+        .into_iter()
+        .filter_map(|v| {
+            let keyword = v["keyword"].as_str()?.to_string();
+            if keyword.is_empty() {
+                return None;
+            }
+            let show_name = v["show_name"]
+                .as_str()
+                .filter(|s| !s.is_empty())
+                .unwrap_or(&keyword)
+                .to_string();
+            Some(HotSearchItem { keyword, show_name })
+        })
+        .collect();
+
+    log::info!("[search] 获取到 {} 条热搜", items.len());
+    Ok(items)
+}
