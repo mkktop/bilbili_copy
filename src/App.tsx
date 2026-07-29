@@ -15,16 +15,17 @@ import { RankingPage } from "./components/RankingPage";
 import { RecommendPage } from "./components/RecommendPage";
 import { DynamicPage } from "./components/DynamicPage";
 import { RegionPage } from "./components/RegionPage";
+import { WeeklyPage } from "./components/WeeklyPage";
 import { useToast } from "./components/Toast";
 import { useUpdate } from "./contexts/UpdateContext";
 import { useSettings } from "./hooks/useSettings";
 import { useLogin } from "./hooks/useLogin";
 import { useDownloadEvents } from "./hooks/useDownloadEvents";
 import { useUrlIntake } from "./hooks/useUrlIntake";
-import { Settings, Download, Search, Trophy, Sparkles, LayoutGrid, Sun, Moon, BarChart3, Rss } from "lucide-react";
+import { Settings, Download, Search, Trophy, Sparkles, LayoutGrid, Sun, Moon, BarChart3, Rss, CalendarDays } from "lucide-react";
 import type { AppSettings } from "./hooks/useSettings";
 import { useThemeApplier, type ThemeMode } from "./hooks/useTheme";
-import type { ParsedItem, DownloadTask, ParsedVideoInfo, ParseHistoryEntry, DownloadHistoryEntry, VideoMeta, VideoPage, PlayingItem } from "./types";
+import type { ParsedItem, DownloadTask, ParsedVideoInfo, ParseHistoryEntry, DownloadHistoryEntry, VideoMeta, VideoPage, PlayingItem, PlaylistItem } from "./types";
 import { dbToParsedItem, dbToDownloadTask } from "./types";
 import { friendlyError } from "./lib/errors";
 
@@ -48,7 +49,7 @@ function extractArticleRef(text: string): ArticleRef | null {
   return null;
 }
 
-type View = "main" | "settings" | "detail" | "downloads" | "stats" | "profile" | "explore" | "ranking" | "recommend" | "region" | "dynamic";
+type View = "main" | "settings" | "detail" | "downloads" | "stats" | "profile" | "explore" | "ranking" | "recommend" | "region" | "dynamic" | "weekly";
 
 /** 视图枚举 → 面包屑来源中文名（详情页/UP 主主页头部用，back 回到该来源） */
 function viewLabel(view: View): string {
@@ -59,6 +60,7 @@ function viewLabel(view: View): string {
     case "recommend": return "推荐";
     case "region": return "分区";
     case "dynamic": return "动态";
+    case "weekly": return "每周必看";
     case "profile": return "我的";
     case "downloads": return "下载";
     case "stats": return "统计";
@@ -462,6 +464,23 @@ export default function App() {
     setPlayingItem(p);
   };
 
+  // 播放列表模式：从每周必看/收藏夹等场景传入跨稿件列表，打开播放器连续播放。
+  // 起始项作为初始 playingItem 载荷，playlist 随会话穿线给 VideoPlayer。
+  const handlePlayPlaylist = (items: PlaylistItem[], startIndex: number) => {
+    if (items.length === 0) return;
+    const start = items[Math.min(startIndex, items.length - 1)];
+    setPlayingItem({
+      bvid: start.bvid,
+      aid: start.aid,
+      cid: start.cid,
+      epId: start.epId,
+      duration: start.duration,
+      title: start.title,
+      playlist: items,
+      playlistIndex: Math.min(startIndex, items.length - 1),
+    });
+  };
+
   // 在 UP 主主页覆盖层中点开某个视频：替换当前详情页内容并关闭 UP 主页覆盖层。
   // previousView 保持不变，从新详情返回时仍回到原来源页（main/explore/...）。
   const handleSelectFromUpper = (videoInfo: ParsedVideoInfo) => {
@@ -500,49 +519,61 @@ export default function App() {
   // 视频详情覆盖层：无论当前在哪个视图都叠在最上层。
   // 关键：来源页组件保持挂载不被卸载，返回时其 state（搜索结果、UP 主投稿列表、
   // 收藏夹视频等）完整保留，避免返回后回到空白初始页。
-  const detailOverlay =
-    currentView === "detail" && selectedItem ? (
-      <div className="fixed inset-0 z-50 bg-base">
-        <VideoDetail
-          entry={selectedItem}
-          sourceLabel={viewLabel(previousView)}
-          onBack={handleDetailBack}
-          onOpenUpper={handleOpenUpper}
-          onPlay={handlePlay}
-          onDownload={handleDownload}
-        />
-        {/* UP 主主页覆盖层：从详情页点头像进入，叠加在详情之上（更高 z-index）。
-            外层 fixed 无 transform，内层 fixed 仍相对视口铺满；z-[60] > z-50，
-            故本层绘制在 VideoDetail 之上。返回关闭本层 → 回到详情；
-            点开某视频 → handleSelectFromUpper 替换详情内容并关闭本层。 */}
-        {upperViewMid !== null && (
-          <div className="fixed inset-0 z-[60] bg-base">
-            <UpperHomePage
-              mid={upperViewMid}
-              sourceLabel="视频详情"
-              onBack={() => setUpperViewMid(null)}
-              onParseVideo={handleParse}
-              onSelectItem={handleSelectFromUpper}
-            />
-          </div>
-        )}
-        {/* 在线播放覆盖层：MSE 播放器，最上层 z-[70]（懒加载，chunk 加载期间不渲染） */}
-        {playingItem && (
-          <Suspense fallback={null}>
-            <VideoPlayer
-              bvid={playingItem.bvid}
-              aid={playingItem.aid}
-              cid={playingItem.cid}
-              epId={playingItem.epId}
-              duration={playingItem.duration}
-              title={playingItem.title}
-              pages={playingItem.pages}
-              onBack={() => setPlayingItem(null)}
-            />
-          </Suspense>
-        )}
-      </div>
-    ) : null;
+  //
+  // 结构拆为两部分：
+  // 1) 详情容器（VideoDetail + UP 主页）——仅 currentView==="detail" 时渲染；
+  // 2) 在线播放器（VideoPlayer）——只要 playingItem 非空就渲染，与当前视图无关。
+  //    这样从「每周必看」等非详情视图点「连续播放」也能正常弹出播放器。
+  //    VideoPlayer 自身是 fixed inset-0 z-[70]，作为兄弟节点仍铺满视口且置于最上层。
+  const detailOverlay = (
+    <>
+      {currentView === "detail" && selectedItem && (
+        <div className="fixed inset-0 z-50 bg-base">
+          <VideoDetail
+            entry={selectedItem}
+            sourceLabel={viewLabel(previousView)}
+            onBack={handleDetailBack}
+            onOpenUpper={handleOpenUpper}
+            onPlay={handlePlay}
+            onDownload={handleDownload}
+          />
+          {/* UP 主主页覆盖层：从详情页点头像进入，叠加在详情之上（更高 z-index）。
+              外层 fixed 无 transform，内层 fixed 仍相对视口铺满；z-[60] > z-50，
+              故本层绘制在 VideoDetail 之上。返回关闭本层 → 回到详情；
+              点开某视频 → handleSelectFromUpper 替换详情内容并关闭本层。 */}
+          {upperViewMid !== null && (
+            <div className="fixed inset-0 z-[60] bg-base">
+              <UpperHomePage
+                mid={upperViewMid}
+                sourceLabel="视频详情"
+                onBack={() => setUpperViewMid(null)}
+                onParseVideo={handleParse}
+                onSelectItem={handleSelectFromUpper}
+              />
+            </div>
+          )}
+        </div>
+      )}
+      {/* 在线播放覆盖层：MSE 播放器，最上层 z-[70]（懒加载，chunk 加载期间不渲染）。
+          独立于详情视图：从任意视图（详情/每周必看等）触发播放都能弹出。 */}
+      {playingItem && (
+        <Suspense fallback={null}>
+          <VideoPlayer
+            bvid={playingItem.bvid}
+            aid={playingItem.aid}
+            cid={playingItem.cid}
+            epId={playingItem.epId}
+            duration={playingItem.duration}
+            title={playingItem.title}
+            pages={playingItem.pages}
+            playlist={playingItem.playlist}
+            playlistIndex={playingItem.playlistIndex}
+            onBack={() => setPlayingItem(null)}
+          />
+        </Suspense>
+      )}
+    </>
+  );
 
   // Settings view
   if (currentView === "settings") {
@@ -730,6 +761,23 @@ export default function App() {
     );
   }
 
+  // Weekly view（每周必看）
+  // detail 状态下若来源是 weekly，仍渲染 WeeklyPage（被详情覆盖层遮挡），
+  // 保证返回时 WeeklyPage 的 state（期数选择与视频列表）不丢失。
+  if (currentView === "weekly" || (currentView === "detail" && previousView === "weekly")) {
+    return (
+      <>
+        <WeeklyPage
+          onBack={() => setCurrentView("main")}
+          onParseVideo={handleParse}
+          onSelectItem={(videoInfo: ParsedVideoInfo) => openDetail(videoInfo, "weekly", "weekly")}
+          onPlayPlaylist={handlePlayPlaylist}
+        />
+        {detailOverlay}
+      </>
+    );
+  }
+
   // Main view
   return (
     <div className="flex flex-col h-screen bg-base text-ink">
@@ -807,6 +855,15 @@ export default function App() {
             className="p-1 rounded-md text-ink-3 hover:text-ink-2 hover:bg-panel-2 transition-colors"
           >
             <LayoutGrid size={16} />
+          </button>
+
+          {/* 每周必看入口 */}
+          <button
+            onClick={() => setCurrentView("weekly")}
+            title="每周必看"
+            className="p-1 rounded-md text-ink-3 hover:text-ink-2 hover:bg-panel-2 transition-colors"
+          >
+            <CalendarDays size={16} />
           </button>
 
           {/* 下载列表入口 */}

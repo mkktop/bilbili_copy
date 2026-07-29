@@ -20,3 +20,4 @@ pub mod comment;
 pub mod dynamic;
 pub mod interaction;
 pub mod player;
+pub mod weekly;

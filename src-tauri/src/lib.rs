@@ -30,6 +30,7 @@ use commands::dynamic::get_dynamic_feed;
 use commands::article::{get_article_content, export_article_markdown};
 use commands::interaction::{like_video, coin_video, favorite_video};
 use commands::player::{get_play_streams, get_danmaku_json, get_subtitle_list, get_subtitle_cues, log_player_error, get_seek_index};
+use commands::weekly::{get_weekly_series, get_weekly_detail};
 use download_manager::manager;
 
 /// Read Windows system proxy settings and set HTTPS_PROXY env var
@@ -342,6 +343,8 @@ pub fn run() {
             get_subtitle_cues,
             log_player_error,
             get_seek_index,
+            get_weekly_series,
+            get_weekly_detail,
         ])
         .on_window_event(|window, event| {
             // 拦截主窗口关闭：根据设置决定是「最小化到托盘」还是「正常退出」。

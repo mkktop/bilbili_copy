@@ -3,8 +3,9 @@ import { invoke } from "@tauri-apps/api/core";
 import {
   ArrowLeft, Loader2, AlertCircle, Settings2, Check, ListVideo, Gauge, Subtitles,
   MessageSquare, MessageSquareOff, PictureInPicture2, Minimize2, Maximize2, X, History,
+  SkipForward, ListMusic, Repeat,
 } from "lucide-react";
-import type { VideoPage } from "../types";
+import type { VideoPage, PlaylistItem } from "../types";
 import { formatDuration } from "../types";
 
 interface Props {
@@ -17,6 +18,10 @@ interface Props {
   title: string;
   /** 多分P列表：传入则在顶部显示「选集」菜单，可切换播放。单P/缺省则不显示。 */
   pages?: VideoPage[];
+  /** 跨稿件播放列表（每周必看/收藏夹等）：传入后支持自动切下一集 + 列表面板。 */
+  playlist?: PlaylistItem[];
+  /** 播放列表起始索引（默认 0） */
+  playlistIndex?: number;
   onBack: () => void;
 }
 
@@ -353,19 +358,35 @@ function waitForBuffered(video: HTMLVideoElement, target: number, signal: AbortS
   });
 }
 
-export function VideoPlayer({ bvid, aid, cid, epId, duration, title, pages, onBack }: Props) {
+export function VideoPlayer({ bvid, aid, cid, epId, duration, title, pages, playlist, playlistIndex, onBack }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
+
+  // 播放列表模式：跨稿件连续播放。playlistIdx 追踪当前项，变化后派生 bvid/cid 等 →
+  // 初始化 effect 重跑加载新稿件流（与分P切换同机制，复用 MSE 生命周期）。
+  const hasPlaylist = (playlist?.length ?? 0) > 1;
+  const [playlistIdx, setPlaylistIdx] = useState<number>(playlistIndex ?? 0);
+  const [autoNext, setAutoNext] = useState(true); // 自动切下一集开关（本会话记忆）
+  const [playlistOpen, setPlaylistOpen] = useState(false); // 播放列表面板
+  const plItem = hasPlaylist ? playlist![Math.min(playlistIdx, playlist!.length - 1)] : null;
+
+  // 有效播放参数：播放列表项优先，否则用 props（单稿件/分P 模式）
+  const effBvid = plItem?.bvid ?? bvid;
+  const effAid = plItem?.aid ?? aid;
+  const effDuration = plItem && plItem.duration > 0 ? plItem.duration : duration;
+  const effTitle = plItem?.title ?? title;
+  // 播放列表模式下不使用分P（每项是独立稿件）
+  const effPages = plItem ? undefined : pages;
 
   // 多分P：当前播放的分P（初始为 props.cid 对应的P）。切换分P → 派生值变化 →
   // 下面的初始化 effect 重跑（中断旧流、加载新分P流），复用现有 MSE 生命周期。
   // 父级每次打开播放器都是新挂载（playingItem null→对象），故初始值生效一次即可。
   const [activePage, setActivePage] = useState<VideoPage | null>(
-    () => pages?.find(p => p.cid === cid) ?? null
+    () => effPages?.find(p => p.cid === cid) ?? null
   );
-  const currentCid = activePage?.cid ?? cid;
-  const currentDuration = activePage && activePage.duration > 0 ? activePage.duration : duration;
-  const currentEpId = activePage?.ep_id ?? epId;
-  const multiPage = (pages?.length ?? 0) > 1;
+  const currentCid = plItem ? plItem.cid : (activePage?.cid ?? cid);
+  const currentDuration = plItem ? effDuration : (activePage && activePage.duration > 0 ? activePage.duration : duration);
+  const currentEpId = plItem ? plItem.epId : (activePage?.ep_id ?? epId);
+  const multiPage = !plItem && (effPages?.length ?? 0) > 1;
   const [qualities, setQualities] = useState<PlayQuality[]>([]);
   const [selectedQn, setSelectedQn] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
@@ -441,11 +462,11 @@ export function VideoPlayer({ bvid, aid, cid, epId, duration, title, pages, onBa
     setSelectedSubLan(null);
     setCues([]);
     setActiveCue("");
-    invoke<SubtitleTrack[]>("get_subtitle_list", { bvid, cid: currentCid, aid })
+    invoke<SubtitleTrack[]>("get_subtitle_list", { bvid: effBvid, cid: currentCid, aid: effAid })
       .then((list) => { if (active) setSubTracks(list); })
       .catch(() => { /* 无字幕或异常：菜单禁用即可，不打断播放 */ });
     return () => { active = false; };
-  }, [bvid, currentCid, aid]);
+  }, [effBvid, currentCid, effAid]);
 
   /** 选择字幕轨道：null = 关闭。cues 拉取按序号丢弃过期响应。 */
   const selectSubtitle = useCallback(async (lan: string | null) => {
@@ -497,7 +518,7 @@ export function VideoPlayer({ bvid, aid, cid, epId, duration, title, pages, onBa
     const req = ++dmReqRef.current;
     danmakuListRef.current = [];
     setDanmakuCount(0);
-    invoke<DanmakuItem[]>("get_danmaku_json", { cid: currentCid, aid, duration: currentDuration })
+    invoke<DanmakuItem[]>("get_danmaku_json", { cid: currentCid, aid: effAid, duration: currentDuration })
       .then((list) => {
         if (dmReqRef.current !== req) return;
         // 离屏 canvas 测量文本宽（与渲染字体一致，保证碰撞布局准确）
@@ -509,7 +530,7 @@ export function VideoPlayer({ bvid, aid, cid, epId, duration, title, pages, onBa
         setDanmakuCount(laid.length);
       })
       .catch(() => { /* 无弹幕或异常：按钮禁用即可，不打断播放 */ });
-  }, [bvid, currentCid, aid, currentDuration]);
+  }, [effBvid, currentCid, effAid, currentDuration]);
 
   /** 弹幕渲染：rAF 循环直绘 canvas（不走 React state，避免高频重渲染）。
    *  开关关闭/无弹幕时清屏并停表；暂停时画面静止（currentTime 不变）。 */
@@ -666,7 +687,7 @@ export function VideoPlayer({ bvid, aid, cid, epId, duration, title, pages, onBa
       const t = video.currentTime;
       if (t < 5) return; // 刚开头不值得记
       invoke("save_play_progress", {
-        cid: currentCid, bvid, position: t, duration: Math.round(currentDuration),
+        cid: currentCid, bvid: effBvid, position: t, duration: Math.round(currentDuration),
       }).catch(() => {});
     };
     const onTime = () => {
@@ -680,7 +701,7 @@ export function VideoPlayer({ bvid, aid, cid, epId, duration, title, pages, onBa
       video.removeEventListener("timeupdate", onTime);
       save(); // 卸载/切P 补存，保证退出时进度不丢
     };
-  }, [bvid, currentCid, currentDuration]);
+  }, [effBvid, currentCid, currentDuration]);
 
   /** 点击续播：原生 seek 到记忆位置（未缓冲处由既有 seeking 监听触发精准 seek） */
   const resumePlayback = useCallback(() => {
@@ -689,6 +710,38 @@ export function VideoPlayer({ bvid, aid, cid, epId, duration, title, pages, onBa
     video.currentTime = resumeHint;
     setResumeHint(null);
   }, [resumeHint]);
+
+  /** 播放列表：切到指定索引（清 freeze canvas 残留帧，派生值变化 → 初始化 effect 重跑） */
+  const gotoPlaylistItem = useCallback((idx: number) => {
+    if (!hasPlaylist) return;
+    const clamped = Math.max(0, Math.min(idx, playlist!.length - 1));
+    const fc = freezeCanvasRef.current;
+    if (fc) {
+      fc.style.display = "none";
+      try { fc.getContext("2d")?.clearRect(0, 0, fc.width, fc.height); } catch { /* 忽略 */ }
+    }
+    setActivePage(null); // 播放列表项是独立稿件，清掉分P状态
+    setPlaylistIdx(clamped);
+  }, [hasPlaylist, playlist]);
+
+  /** 播放列表：下一集（末尾则停） */
+  const nextPlaylistItem = useCallback(() => {
+    if (!hasPlaylist) return;
+    if (playlistIdx < playlist!.length - 1) gotoPlaylistItem(playlistIdx + 1);
+  }, [hasPlaylist, playlist, playlistIdx, gotoPlaylistItem]);
+
+  /** 播放结束：播放列表模式且 autoNext 开启 → 自动切下一集 */
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    const onEnded = () => {
+      if (hasPlaylist && autoNext && playlistIdx < playlist!.length - 1) {
+        gotoPlaylistItem(playlistIdx + 1);
+      }
+    };
+    video.addEventListener("ended", onEnded);
+    return () => video.removeEventListener("ended", onEnded);
+  }, [hasPlaylist, autoNext, playlistIdx, playlist, gotoPlaylistItem]);
 
   /** 异步加载精准拖动索引（非阻塞，失败静默） */
   const loadSeekIndex = useCallback(async (videoUrl: string, audioUrl: string) => {
@@ -817,7 +870,7 @@ export function VideoPlayer({ bvid, aid, cid, epId, duration, title, pages, onBa
     (async () => {
       try {
         const streams = await invoke<PlayStreams>("get_play_streams", {
-          bvid, cid: currentCid, epId: currentEpId ?? null, duration: currentDuration,
+          bvid: effBvid, cid: currentCid, epId: currentEpId ?? null, duration: currentDuration,
         });
         if (!active) return;
         if (!streams.qualities.length) throw new Error("未取到视频流地址（可能需要登录或遇到风控）");
@@ -845,7 +898,7 @@ export function VideoPlayer({ bvid, aid, cid, epId, duration, title, pages, onBa
         objectUrlRef.current = null;
       }
     };
-  }, [bvid, currentCid, currentEpId, currentDuration, play, reportError]);
+  }, [effBvid, currentCid, currentEpId, currentDuration, play, reportError]);
 
   /** 精准拖动：拖到未缓冲处时，捕获当前帧做冻结 overlay（盖住重建黑屏），重建流并从目标分片 moof 字节拉。
    *  必须重建（abort 旧拉取会留下半截 fragment，直接复用 SourceBuffer 会让解析器混乱报致命错）。*/
@@ -954,7 +1007,7 @@ export function VideoPlayer({ bvid, aid, cid, epId, duration, title, pages, onBa
           >
             <Maximize2 size={14} />
           </button>
-          <h1 className="text-xs font-medium text-white truncate flex-1">{title}</h1>
+          <h1 className="text-xs font-medium text-white truncate flex-1">{effTitle}</h1>
           <button
             onClick={onBack}
             title="关闭"
@@ -971,10 +1024,10 @@ export function VideoPlayer({ bvid, aid, cid, epId, duration, title, pages, onBa
         <button onClick={onBack} className="p-2 rounded-lg text-white hover:bg-white/10 transition-colors">
           <ArrowLeft size={20} />
         </button>
-        <h1 className="text-sm font-medium text-white truncate flex-1">{title}</h1>
+        <h1 className="text-sm font-medium text-white truncate flex-1">{effTitle}</h1>
 
         {/* 分P选集（多分P才显示） */}
-        {multiPage && pages && (
+        {multiPage && effPages && (
           <div className="relative">
             <button
               onClick={() => { const next = !episodeMenuOpen; closeMenus(); setEpisodeMenuOpen(next); }}
@@ -987,7 +1040,7 @@ export function VideoPlayer({ bvid, aid, cid, epId, duration, title, pages, onBa
               <>
                 <div className="fixed inset-0 z-20" onClick={() => setEpisodeMenuOpen(false)} />
                 <div className="absolute right-0 top-full z-30 mt-1 min-w-[200px] max-w-[320px] rounded-lg bg-zinc-900/95 border border-white/10 shadow-xl py-1 max-h-[60vh] overflow-auto">
-                  {pages.map(p => (
+                  {effPages.map(p => (
                     <button
                       key={p.page}
                       onClick={() => switchPage(p)}
@@ -1117,6 +1170,32 @@ export function VideoPlayer({ bvid, aid, cid, epId, duration, title, pages, onBa
           <span>弹幕</span>
         </button>
 
+        {/* 播放列表模式：自动连播开关 + 列表面板（仅播放列表场景显示） */}
+        {hasPlaylist && (
+          <>
+            <button
+              onClick={() => setAutoNext((v) => !v)}
+              title={autoNext ? "自动连播：开（点击关闭）" : "自动连播：关（点击开启）"}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors ${
+                autoNext ? "text-emerald-300 bg-emerald-500/20 hover:bg-emerald-500/30" : "text-white bg-white/10 hover:bg-white/20"
+              }`}
+            >
+              <Repeat size={15} />
+              <span>连播</span>
+            </button>
+            <button
+              onClick={() => setPlaylistOpen((v) => !v)}
+              title="播放列表"
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors ${
+                playlistOpen ? "text-pink-300 bg-pink-500/20 hover:bg-pink-500/30" : "text-white bg-white/10 hover:bg-white/20"
+              }`}
+            >
+              <ListMusic size={15} />
+              <span>{playlistIdx + 1}/{playlist!.length}</span>
+            </button>
+          </>
+        )}
+
         {/* 系统画中画（置顶小窗悬浮于所有应用之上） */}
         <button
           onClick={togglePip}
@@ -1194,6 +1273,47 @@ export function VideoPlayer({ bvid, aid, cid, epId, duration, title, pages, onBa
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-white/90 px-6 text-center">
             <AlertCircle size={28} />
             <p className="text-sm">{error}</p>
+          </div>
+        )}
+
+        {/* 播放列表面板：右侧浮层，列出全部稿件，点击切集；当前项高亮 */}
+        {hasPlaylist && playlistOpen && (
+          <div className="absolute top-0 right-0 bottom-0 z-30 w-[320px] max-w-[80%] bg-zinc-900/95 border-l border-white/10 shadow-2xl flex flex-col">
+            <div className="flex items-center justify-between px-3 py-2.5 border-b border-white/10">
+              <span className="text-sm font-medium text-white">播放列表（{playlist!.length}）</span>
+              <button onClick={() => setPlaylistOpen(false)} className="p-1 rounded text-white/60 hover:text-white hover:bg-white/10 transition-colors">
+                <X size={15} />
+              </button>
+            </div>
+            <div className="flex-1 overflow-auto py-1">
+              {playlist!.map((item, idx) => (
+                <button
+                  key={`${item.bvid}-${idx}`}
+                  onClick={() => { gotoPlaylistItem(idx); setPlaylistOpen(false); }}
+                  className={`w-full flex items-center gap-2.5 px-3 py-2 text-left transition-colors ${
+                    idx === playlistIdx ? "bg-pink-500/20" : "hover:bg-white/5"
+                  }`}
+                >
+                  <span className={`w-5 text-center text-xs shrink-0 ${idx === playlistIdx ? "text-pink-300 font-bold" : "text-white/40"}`}>
+                    {idx === playlistIdx ? <SkipForward size={12} className="inline" /> : idx + 1}
+                  </span>
+                  {item.cover && (
+                    <img src={item.cover} alt="" className="w-14 h-9 rounded object-cover bg-white/10 shrink-0" />
+                  )}
+                  <span className="flex-1 min-w-0">
+                    <span className={`block text-xs leading-snug line-clamp-2 ${idx === playlistIdx ? "text-pink-200" : "text-white/80"}`}>
+                      {item.title}
+                    </span>
+                    {item.upper_name && (
+                      <span className="block text-[10px] text-white/40 mt-0.5 truncate">{item.upper_name}</span>
+                    )}
+                  </span>
+                  {item.duration > 0 && (
+                    <span className="text-[10px] text-white/40 shrink-0">{formatDuration(item.duration)}</span>
+                  )}
+                </button>
+              ))}
+            </div>
           </div>
         )}
       </div>

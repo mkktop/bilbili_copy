@@ -28,6 +28,7 @@ pub mod interaction;
 pub mod throttle;
 pub mod mp4_seek;
 pub mod filename;
+pub mod weekly;
 
 // ==================== 共享常量 ====================
 

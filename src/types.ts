@@ -50,6 +50,10 @@ export interface PlayingItem {
   title: string;
   /** 正片分P列表：多分P时播放器顶栏显示「选集」菜单 */
   pages?: VideoPage[];
+  /** 跨稿件播放列表（每周必看/收藏夹等场景）：传入后播放器支持自动切下一集 */
+  playlist?: PlaylistItem[];
+  /** 播放列表起始索引（默认 0） */
+  playlistIndex?: number;
 }
 
 export interface ParsedVideoInfo {
@@ -513,5 +517,77 @@ export interface FollowingItem {
   name: string;
   face: string;
   sign: string;
+}
+
+// ==================== 每周必看类型 ====================
+
+/** 每周必看期数条目（get_weekly_series 返回） */
+export interface WeeklySeriesItem {
+  /** 期数 */
+  number: number;
+  /** 主题（如「身残志坚钻石大盗」） */
+  subject: string;
+  /** 状态（2=已结束） */
+  status: number;
+  /** 名称（如「2024第279期 07.19 - 07.25」） */
+  name: string;
+}
+
+/** 每周必看选期配置 */
+export interface WeeklyConfig {
+  number: number;
+  subject: string;
+  name: string;
+  /** 开始时间（unix 秒） */
+  stime: number;
+  /** 结束时间（unix 秒） */
+  etime: number;
+  cover: string;
+  hint: string;
+}
+
+/** 每周必看视频条目（get_weekly_detail 返回） */
+export interface WeeklyVideoItem {
+  bvid: string;
+  aid: number;
+  cid: number;
+  title: string;
+  cover: string;
+  upper_name: string;
+  upper_mid: number;
+  duration: number;
+  play: number;
+  danmaku: number;
+  like: number;
+  pubdate: number;
+  /** 分区名（如「科学科普」） */
+  tname: string;
+  /** 推荐理由（编辑精选文案） */
+  rcmd_reason: string;
+}
+
+/** 每周必看选期详情 */
+export interface WeeklyDetail {
+  config: WeeklyConfig;
+  /** 提醒（如「每周五晚18:00更新」） */
+  reminder: string;
+  list: WeeklyVideoItem[];
+}
+
+// ==================== 播放列表类型 ====================
+
+/** 播放列表条目：跨稿件连续播放（每周必看/收藏夹等场景）。
+ *  与 VideoPage（同稿件分P）不同，PlaylistItem 每项是独立稿件（独立 bvid/aid）。 */
+export interface PlaylistItem {
+  bvid: string;
+  aid: number;
+  cid: number;
+  title: string;
+  duration: number;
+  epId?: number;
+  /** 封面（播放列表面板展示用） */
+  cover?: string;
+  /** UP 主名（播放列表面板展示用） */
+  upper_name?: string;
 }
 
