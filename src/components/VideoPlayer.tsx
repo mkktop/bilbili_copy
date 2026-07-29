@@ -320,7 +320,7 @@ async function feedStream(
           if (signal.aborted) return;
         }
       }
-      const { buf, total: t } = await fetchRangeTotal(url, start, start + CHUNK, signal);
+      const { buf, total: t } = await fetchWithRetry(url, start, start + CHUNK, signal);
       if (buf.byteLength === 0) return;
       total = t;
       if (catchingUp) await evictFront(sb); // 追帧期：维持尾部窗口
@@ -342,6 +342,62 @@ async function fetchRangeTotal(url: string, start: number, endExclusive: number,
   const cr = res.headers.get("content-range");
   const total = cr ? parseInt(cr.split("/")[1], 10) : start + buf.byteLength;
   return { buf, total };
+}
+
+/** 带重试的分块拉取：瞬时网络抖动（代理超时 / CDN 5xx / 连接重置）自动退避重试，
+ *  避免单个分块失败就中断整段播放（「播着播着流失败」的主因之一）。
+ *  - abort 立即停止不重试；
+ *  - HTTP 4xx（除 408/429）多为签名 URL 失效 / 风控，重试同 URL 无意义 → 直接抛出。 */
+async function fetchWithRetry(
+  url: string,
+  start: number,
+  endExclusive: number,
+  signal: AbortSignal,
+  retries = 4,
+): Promise<{ buf: ArrayBuffer; total: number }> {
+  let lastErr: unknown;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    if (signal.aborted) throw new DOMException("Aborted", "AbortError");
+    try {
+      return await fetchRangeTotal(url, start, endExclusive, signal);
+    } catch (e) {
+      if (signal.aborted) throw e;
+      lastErr = e;
+      const msg = e instanceof Error ? e.message : String(e);
+      const fatal = /HTTP 4\d\d/.test(msg) && !/HTTP (408|429)/.test(msg);
+      if (fatal) throw e;
+      if (attempt < retries) {
+        invoke("log_player_error", { msg: `分块拉流失败(将重试 ${attempt + 1}/${retries}): ${msg}` }).catch(() => {});
+        await new Promise((r) => setTimeout(r, 300 * (attempt + 1))); // 300/600/900/1200ms 退避
+      }
+    }
+  }
+  throw lastErr;
+}
+
+/** 安全结束流：等所有 SourceBuffer 完成 updating 再 endOfStream。
+ *  直接调 endOfStream 时若仍有 buffer 在 updating（最后一段 append 的内部时长 reconcile）会抛异常，
+ *  即使数据已全部缓冲完也会误报「播放流加载失败」。这里监听 updateend 确保 updating=false 后再结束，
+ *  并兑底 try/catch（结束失败不影响已缓冲内容的播放）。 */
+function safeEndOfStream(mediaSource: MediaSource, buffers: SourceBuffer[]): void {
+  if (mediaSource.readyState !== "open") return;
+  let done = false;
+  const tryEnd = () => {
+    if (done || mediaSource.readyState !== "open") return;
+    if (buffers.some((sb) => sb.updating)) {
+      buffers.forEach((sb) => {
+        if (sb.updating) sb.addEventListener("updateend", tryEnd, { once: true });
+      });
+      return;
+    }
+    done = true;
+    try {
+      mediaSource.endOfStream();
+    } catch {
+      /* 数据已缓冲完，结束失败不影响播放 */
+    }
+  };
+  tryEnd();
 }
 
 /** 等缓冲覆盖 target 时刻（画质切换/精准 seek 续播：追帧到位即可 seek） */
@@ -849,8 +905,10 @@ export function VideoPlayer({ bvid, aid, cid, epId, duration, title, pages, play
           video.addEventListener("playing", hideLoading, { signal: ac.signal });
         }
         await feed;
-        if (!cancelledRef.current && !ac.signal.aborted && mediaSource.readyState === "open") {
-          mediaSource.endOfStream();
+        if (!cancelledRef.current && !ac.signal.aborted) {
+          // 安全结束：等所有 buffer 完成 updating 再 endOfStream，避免「updating is true」误报流失败
+          const endBuffers: SourceBuffer[] = asb ? [vsb, asb] : [vsb];
+          safeEndOfStream(mediaSource, endBuffers);
         }
       } catch (e) {
         if (!ac.signal.aborted) {
