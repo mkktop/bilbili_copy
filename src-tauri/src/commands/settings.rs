@@ -93,28 +93,6 @@ fn default_nfo_include_stats() -> bool {
     true // 写入播放统计 <tag>(播放量/点赞数)
 }
 
-// ==================== 旧格式（用于向后兼容迁移） ====================
-
-#[derive(Debug, Deserialize)]
-struct LegacySettings {
-    #[serde(default)]
-    pub default_download_dir: String,
-    #[serde(default)]
-    pub auto_update: bool,
-    #[serde(default)]
-    pub default_max_quality: Option<i64>,
-    #[serde(default)]
-    pub video_max_quality: Option<i64>,
-    #[serde(default)]
-    pub video_min_quality: Option<i64>,
-    #[serde(default)]
-    pub audio_max_quality: Option<i64>,
-    #[serde(default)]
-    pub audio_min_quality: Option<i64>,
-    #[serde(default)]
-    pub video_codec_priority: Option<Vec<String>>,
-}
-
 // ==================== AppSettings ====================
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -255,57 +233,6 @@ impl Default for AppSettings {
     }
 }
 
-impl From<LegacySettings> for AppSettings {
-    fn from(legacy: LegacySettings) -> Self {
-        // 旧 default_max_quality 迁移到 video_max_quality
-        let video_max_quality = legacy
-            .video_max_quality
-            .or(legacy.default_max_quality)
-            .unwrap_or(127);
-
-        Self {
-            default_download_dir: legacy.default_download_dir,
-            auto_update: legacy.auto_update,
-            video_max_quality,
-            video_min_quality: legacy.video_min_quality.unwrap_or(0),
-            audio_max_quality: legacy.audio_max_quality.unwrap_or(30251),
-            audio_min_quality: legacy.audio_min_quality.unwrap_or(0),
-            video_codec_priority: legacy
-                .video_codec_priority
-                .unwrap_or_else(default_codec_priority),
-            max_concurrent_downloads: default_max_concurrent_downloads(),
-            max_pages_per_video: default_max_pages_per_video(),
-            parallel_threads: default_parallel_threads(),
-            max_download_speed_kbps: 0,
-            audio_format: default_audio_format(),
-            theme: default_theme(),
-            close_to_tray: default_close_to_tray(),
-            tray_hint_shown: false,
-            notify_on_complete: default_notify_on_complete(),
-            fingerprint_gpu_preset: String::new(),
-            fingerprint_resolution_preset: String::new(),
-            dm_img_str: String::new(),
-            dm_cover_img_str: String::new(),
-            dm_img_list: String::new(),
-            dm_img_inter: String::new(),
-            request_delay_ms: default_request_delay_ms(),
-            download_danmaku: false,
-            download_subtitle: false,
-            danmaku_font_size: default_dm_font_size(),
-            danmaku_scroll_duration: default_dm_scroll_duration(),
-            danmaku_opacity: default_dm_opacity(),
-            danmaku_block_top: false,
-            danmaku_block_bottom: false,
-            subtitle_format: default_subtitle_format(),
-            filename_template: String::new(),
-            download_nfo: false,
-            nfo_include_genre: default_nfo_include_genre(),
-            nfo_include_actor: default_nfo_include_actor(),
-            nfo_include_stats: default_nfo_include_stats(),
-        }
-    }
-}
-
 impl AppSettings {
     /// 将设置中的弹幕渲染参数映射为 `DanmakuOption`（其余字段用默认值）。
     /// 供 download_extras 在下载弹幕时构造 ASS 渲染配置。
@@ -341,6 +268,8 @@ fn settings_path() -> PathBuf {
 
 /// 读取当前设置（供 lib.rs 的窗口关闭拦截复用，避免重复实现解析逻辑）。
 /// 文件不存在或解析失败时返回默认值。
+/// 1.0 断代：不再兼容 0.x 旧格式（LegacySettings），无法解析的旧配置直接重置为默认。
+/// （serde 对未知字段宽容 + 所有字段带 default，绝大多数 0.x 配置仍能直接解析成功）
 pub fn load_settings() -> AppSettings {
     let path = settings_path();
     if !path.exists() {
@@ -350,15 +279,7 @@ pub fn load_settings() -> AppSettings {
         Ok(c) => c,
         Err(_) => return AppSettings::default(),
     };
-    match serde_json::from_str::<AppSettings>(&content) {
-        Ok(s) => s,
-        Err(_) => {
-            // 旧格式迁移
-            serde_json::from_str::<LegacySettings>(&content)
-                .map(AppSettings::from)
-                .unwrap_or_default()
-        }
-    }
+    serde_json::from_str::<AppSettings>(&content).unwrap_or_default()
 }
 
 /// 原子写回设置（tmp + rename，与 save_settings 命令一致）。

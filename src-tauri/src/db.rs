@@ -15,14 +15,29 @@ pub fn db_path() -> PathBuf {
     exe_dir.join("data.db")
 }
 
-/// 初始化数据库：建表 + WAL + 版本迁移 + 清理残留
+/// 1.0 世代 schema 版本号。
+/// 与 0.x 的增量迁移链（v2~v8）断代：1.0 起不再维护逐版本补列迁移，
+/// 版本不匹配的旧库（含所有 0.x 库）直接整库重建，旧数据丢弃。
+const SCHEMA_VERSION: i64 = 100;
+
+/// 初始化数据库：建表 + WAL + 版本校验（不匹配则重建）+ 清理残留
 pub fn init_db() -> anyhow::Result<DbState> {
     let conn = Connection::open(db_path())?;
     conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;")?;
     conn.execute_batch(SCHEMA_SQL)?;
 
-    // 增量版本迁移：根据已记录的 schema_version 执行尚未完成的升级
-    migrate_schema(&conn)?;
+    // 1.0 断代：schema_version 不匹配（0.x 旧库 / 全新库 / 未来降级）时整库重建。
+    // 全新库 version=0 也走此路径（drop 空表重建 + 记版本），逻辑统一。
+    let version = current_schema_version(&conn);
+    if version != SCHEMA_VERSION {
+        if version > 0 {
+            log::warn!(
+                "[db] 检测到旧版数据库(schema_version={})，1.0 不兼容旧数据结构，重建数据库",
+                version
+            );
+        }
+        rebuild_db(&conn)?;
+    }
 
     // 应用异常退出后残留的 downloading 任务改为 paused（而非 error），
     // 让用户可在「下载列表」手动恢复（复用 .tmp 续传）。临时文件由指纹机制保护，
@@ -34,6 +49,22 @@ pub fn init_db() -> anyhow::Result<DbState> {
 
     log::info!("[db] 数据库初始化完成: {:?}", db_path());
     Ok(DbState(Mutex::new(conn)))
+}
+
+/// 整库重建：drop 全部表 → 按最新 SCHEMA_SQL 建表 → 记录当前版本。
+/// 1.0 断代策略：不兼容旧数据，解析/下载历史、播放进度、搜索历史全部重置。
+fn rebuild_db(conn: &Connection) -> anyhow::Result<()> {
+    conn.execute_batch(
+        "DROP TABLE IF EXISTS parse_history;
+         DROP TABLE IF EXISTS download_history;
+         DROP TABLE IF EXISTS download_stats;
+         DROP TABLE IF EXISTS play_progress;
+         DROP TABLE IF EXISTS search_history;
+         DROP TABLE IF EXISTS schema_version;",
+    )?;
+    conn.execute_batch(SCHEMA_SQL)?;
+    set_schema_version(conn, SCHEMA_VERSION)?;
+    Ok(())
 }
 
 /// 读取 schema_version 表中的当前版本（空表视为 0）
@@ -49,132 +80,6 @@ fn set_schema_version(conn: &Connection, version: i64) -> anyhow::Result<()> {
         params![version],
     )?;
     Ok(())
-}
-
-/// 增量迁移：依次应用 version < N 的升级步骤。
-/// 新建库的建表语句已包含所有列，迁移只对老库补列。
-fn migrate_schema(conn: &Connection) -> anyhow::Result<()> {
-    let mut version = current_schema_version(conn);
-
-    // v2: download_history 增加 pic（封面）列
-    if version < 2 {
-        // 仅在列不存在时添加（兼容已经是 v2 建表语句的新库）
-        if !column_exists(conn, "download_history", "pic")? {
-            conn.execute("ALTER TABLE download_history ADD COLUMN pic TEXT", [])?;
-            log::info!("[db] 迁移 v2: 已为 download_history 添加 pic 列");
-        }
-        set_schema_version(conn, 2)?;
-        version = 2;
-    }
-
-    // v3: download_history 增加 quality（画质，用于跨会话续传指纹与恢复下载）与
-    //     video_title（合集名，用于重建下载目录路径）两列。
-    if version < 3 {
-        if !column_exists(conn, "download_history", "quality")? {
-            conn.execute("ALTER TABLE download_history ADD COLUMN quality INTEGER", [])?;
-            log::info!("[db] 迁移 v3: 已为 download_history 添加 quality 列");
-        }
-        if !column_exists(conn, "download_history", "video_title")? {
-            conn.execute("ALTER TABLE download_history ADD COLUMN video_title TEXT", [])?;
-            log::info!("[db] 迁移 v3: 已为 download_history 添加 video_title 列");
-        }
-        set_schema_version(conn, 3)?;
-        version = 3;
-    }
-
-    // v4: download_history 增加 size（最终文件字节数）与 duration（视频时长秒）两列，
-    //     用于下载统计面板（累计下载视频数 / 总大小 / 总时长）。
-    if version < 4 {
-        if !column_exists(conn, "download_history", "size")? {
-            conn.execute("ALTER TABLE download_history ADD COLUMN size INTEGER", [])?;
-            log::info!("[db] 迁移 v4: 已为 download_history 添加 size 列");
-        }
-        if !column_exists(conn, "download_history", "duration")? {
-            conn.execute("ALTER TABLE download_history ADD COLUMN duration INTEGER", [])?;
-            log::info!("[db] 迁移 v4: 已为 download_history 添加 duration 列");
-        }
-        set_schema_version(conn, 4)?;
-        version = 4;
-    }
-
-    // v5: 新建 download_stats 累加器表（单行，id=1）。
-    //     统计独立于 download_history，删除/清空下载历史不影响累计值。
-    //     迁移时把已有 status='done' 记录回填进累加器，避免历史数据丢失。
-    if version < 5 {
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS download_stats (
-                id INTEGER PRIMARY KEY,
-                done_count INTEGER NOT NULL DEFAULT 0,
-                done_size INTEGER NOT NULL DEFAULT 0,
-                done_duration INTEGER NOT NULL DEFAULT 0
-            )",
-            [],
-        )?;
-        backfill_download_stats(conn)?;
-        log::info!("[db] 迁移 v5: 已创建 download_stats 累加器表并回填");
-        set_schema_version(conn, 5)?;
-        version = 5;
-    }
-
-    // v6: download_history 增加 owner_name（UP 主名）列。
-    //     文件名模板的 {up} 占位符依赖它：恢复/重试场景前端只从 DB 回传此字段，
-    //     而非完整 video_meta（后者仅 NFO 开启时透传且字段全部必填，无法局部重建）。
-    if version < 6 {
-        if !column_exists(conn, "download_history", "owner_name")? {
-            conn.execute("ALTER TABLE download_history ADD COLUMN owner_name TEXT", [])?;
-            log::info!("[db] 迁移 v6: 已为 download_history 添加 owner_name 列");
-        }
-        set_schema_version(conn, 6)?;
-        version = 6;
-    }
-
-    // v7: 新建 play_progress 表（在线播放进度记忆）。cid 主键：每个分P独立记进度。
-    if version < 7 {
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS play_progress (
-                cid INTEGER PRIMARY KEY,
-                bvid TEXT NOT NULL,
-                position REAL NOT NULL,
-                duration INTEGER NOT NULL DEFAULT 0,
-                updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-            )",
-            [],
-        )?;
-        log::info!("[db] 迁移 v7: 已创建 play_progress 表");
-        set_schema_version(conn, 7)?;
-        version = 7;
-    }
-
-    // v8: 新建 search_history 表（发现页搜索历史）。keyword 主键：同词重搜只刷新时间。
-    if version < 8 {
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS search_history (
-                keyword TEXT PRIMARY KEY,
-                searched_at TEXT NOT NULL DEFAULT (datetime('now'))
-            )",
-            [],
-        )?;
-        log::info!("[db] 迁移 v8: 已创建 search_history 表");
-        set_schema_version(conn, 8)?;
-        version = 8;
-    }
-
-    if version > 8 {
-        log::warn!("[db] schema_version={} 高于当前代码已知的最新版本(8)", version);
-    }
-    Ok(())
-}
-
-/// 通过 PRAGMA table_info 检查某列是否存在（迁移幂等用）
-fn column_exists(conn: &Connection, table: &str, column: &str) -> anyhow::Result<bool> {
-    let mut stmt = conn.prepare(&format!("PRAGMA table_info({})", table))?;
-    let exists = stmt.query_map([], |row| {
-        let name: String = row.get(1)?;
-        Ok(name)
-    })?
-    .filter_map(|r| r.ok())
-    .any(|name| name == column);
-    Ok(exists)
 }
 
 // ==================== 类型定义 ====================
@@ -418,28 +323,6 @@ pub fn increment_download_stats(
     Ok(())
 }
 
-/// 一次性回填：把 download_history 中已有 status='done' 的记录汇总写入累加器。
-/// 仅在 v5 迁移时调用，保证历史已完成下载不丢失统计。
-fn backfill_download_stats(conn: &Connection) -> anyhow::Result<()> {
-    let (done_count, done_size, done_duration): (u32, u64, u64) = conn
-        .query_row(
-            "SELECT COUNT(*), COALESCE(SUM(size), 0), COALESCE(SUM(duration), 0) \
-             FROM download_history WHERE status = 'done'",
-            [],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
-        )
-        .unwrap_or((0, 0, 0));
-    conn.execute(
-        "INSERT INTO download_stats (id, done_count, done_size, done_duration) VALUES (1, ?1, ?2, ?3) \
-         ON CONFLICT(id) DO UPDATE SET \
-            done_count = excluded.done_count, \
-            done_size = excluded.done_size, \
-            done_duration = excluded.done_duration",
-        params![done_count, done_size, done_duration],
-    )?;
-    Ok(())
-}
-
 pub fn delete_download(conn: &Connection, id: &str) -> anyhow::Result<()> {
     conn.execute("DELETE FROM download_history WHERE id = ?1", params![id])?;
     Ok(())
@@ -594,95 +477,56 @@ CREATE INDEX IF NOT EXISTS idx_parse_parsed ON parse_history(parsed_at DESC);
 mod tests {
     use super::*;
 
-    /// 辅助：在内存 SQLite 上构造一个「老库」——即 v1 schema（download_history 无 pic 列）。
-    fn legacy_v1_db() -> Connection {
+    /// 辅助：内存库按 1.0 正式流程初始化（建表 + 重建路径 + 记版本）
+    fn fresh_db() -> Connection {
         let conn = Connection::open_in_memory().unwrap();
-        conn.execute_batch(
-            "CREATE TABLE schema_version (version INTEGER PRIMARY KEY);
-             INSERT INTO schema_version (version) VALUES (1);
-             CREATE TABLE parse_history (
-               id TEXT PRIMARY KEY, url TEXT NOT NULL, bvid TEXT NOT NULL,
-               title TEXT NOT NULL, video_info TEXT NOT NULL, parsed_at TEXT NOT NULL
-             );
-             CREATE TABLE download_history (
-               id TEXT PRIMARY KEY, title TEXT NOT NULL, bvid TEXT NOT NULL,
-               cid INTEGER NOT NULL, ep_id INTEGER, status TEXT NOT NULL DEFAULT 'downloading',
-               progress REAL NOT NULL DEFAULT 0.0, phase TEXT, error_msg TEXT,
-               output_path TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now'))
-             );",
-        )
-        .unwrap();
+        conn.execute_batch(SCHEMA_SQL).unwrap();
+        rebuild_db(&conn).unwrap();
         conn
     }
 
     #[test]
-    fn migrate_v1_adds_pic_column() {
-        let conn = legacy_v1_db();
-        // 迁移前 download_history 没有 pic 列
-        assert!(!column_exists(&conn, "download_history", "pic").unwrap());
-        // 版本为 1
-        assert_eq!(current_schema_version(&conn), 1);
-
-        migrate_schema(&conn).unwrap();
-
-        // 迁移后 pic 列存在，版本一路升到最新（当前为 8）
-        assert!(column_exists(&conn, "download_history", "pic").unwrap());
-        assert_eq!(current_schema_version(&conn), 8);
-    }
-
-    #[test]
-    fn migrate_v3_adds_quality_and_video_title() {
-        // 构造一个停在 v2（有 pic，无 quality/video_title）的老库，模拟历史用户升级路径
-        let conn = legacy_v1_db();
-        // 只跑到 v2：手工应用 v2 迁移并记录版本
-        if !column_exists(&conn, "download_history", "pic").unwrap() {
-            conn.execute("ALTER TABLE download_history ADD COLUMN pic TEXT", []).unwrap();
-        }
-        conn.execute("INSERT OR REPLACE INTO schema_version (version) VALUES (2)", []).unwrap();
-        assert_eq!(current_schema_version(&conn), 2);
-        assert!(!column_exists(&conn, "download_history", "quality").unwrap());
-        assert!(!column_exists(&conn, "download_history", "video_title").unwrap());
-
-        // 现在从 v2 升级到 v3
-        migrate_schema(&conn).unwrap();
-
-        assert!(column_exists(&conn, "download_history", "quality").unwrap());
-        assert!(column_exists(&conn, "download_history", "video_title").unwrap());
-        assert_eq!(current_schema_version(&conn), 8);
-    }
-
-    #[test]
-    fn migrate_is_idempotent() {
-        let conn = legacy_v1_db();
-        migrate_schema(&conn).unwrap();
-        // 再次执行迁移不应报错（version 已是 3，跳过 ALTER）
-        migrate_schema(&conn).unwrap();
-        assert_eq!(current_schema_version(&conn), 8);
-        assert!(column_exists(&conn, "download_history", "pic").unwrap());
-    }
-
-    #[test]
-    fn fresh_db_has_pic_and_version_zero_then_upgraded() {
-        // 全新库：用 SCHEMA_SQL 建表（schema_version 表为空 → current_schema_version 返回 0）
+    fn fresh_db_gets_current_schema_version() {
+        // 全新库：建表后 schema_version 空表（=0），重建路径记录到当前版本
         let conn = Connection::open_in_memory().unwrap();
         conn.execute_batch(SCHEMA_SQL).unwrap();
         assert_eq!(current_schema_version(&conn), 0);
-        // 建表语句已含 pic / quality / video_title / owner_name 列
-        assert!(column_exists(&conn, "download_history", "pic").unwrap());
-        assert!(column_exists(&conn, "download_history", "quality").unwrap());
-        assert!(column_exists(&conn, "download_history", "video_title").unwrap());
-        assert!(column_exists(&conn, "download_history", "owner_name").unwrap());
-
-        migrate_schema(&conn).unwrap();
-        // 全新库经 migrate_schema 走完所有迁移分支（列已存在则跳过 ALTER，但仍记录 version 到最新 7）
-        assert_eq!(current_schema_version(&conn), 8);
+        rebuild_db(&conn).unwrap();
+        assert_eq!(current_schema_version(&conn), SCHEMA_VERSION);
     }
 
     #[test]
-    fn insert_and_read_download_with_pic() {
-        // 端到端：迁移后能正常插入/读取带 pic 的下载记录
-        let conn = legacy_v1_db();
-        migrate_schema(&conn).unwrap();
+    fn legacy_db_is_rebuilt_and_old_data_discarded() {
+        // 模拟 0.x 旧库（schema_version=8，含旧数据）：1.0 断代重建后旧数据丢弃、版本更新
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(SCHEMA_SQL).unwrap();
+        conn.execute("INSERT OR REPLACE INTO schema_version (version) VALUES (8)", []).unwrap();
+        conn.execute(
+            "INSERT INTO download_history (id, title, bvid, cid, status, progress, created_at)
+             VALUES ('old-1', '老视频', 'BV0yy', 1, 'done', 100.0, '2026-01-01T00:00:00Z')",
+            [],
+        ).unwrap();
+        assert_eq!(current_schema_version(&conn), 8);
+
+        // 版本不匹配 → 重建
+        rebuild_db(&conn).unwrap();
+        assert_eq!(current_schema_version(&conn), SCHEMA_VERSION);
+        let rows = get_all_downloads(&conn, 10, 0).unwrap();
+        assert!(rows.is_empty(), "断代重建后旧数据必须被丢弃");
+    }
+
+    #[test]
+    fn rebuild_is_idempotent() {
+        let conn = fresh_db();
+        // 重复重建不报错，版本保持当前值
+        rebuild_db(&conn).unwrap();
+        assert_eq!(current_schema_version(&conn), SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn insert_and_read_download_roundtrip() {
+        // 端到端：全新库能正常插入/读取全字段下载记录
+        let conn = fresh_db();
 
         let entry = sample_entry();
         insert_download(&conn, &entry).unwrap();
@@ -697,53 +541,17 @@ mod tests {
     }
 
     #[test]
-    fn legacy_download_without_pic_reads_as_none() {
-        // 老记录（迁移前插入，pic 为 NULL）读取时为 None
-        let conn = legacy_v1_db();
-        // 直接插一条没有 pic 的老记录（迁移前的 schema 没有 pic 列）
-        conn.execute(
-            "INSERT INTO download_history (id, title, bvid, cid, status, progress, created_at)
-             VALUES ('old-1', '老视频', 'BV0yy', 1, 'done', 100.0, '2026-01-01T00:00:00Z')",
-            [],
-        )
-        .unwrap();
-        migrate_schema(&conn).unwrap();
-
-        let rows = get_all_downloads(&conn, 10, 0).unwrap();
-        assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].pic, None);
-        assert_eq!(rows[0].quality, None);
-        assert_eq!(rows[0].video_title, None);
-        assert_eq!(rows[0].owner_name, None);
+    fn search_history_upsert_and_cap() {
+        // 搜索历史：同词 upsert 不重复，读取按时间降序
+        let conn = fresh_db();
+        upsert_search_keyword(&conn, "原神").unwrap();
+        upsert_search_keyword(&conn, "原神").unwrap();
+        upsert_search_keyword(&conn, "鬼畜").unwrap();
+        let list = get_search_keywords(&conn, 10).unwrap();
+        assert_eq!(list.len(), 2, "同词 upsert 不应产生重复记录");
     }
 
-    #[test]
-    fn migrate_v6_adds_owner_name() {
-        // 构造停在 v5（有 pic/quality/video_title/size/duration，无 owner_name）的老库
-        let conn = legacy_v1_db();
-        for col in ["pic TEXT", "quality INTEGER", "video_title TEXT", "size INTEGER", "duration INTEGER"] {
-            conn.execute(&format!("ALTER TABLE download_history ADD COLUMN {col}"), []).unwrap();
-        }
-        conn.execute("INSERT OR REPLACE INTO schema_version (version) VALUES (5)", []).unwrap();
-        assert_eq!(current_schema_version(&conn), 5);
-        assert!(!column_exists(&conn, "download_history", "owner_name").unwrap());
-
-        // v5 → v6：补 owner_name 列
-        migrate_schema(&conn).unwrap();
-        assert!(column_exists(&conn, "download_history", "owner_name").unwrap(), "v6 迁移必须补出 owner_name 列");
-        assert_eq!(current_schema_version(&conn), 8);
-
-        // 老记录 owner_name 读出为 NULL（None），不会因补列破坏既有数据
-        conn.execute(
-            "INSERT INTO download_history (id, title, bvid, cid, status, progress, created_at)
-             VALUES ('v5-1', '老视频', 'BV0yy', 1, 'done', 100.0, '2026-01-01T00:00:00Z')",
-            [],
-        ).unwrap();
-        let rows = get_all_downloads(&conn, 10, 0).unwrap();
-        assert_eq!(rows[0].owner_name, None, "v5 时代的老记录 owner_name 必须为 None");
-    }
-
-    /// 辅助：构造一个带全部 v3 字段的下载记录
+    /// 辅助：构造一个带全部字段的下载记录
     fn sample_entry() -> DownloadHistoryEntry {
         DownloadHistoryEntry {
             id: "test-1".into(),
