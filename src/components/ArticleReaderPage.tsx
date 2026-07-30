@@ -218,26 +218,69 @@ export function ArticleReaderPage({ cvid, opusId, onBack }: Props) {
     }
   }, [article, exporting, toast]);
 
-  /** 导出 PDF：系统打印对话框（选「Microsoft Print to PDF」即可存为 PDF）。
-   *  打印样式见下方 <style>：只打印文章区域，其余界面隐藏。 */
+  /** 导出 PDF：离屏 iframe 装载纯净文章文档后调用其 print()（选「Microsoft Print to PDF」即存为 PDF）。
+   *  不能直接 window.print()：阅读页是 fixed 全屏覆盖层，Chromium 打印 fixed 容器
+   *  只输出首屏一页（后续内容被截断）；iframe 内是普通文档流，多页内容正常分页。 */
   const exportPdf = useCallback(() => {
     if (!article) return;
-    window.print();
-  }, [article]);
+    const esc = (s: string) =>
+      s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    const metaLine = [
+      article.author_name,
+      article.publish_time > 0 ? formatDate(article.publish_time) : "",
+      article.opus_id ? "opus" : `cv${article.cvid}`,
+    ].filter(Boolean).join(" · ");
+    // lazy → eager：0 尺寸 iframe 里懒加载图片永不触发加载，会导致 PDF 图片空白
+    const bodyHtml = safeHtml.replace(/loading="lazy"/g, 'loading="eager"');
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${esc(article.title)}</title><style>
+      body { font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; color: #111827; margin: 24px; line-height: 1.75; font-size: 15px; }
+      h1.doc-title { font-size: 24px; margin: 0 0 8px; }
+      .doc-meta { color: #6b7280; font-size: 12px; border-bottom: 1px solid #e5e7eb; padding-bottom: 12px; margin-bottom: 16px; }
+      img { max-width: 100%; height: auto; display: block; margin: 12px auto; }
+      blockquote { border-left: 4px solid #d1d5db; padding-left: 12px; color: #6b7280; margin: 12px 0; }
+      pre { background: #f3f4f6; border-radius: 8px; padding: 12px; white-space: pre-wrap; word-break: break-all; font-size: 12px; }
+      code { color: #ec4899; }
+      a { color: #3b82f6; }
+      h1, h2, h3 { margin: 20px 0 8px; }
+      p { margin: 10px 0; }
+      /* 分页友好：图片/引用块尽量不跨页拆断 */
+      img, blockquote, pre { break-inside: avoid; }
+    </style></head><body>
+      <h1 class="doc-title">${esc(article.title)}</h1>
+      <div class="doc-meta">${esc(metaLine)}</div>
+      ${article.banner_url ? `<img src="${article.banner_url}"/>` : ""}
+      ${bodyHtml}
+    </body></html>`;
+
+    const iframe = document.createElement("iframe");
+    iframe.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden;";
+    document.body.appendChild(iframe);
+    const cleanup = () => { setTimeout(() => iframe.remove(), 100); };
+    iframe.onload = () => {
+      const win = iframe.contentWindow;
+      const doc = iframe.contentDocument;
+      if (!win || !doc) { cleanup(); return; }
+      // 等全部图片加载完再弹打印对话框（否则 PDF 里图片空白）；5s 超时兑底不卡死
+      const imgs = Array.from(doc.images);
+      const allLoaded = Promise.all(
+        imgs.map((img) =>
+          img.complete
+            ? Promise.resolve()
+            : new Promise<void>((res) => { img.onload = () => res(); img.onerror = () => res(); })
+        )
+      );
+      void Promise.race([allLoaded, new Promise((res) => setTimeout(res, 5000))]).then(() => {
+        win.addEventListener("afterprint", cleanup, { once: true });
+        win.focus();
+        win.print();
+      });
+    };
+    iframe.srcdoc = html;
+  }, [article, safeHtml]);
 
   return (
     <div className="fixed inset-0 z-[80] bg-base text-ink flex flex-col">
-      {/* 打印样式：visibility 方案只显示文章区域；滚动容器打印时展开全部内容 */}
-      <style>{`
-        @media print {
-          body * { visibility: hidden; }
-          .article-print-area, .article-print-area * { visibility: visible; }
-          .article-print-scroll { overflow: visible !important; height: auto !important; }
-          .article-print-area { position: absolute !important; inset: 0 !important; height: auto !important; overflow: visible !important; }
-        }
-      `}</style>
-
-      <header className="no-print flex items-center gap-3 px-6 py-4 bg-panel border-b border-line shrink-0">
+      <header className="flex items-center gap-3 px-6 py-4 bg-panel border-b border-line shrink-0">
         <button
           onClick={onBack}
           className="p-1.5 rounded-lg border border-line-2 hover:bg-base transition-colors"
@@ -267,7 +310,7 @@ export function ArticleReaderPage({ cvid, opusId, onBack }: Props) {
         </button>
       </header>
 
-      <div className="article-print-scroll flex-1 overflow-auto">
+      <div className="flex-1 overflow-auto">
         {loading ? (
           <div className="flex items-center justify-center gap-2 py-20 text-ink-3">
             <Loader2 size={20} className="animate-spin" />
@@ -279,7 +322,7 @@ export function ArticleReaderPage({ cvid, opusId, onBack }: Props) {
             <p className="text-sm">{error}</p>
           </div>
         ) : article ? (
-          <article className="article-print-area max-w-3xl mx-auto px-8 py-8">
+          <article className="max-w-3xl mx-auto px-8 py-8">
             <h1 className="text-2xl font-bold text-ink leading-snug">{article.title}</h1>
             <div className="flex items-center gap-4 mt-3 pb-4 border-b border-line text-xs text-ink-3">
               <span className="flex items-center gap-1">
