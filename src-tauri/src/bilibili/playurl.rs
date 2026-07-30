@@ -38,6 +38,10 @@ struct PlayUrlData {
     /// 风控验证码凭证（存在则需完成验证码）
     #[serde(default)]
     v_voucher: Option<String>,
+    /// 试看标记（番剧会员集：无权限时 code=0 但只给几分钟试看流，1=试看）。
+    /// 不检测会把试看片段当正片下载/播放，用户拿到残缺视频却无提示。
+    #[serde(default)]
+    is_preview: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -135,6 +139,20 @@ fn codec_name(codecid: i64) -> &'static str {
     }
 }
 
+/// 试看流检测：番剧会员集无权限时 API 返回 code=0 + is_preview=1（只有几分钟片段）。
+/// 命中时报硬错误，避免把试看片段当正片下载/播放。
+fn check_preview(data: &PlayUrlData) -> Result<()> {
+    if data.is_preview == Some(1) {
+        anyhow::bail!("该视频为大会员专享，当前账号仅能获取试看片段，已取消");
+    }
+    Ok(())
+}
+
+/// 会员/付费类硬错误：重试其它画质无意义，应立即向上抛出（避免无效请求触发风控）
+fn is_vip_error(msg: &str) -> bool {
+    msg.contains("大会员") || msg.contains("充电专享") || msg.contains("付费") || msg.contains("专享限制")
+}
+
 // ==================== 核心 API 调用 ====================
 
 /// 获取视频的流地址（带画质降级 + 编解码器优先级 + 番剧 API 回退）
@@ -187,7 +205,9 @@ pub async fn get_playurl(
         Ok(streams) => return Ok(streams),
         Err(e) => {
             log::warn!("[playurl] 番剧API失败: {}", e);
-            anyhow::bail!("获取视频流失败: 标准API和番剧API均失败")
+            // 透传真实失败原因（如「大会员专享限制」），而非笼统的「均失败」——
+            // 否则会员集无权限时用户看不到真实原因，前端也无法映射友好文案
+            anyhow::bail!("获取视频流失败: {}", e)
         }
     }
 }
@@ -222,6 +242,7 @@ async fn try_playurl_with_fallback(
                     anyhow::bail!("RISK_CONTROL:{}", vv);
                 }
             }
+            check_preview(&data)?; // 试看流：硬错误，不降级重试
             if let Some(streams) = parse_streams(&data, max_qn, min_qn, audio_max_qn, audio_min_qn, codec_priority) {
                 log::info!("[playurl] 单次请求命中: qn={}", streams.video_qn);
                 return Ok(streams);
@@ -230,7 +251,7 @@ async fn try_playurl_with_fallback(
         }
         Err(e) => {
             let err_str = e.to_string();
-            if err_str.contains("大会员") || err_str.contains("充电专享") {
+            if is_vip_error(&err_str) || err_str.contains("试看") {
                 return Err(e);
             }
             log::warn!("[playurl] 单次请求失败，回退逐档降级: {}", e);
@@ -261,6 +282,7 @@ async fn try_playurl_with_fallback(
                         anyhow::bail!("RISK_CONTROL:{}", vv);
                     }
                 }
+                check_preview(&data)?; // 试看流：硬错误，不继续降级
                 if let Some(streams) =
                     parse_streams(&data, max_qn, min_qn, audio_max_qn, audio_min_qn, codec_priority)
                 {
@@ -270,7 +292,7 @@ async fn try_playurl_with_fallback(
             }
             Err(e) => {
                 let err_str = e.to_string();
-                if err_str.contains("大会员") || err_str.contains("充电专享") {
+                if is_vip_error(&err_str) || err_str.contains("试看") {
                     return Err(e);
                 }
                 last_error = err_str;
@@ -430,6 +452,10 @@ async fn try_bangumi_playurl(
 
         if resp.code != 0 {
             last_error = resp.message.unwrap_or_else(|| "未知错误".to_string());
+            // 会员/付费类硬错误：其它画质同样无权限，立即退出避免剩余档位的无效请求
+            if is_vip_error(&last_error) {
+                anyhow::bail!("{}", last_error);
+            }
             continue;
         }
 
@@ -441,6 +467,7 @@ async fn try_bangumi_playurl(
                 anyhow::bail!("RISK_CONTROL:{}", vv);
             }
         }
+        check_preview(&data)?; // 试看流：会员集无权限时 code=0 但只给试看片段，硬错误
         if let Some(streams) =
             parse_streams(&data, max_qn, min_qn, audio_max_qn, audio_min_qn, codec_priority)
         {
