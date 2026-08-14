@@ -9,7 +9,7 @@
 <p align="center">
   A modern, lightweight desktop client for downloading videos from Bilibili. Built with Tauri 2 (Rust + React).
   <br />
-  Fast · Clean UI · Multi-threaded · Risk-control friendly
+  Fast · Clean UI · Multi-threaded · Built-in Player · Risk-control friendly
 </p>
 
 <p align="center">
@@ -54,34 +54,39 @@
 ## ✨ Features
 
 ### 📥 Downloading
-- **Up to 8K / HDR** video quality, with codec priority (AVC / HEVC / AV1) and Hi-Res lossless audio
-- **Multi-threaded, resumable downloads** — concurrent tasks, priority queue, pause / cancel at runtime
-- **Batch support** — parse and download entire collections, favorites, watch-later lists, and a UP's submissions
-- **Speed limit & concurrency control** — tune parallel threads and per-task throttling to taste
-- **System tray + background mode** — close the window, downloads keep running; desktop notification on completion
+- **Up to 8K / HDR / Dolby Vision** video quality, Hi-Res lossless & Dolby Atmos audio, configurable codec priority (AVC / HEVC / AV1)
+- **Multi-threaded, resumable downloads** — pause, restart, or close the app mid-download; cross-session resume protected by stream fingerprints
+- **Batch support** — multi-part videos, full bangumi seasons, collections, favorites, watch-later lists, and a UP's submissions; audio-only (m4a/mp3) and subtitle-only modes
+- **Queue management** — configurable concurrency / speed limit, pause / resume / retry / priority, system notification on completion
+- **Custom filename templates** — `{up}/{title} [{bvid}]` placeholders, auto-archiving by UP / collection
+- **Extra attachments** — danmaku (ASS with adjustable font / speed / opacity), subtitle export (SRT / VTT), NFO metadata scraping (Kodi / Jellyfin / Emby ready)
 
-### 🔐 Account & Auth
-- **QR-code login** — secure web-cookie flow, no password ever touches the app
-- **Automatic cookie refresh** — stays logged in across sessions
-- **Credential persistence** — stored locally, never uploaded anywhere
+### ▶️ Built-in Player
+- Instant playback without downloading, quality switching on the fly, frame-accurate seeking (sidx index), auto-retry on weak networks
+- Real-time danmaku, multi-language subtitles (incl. AI subtitles), 0.5x–2x speed, multi-part selection
+- **Playlist mode** — auto-play next episode across uploads; pair with Weekly Highlights to binge a whole issue
+- Resume position, mini player, system picture-in-picture, full keyboard shortcuts
 
 ### 🧭 Browse & Discover
-- Explore, Rankings, Recommendations, Regions, Watch History, Followings, Subscriptions
-- Search, video comments, and one-click interaction (like / coin / favorite)
+- **Explore** — unified search (videos / UPs / bangumi / movies) + search history + Bilibili trending hot search
+- **Rankings / Recommend / Regions / Following dynamics / Weekly Highlights** — five browse entries covering UGC and bangumi/movies
+- **Personal center** — favorites / watch-later / watch history / bangumi subscriptions / following / collections, with virtualized long lists
+- **UP homepage** — submissions and collections one click away, jump from any video detail
+- **Interactions** — like / coin / favorite / one-click triple-action, comment browsing
 
-### 🛡️ Risk-control Friendly
-- Configurable **device fingerprint** (GPU / resolution presets)
-- Request throttling and anti-abuse pacing to keep your account healthy
+### 📰 Article Reader
+- Paste cv / opus links to read in-app with clean formatting (HTML whitelist sanitization)
+- Export to Markdown or PDF (multi-page, full images)
 
-### 🎬 Extra Attachments
-- **Danmaku** (comments) — render with adjustable font size, speed, opacity, top/bottom blocking
-- **Subtitles** — export as SRT or VTT
-- **NFO metadata scraping** — generate Kodi / Jellyfin / Emby compatible `.nfo` + cover art
+### 🛡️ Account & Anti-Risk
+- QR-code login, automatic cookie refresh, credentials stored locally only
+- Configurable device fingerprint (GPU / resolution presets) and request throttling; in-app captcha dialog when risk-control is triggered
+- Clear prompts for VIP / paid / member-only content — never mistakenly downloads a preview clip as the full video
 
 ### 🎨 Experience
-- Clean, responsive UI with **light / dark / system** themes
-- Built-in **auto-update** via GitHub Releases
-- Persistent parse & download history with a statistics dashboard
+- Light / dark / system themes; auto-detect pasted links, drag-and-drop link parsing
+- Minimize to tray on close, background downloads; download statistics dashboard (count / size / duration)
+- In-app auto-update; fully pooled API connections for fast browsing and parsing
 
 ## 📸 Screenshots
 

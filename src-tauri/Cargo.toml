@@ -1,6 +1,6 @@
 [package]
 name = "bilbli-copy"
-version = "1.0.0"
+version = "1.0.1"
 description = "Download videos from Bilibili"
 authors = ["you"]
 edition = "2021"

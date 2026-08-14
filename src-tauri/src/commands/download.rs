@@ -79,6 +79,8 @@ impl GlobalLimiter {
 static DOWNLOAD_SEMAPHORE: Lazy<Mutex<GlobalLimiter>> =
     Lazy::new(|| Mutex::new(GlobalLimiter::new(1)));
 
+/// 每「视频组」一个分P并发信号量。键 = video_semaphore_key 的产物
+/// （video_title 分组，番剧整季共享；空标题回退 bvid）。
 static VIDEO_SEMAPHORES: Lazy<Mutex<HashMap<String, Arc<Semaphore>>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
@@ -94,28 +96,40 @@ pub fn ensure_global_semaphore(settings: &AppSettings) -> Arc<Semaphore> {
     guard.ensure(settings.max_concurrent_downloads)
 }
 
-fn get_video_semaphore(bvid: &str, max_pages: usize) -> Arc<Semaphore> {
+fn get_video_semaphore(group_key: &str, max_pages: usize) -> Arc<Semaphore> {
     let want = clamp_permits(max_pages);
     let mut map = lock_or_recover(&VIDEO_SEMAPHORES);
-    map.entry(bvid.to_string())
+    map.entry(group_key.to_string())
         .or_insert_with(|| Arc::new(Semaphore::new(want)))
         .clone()
 }
 
-/// 任务结束后清理 per-video 信号量条目，避免 map 随下载过的不同 bvid 无限增长。
+/// 计算 per-video 分P 限流桶的键（分组依据见 execute_download 中的说明）。
+///
+/// - `video_title` 非空：以它分组，加 `"t:"` 前缀避免与 bvid 形态的键意外撞桶；
+/// - `video_title` 为空：回退 `bvid`（极少数异常提交场景，按单个视频分组）。
+fn video_semaphore_key(video_title: &str, bvid: &str) -> String {
+    if video_title.is_empty() {
+        bvid.to_string()
+    } else {
+        format!("t:{}", video_title)
+    }
+}
+
+/// 任务结束后清理 per-video 信号量条目，避免 map 随下载过的不同视频组无限增长。
 ///
 /// 判定：`Arc::strong_count(sem) <= 2` 意为「map 自身持有 1 + 当前调用方持有的 1」，
-/// 即没有其他并发任务在用该 bvid 的信号量，可安全移除。
+/// 即没有其他并发任务在用该组的信号量，可安全移除。
 ///
 /// 不用 `available_permits() == want` 的原因：Semaphore 不暴露总容量；且调用方此刻
 /// 仍持有未归还的 permit，`available_permits` 必然 < 容量，旧实现因此**永不移除**
 /// （map 持续泄漏）。容量错配（用户中途改 max_pages）只影响极窄的并发场景，
-/// 且任务结束后本清理会移除条目，下次同 bvid 提交时按新设置重建，可自愈。
-fn cleanup_video_semaphore(bvid: &str) {
+/// 且任务结束后本清理会移除条目，下次同组提交时按新设置重建，可自愈。
+fn cleanup_video_semaphore(group_key: &str) {
     let mut map = lock_or_recover(&VIDEO_SEMAPHORES);
-    if let Some(sem) = map.get(bvid) {
+    if let Some(sem) = map.get(group_key) {
         if Arc::strong_count(sem) <= 2 {
-            map.remove(bvid);
+            map.remove(group_key);
         }
     }
 }
@@ -257,16 +271,24 @@ pub async fn execute_download(
     };
     let max_pages = settings.max_pages_per_video;
 
-    // 获取 per-video 分P permit（避免同一视频分P过多并发触发风控）
-    let video_sem = get_video_semaphore(&bvid, max_pages);
+    // per-video 分P 限流桶键：同一「合集/视频」的任务共享一个桶。
+    // 普通多分P视频各分P 的 bvid 相同，天然同桶；但番剧每集是独立 bvid
+    // （见 video.rs PageInfo.bvid 注释「番剧每集独立 bvid」），若按 bvid 分桶则
+    // 整部番的各集互不限流。video_title（番剧=整季共享的剧集/合集名，普通视频=
+    // 视频标题）作为分组键，让同一部番/同一个合集的各集共享分P并发上限。
+    // video_title 为空（极少数异常提交）时回退 bvid。
+    let video_group_key = video_semaphore_key(&video_title, &bvid);
+
+    // 获取 per-video 分P permit（避免同一视频/番剧分P过多并发触发风控）
+    let video_sem = get_video_semaphore(&video_group_key, max_pages);
     let _video_permit = match video_sem.acquire().await {
         Ok(p) => p,
         Err(e) => return ExecOutcome::Failed(format!("获取分P下载许可失败: {}", e)),
     };
 
     log::info!(
-        "[download] 获得分P许可: id={}, 视频{}可用={}",
-        download_id, bvid, video_sem.available_permits()
+        "[download] 获得分P许可: id={}, 视频组={} 可用={}",
+        download_id, video_group_key, video_sem.available_permits()
     );
 
     // 1. 加载凭证（必须已登录）
@@ -353,7 +375,7 @@ pub async fn execute_download(
             &download_id, &bvid, cid, aid, dur, &credential,
             &base_path, settings.download_danmaku, &settings,
         ).await;
-        cleanup_video_semaphore(&bvid);
+        cleanup_video_semaphore(&video_group_key);
         // 与历史语义一致：字幕库模式返回字幕所在目录（output_path 的父目录）
         let containing = output_path.parent().unwrap_or(&download_dir);
         return ExecOutcome::Done(containing.to_string_lossy().to_string());
@@ -942,5 +964,29 @@ mod tests {
         let s = limiter.ensure(0); // 0 必须 clamp 到 1
         assert_eq!(s.available_permits(), 1);
         assert!(s.try_acquire().is_ok(), "clamp 后至少应有 1 个可获取许可");
+    }
+
+    /// 分P限流桶键：番剧各集 bvid 不同但 video_title（剧集/合集名）整季共享 → 必须同桶；
+    /// 不同标题不同桶；空标题回退 bvid；"t:" 前缀防止标题与 bvid 键撞桶。
+    #[test]
+    fn video_semaphore_key_groups_shared_title_but_not_bvid() {
+        // 番剧各集：bvid 各不相同，video_title 相同 → 同桶（整部番共享分P并发上限）
+        assert_eq!(
+            video_semaphore_key("凡人修仙传", "BV1aaaa"),
+            video_semaphore_key("凡人修仙传", "BV1bbbb"),
+        );
+        // 不同标题 → 不同桶
+        assert_ne!(
+            video_semaphore_key("凡人修仙传", "BV1aaaa"),
+            video_semaphore_key("其它动画", "BV1aaaa"),
+        );
+        // 空标题回退 bvid：同 bvid 同桶，不同 bvid 不同桶
+        assert_eq!(video_semaphore_key("", "BV1aaaa"), "BV1aaaa");
+        assert_ne!(
+            video_semaphore_key("", "BV1aaaa"),
+            video_semaphore_key("", "BV1bbbb"),
+        );
+        // "t:" 前缀：标题恰为 bvid 形态时也不会与 bvid 键撞桶
+        assert_ne!(video_semaphore_key("BV1aaaa", "BV1bbbb"), "BV1aaaa");
     }
 }

@@ -292,67 +292,51 @@ impl DownloadManager {
     }
 
     /// dispatcher 主循环。在 lib.rs setup 时 spawn 一次，常驻运行。
-    /// 每轮：pop 最高优先级任务 → 检查 cancel → acquire 全局 permit → 再次检查 cancel
-    ///       → 注册 running → spawn execute_download → 等下一个 notify。
+    /// 每轮：读 settings → acquire 全局 permit（并发满时阻塞）→ pop 最高优先级任务
+    ///       → 检查 cancel → 注册 running → spawn execute_download（permit 移入任务持有，
+    ///       直到任务结束才释放，从而真正限制并发任务数）→ 等下一个 notify。
     pub async fn run_dispatcher(&self, app: AppHandle) {
         log::info!("[manager] dispatcher 启动");
         loop {
-            // 取一个待执行任务
-            let task = match self.pop_highest() {
-                Some(t) => t,
-                None => {
-                    // 队列空，等待 submit 唤醒
-                    self.notify.notified().await;
-                    continue;
-                }
-            };
-
-            // 队列取出后立即检查：若 submit 后 cancel 已触发（极端竞态），跳过
-            if task.cancel.is_cancelled() {
-                log::info!("[manager] 任务出队即已取消，跳过: id={}", task.id);
-                continue;
-            }
-
             // 读取全局并发信号量（容量随 settings 动态调整）
             let settings = match get_settings() {
                 Ok(s) => s,
                 Err(e) => {
-                    log::error!("[manager] 读取设置失败，任务失败: id={}, err={}", task.id, e);
-                    let _ = app.emit(
-                        "download://error",
-                        crate::bilibili::download::DownloadError {
-                            id: task.id.clone(),
-                            error: format!("读取设置失败: {}", e),
-                        },
-                    );
+                    // get_settings 正常不会失败（解析失败回退默认值），此处仅兜底防死循环
+                    log::error!("[manager] 读取设置失败: {}", e);
+                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
                     continue;
                 }
             };
             let global_sem = ensure_global_semaphore(&settings);
 
-            // 等待全局 permit（并发满时阻塞在此，新到的更高优先级任务会在下一轮 pop 时优先）
-            let _permit = match global_sem.acquire().await {
+            // 先等全局 permit 再取任务。acquire_owned：permit 不借用局部变量，
+            // 可随任务 move 进 spawn 的 'static 闭包长期持有（见下方 spawn 注释）。
+            // 并发满时阻塞在此；期间新到的高优先级任务仍在队列里，拿到 permit 后
+            // pop 时优先 —— pop 在 acquire 之后，排队优先级始终生效。
+            let _permit = match global_sem.acquire_owned().await {
                 Ok(p) => p,
                 Err(e) => {
-                    log::error!("[manager] 获取全局 permit 失败: id={}, err={}", task.id, e);
-                    let _ = app.emit(
-                        "download://error",
-                        crate::bilibili::download::DownloadError {
-                            id: task.id.clone(),
-                            error: format!("获取下载许可失败: {}", e),
-                        },
-                    );
+                    log::error!("[manager] 获取全局 permit 失败: {}", e);
+                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
                     continue;
                 }
             };
 
-            // 拿到 permit 后再检查 cancel（用户可能在等待 permit 期间点了暂停/取消）
+            // 取一个待执行任务
+            let task = match self.pop_highest() {
+                Some(t) => t,
+                None => {
+                    // 队列空：先归还 permit（不占并发名额干等），再等待 submit 唤醒
+                    drop(_permit);
+                    self.notify.notified().await;
+                    continue;
+                }
+            };
+
+            // 出队后立即检查：若 submit 后 / 等待 permit 期间 cancel 已触发，跳过
             if task.cancel.is_cancelled() {
-                log::info!(
-                    "[manager] 获取 permit 后检测到取消，放弃执行: id={}",
-                    task.id
-                );
-                // permit 随 _permit 离开作用域自动释放
+                log::info!("[manager] 任务出队即已取消，跳过: id={}", task.id);
                 continue;
             }
 
@@ -388,8 +372,12 @@ impl DownloadManager {
             // 在 params 被 move 进 execute_download 之前克隆标题，供完成时发桌面通知
             let task_title = task.params.title.clone();
 
-            // spawn 执行；执行结束后清理 running 表
+            // spawn 执行；执行结束后清理 running 表。
+            // 全局 permit 一并移入任务内持有：execute_download 运行期间持续占用一个并发名额，
+            // 任务结束（含失败/暂停/取消）后才释放 —— max_concurrent_downloads 由此真正限制
+            // 同时运行的任务数（旧实现 permit 在循环体末尾即释放，全局并发限制形同虚设）。
             tauri::async_runtime::spawn(async move {
+                let _permit = _permit; // 持有全局 permit 直到本任务收尾
                 let params = task.params;
                 let outcome = execute_download(&app_clone, params, &task_cancel).await;
 
