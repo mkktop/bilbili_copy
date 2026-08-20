@@ -17,8 +17,10 @@ const MIXIN_KEY_ENC_TAB: [usize; 64] = [
 ];
 
 /// WBI 密钥缓存 TTL：B站每日轮换 img/sub key，缓存过期后必须重新获取。
-/// 设为 12h 留出余量，避免在轮换时刻附近用到即将失效的 key。
-const WBI_TTL: Duration = Duration::from_secs(12 * 3600);
+/// TTL 必须**短于**轮换周期才安全：若在轮换时刻前不久取到 key，缓存会把这把
+/// 已失效的 key 继续用到 TTL 结束（12h 最坏意味着近 12 小时签名全错）。
+/// 缩短到 2h，把最坏失效窗口压到 2 小时以内（多数调用方另有 412/-404 自愈重试）。
+const WBI_TTL: Duration = Duration::from_secs(2 * 3600);
 
 /// 带获取时间戳的缓存条目：用于判断是否超过 TTL。
 #[derive(Clone)]
@@ -100,10 +102,13 @@ pub fn sign_params(params: &mut Vec<(String, String)>, mixin_key: &str) {
     // 按key排序
     params.sort_by(|a, b| a.0.cmp(&b.0));
 
-    // 使用 serde_urlencoded 构建查询字符串（与 bili-sync-up 一致）
+    // 使用 serde_urlencoded 构建查询字符串（与 bili-sync-up 一致）。
+    // serde_urlencoded（form-urlencoded）会把 ~ 编成 %7E，而官方参考实现
+    // （Python urlencode(quote_via=quote, safe="")）保留 ~；搜索词含 ~ 时签名会错。
     let query = serde_urlencoded::to_string(&params)
         .unwrap_or_default()
-        .replace('+', "%20");
+        .replace('+', "%20")
+        .replace("%7E", "~");
 
     // 计算 MD5(query + mixin_key)
     let mut hasher = Md5::new();

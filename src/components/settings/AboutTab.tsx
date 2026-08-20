@@ -19,9 +19,11 @@ const GITHUB_URL = "https://github.com/mkk/bilbili_copy";
 interface AboutTabProps {
   settings: AppSettings;
   onSave: (settings: AppSettings) => Promise<void>;
+  /** 单字段局部保存（走后端 patch_settings，不整份覆盖） */
+  onPatch?: (partial: Partial<AppSettings>) => Promise<void>;
 }
 
-export function AboutTab({ settings, onSave }: AboutTabProps) {
+export function AboutTab({ settings, onSave, onPatch }: AboutTabProps) {
   const [version, setVersion] = useState("");
   const { phase, updateInfo, error, checkUpdate, installUpdate } = useUpdate();
 
@@ -37,7 +39,17 @@ export function AboutTab({ settings, onSave }: AboutTabProps) {
 
   const handleAutoUpdateToggle = async () => {
     const next = !settings.auto_update;
-    await onSave({ ...settings, auto_update: next });
+    // 局部保存：整份覆盖会把设置页其它未保存修改一起落盘；失败弹窗而非静默
+    try {
+      if (onPatch) {
+        await onPatch({ auto_update: next });
+      } else {
+        await onSave({ ...settings, auto_update: next });
+      }
+    } catch (e) {
+      console.error(e);
+      window.alert(`保存失败：${e instanceof Error ? e.message : String(e)}`);
+    }
   };
 
   return (

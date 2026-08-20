@@ -5,6 +5,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useEffect,
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
@@ -84,6 +85,15 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     },
     [dismiss]
   );
+
+  // Provider 卸载时清掉全部在途定时器（应用级单例，防御性清理）
+  useEffect(() => {
+    const map = timers.current;
+    return () => {
+      map.forEach((t) => clearTimeout(t));
+      map.clear();
+    };
+  }, []);
 
   const api = useMemo<ToastApi>(
     () => ({

@@ -179,7 +179,7 @@ const DownloadRow = memo(
                     {Math.round(item.progress)}%
                   </span>
                 )}
-              {item.errorMsg && (
+              {item.status === "error" && item.errorMsg && (
                 <span className="text-xs text-red-400 ml-1 truncate">
                   {item.errorMsg}
                 </span>
@@ -230,8 +230,12 @@ const DownloadRow = memo(
                 <Pause size={14} />
               </IconButton>
               <IconButton
-                onClick={() => onCancel(item.id)}
-                title="取消"
+                onClick={() => {
+                  if (window.confirm(`确定取消「${item.title}」吗？已下载的临时文件将被删除。`)) {
+                    onCancel(item.id);
+                  }
+                }}
+                title="取消（删除临时文件）"
                 danger
               >
                 <X size={14} />
@@ -245,7 +249,11 @@ const DownloadRow = memo(
                 <Play size={14} />
               </IconButton>
               <IconButton
-                onClick={() => onCancel(item.id)}
+                onClick={() => {
+                  if (window.confirm(`确定取消「${item.title}」吗？已下载的临时文件将被删除。`)) {
+                    onCancel(item.id);
+                  }
+                }}
                 title="取消（删除临时文件）"
                 danger
               >

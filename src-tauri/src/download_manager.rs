@@ -14,7 +14,8 @@
 //! ```
 
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 
 use once_cell::sync::Lazy;
 use serde::Serialize;
@@ -44,11 +45,15 @@ struct PendingTask {
     /// 提交顺序（同优先级 FIFO）。单调递增。
     seq: u64,
     cancel: CancellationToken,
+    /// 中断后是否清理 .tmp：cancel 置 true，pause 保持 false。
+    /// 独立于 CancellationToken 存在——token 只表达「停止」，不表达「为什么停」。
+    delete_tmp: Arc<AtomicBool>,
 }
 
 /// 运行中的任务及其取消控制句柄。
 struct RunningTask {
     cancel: CancellationToken,
+    delete_tmp: Arc<AtomicBool>,
     target: Mutex<TargetState>,
 }
 
@@ -167,12 +172,14 @@ impl DownloadManager {
         let seq = inner.seq_counter;
         inner.seq_counter += 1;
         let cancel = CancellationToken::new();
+        let delete_tmp = Arc::new(AtomicBool::new(false));
         inner.pending.push(PendingTask {
             id: id.clone(),
             params,
             priority,
             seq,
             cancel,
+            delete_tmp,
         });
 
         log::info!(
@@ -203,7 +210,7 @@ impl DownloadManager {
             return true;
         }
 
-        // 运行中：标记 Pausing 并触发 cancel
+        // 运行中：标记 Pausing 并触发 cancel（.tmp 保留供续传，delete_tmp 保持 false）
         if let Some(task) = inner.running.get(id) {
             if let Ok(mut target) = task.target.lock() {
                 *target = TargetState::Pausing;
@@ -237,6 +244,9 @@ impl DownloadManager {
             if let Ok(mut target) = task.target.lock() {
                 *target = TargetState::Cancelling;
             }
+            // 取消（非暂停）：中断后要清理 .tmp/.meta，置标志让 run_download 在
+            // 中断处理时删除临时文件而不是保留续传。
+            task.delete_tmp.store(true, Ordering::SeqCst);
             task.cancel.cancel();
             log::info!("[manager] 请求取消运行中任务: id={}", id);
             return true;
@@ -268,7 +278,8 @@ impl DownloadManager {
     }
 
     /// 从 pending 中弹出最高优先级任务。同优先级按提交顺序（seq 升序）FIFO。
-    /// 返回 None 表示队列空。
+    /// 返回 None 表示队列空。仅测试使用（dispatcher 走 claim_task 原子认领）。
+    #[cfg(test)]
     fn pop_highest(&self) -> Option<PendingTask> {
         let mut inner = match self.inner.lock() {
             Ok(g) => g,
@@ -289,6 +300,42 @@ impl DownloadManager {
             })
             .map(|(i, _)| i)?;
         Some(inner.pending.remove(best_idx))
+    }
+
+    /// 原子认领：在同一次锁临界区内完成「取出最高优先级任务 + 注册 running」。
+    ///
+    /// 拆成两段（pop 后释放锁、再重新加锁 insert）会留下取消请求落空的窗口：
+    /// cancel 在窗口内既找不到 pending 也找不到 running → 返回 false「任务不存在」，
+    /// 而任务实际会继续执行直到下载完，用户被告知取消失败。
+    /// 认领后 token 已注册在 running 里，任何 cancel/pause 都能命中。
+    fn claim_task(&self) -> Option<PendingTask> {
+        let mut inner = match self.inner.lock() {
+            Ok(g) => g,
+            Err(p) => p.into_inner(),
+        };
+        if inner.pending.is_empty() {
+            return None;
+        }
+        let best_idx = inner
+            .pending
+            .iter()
+            .enumerate()
+            .max_by(|(_, a), (_, b)| {
+                a.priority
+                    .cmp(&b.priority)
+                    .then(a.seq.cmp(&b.seq).reverse())
+            })
+            .map(|(i, _)| i)?;
+        let task = inner.pending.remove(best_idx);
+        inner.running.insert(
+            task.id.clone(),
+            RunningTask {
+                cancel: task.cancel.clone(),
+                delete_tmp: Arc::clone(&task.delete_tmp),
+                target: Mutex::new(TargetState::Running),
+            },
+        );
+        Some(task)
     }
 
     /// dispatcher 主循环。在 lib.rs setup 时 spawn 一次，常驻运行。
@@ -323,8 +370,9 @@ impl DownloadManager {
                 }
             };
 
-            // 取一个待执行任务
-            let task = match self.pop_highest() {
+            // 原子认领一个待执行任务（pop + 注册 running 在同一临界区，
+            // 消除认领窗口内的取消竞态，见 claim_task 注释）
+            let task = match self.claim_task() {
                 Some(t) => t,
                 None => {
                     // 队列空：先归还 permit（不占并发名额干等），再等待 submit 唤醒
@@ -334,40 +382,40 @@ impl DownloadManager {
                 }
             };
 
-            // 出队后立即检查：若 submit 后 / 等待 permit 期间 cancel 已触发，跳过
+            // 认领后立即检查：等待 permit 期间 cancel 已触发 → 撤销注册直接结束。
+            // cancel() 此时已能命中 running（返回 true 并置好 target/token），
+            // 这里补发 cancelled 状态事件让前端列表落地。
             if task.cancel.is_cancelled() {
                 log::info!("[manager] 任务出队即已取消，跳过: id={}", task.id);
-                continue;
-            }
-
-            // 注册到 running
-            let id = task.id.clone();
-            let cancel = task.cancel.clone();
-            {
-                let mut inner = match self.inner.lock() {
-                    Ok(g) => g,
-                    Err(p) => p.into_inner(),
-                };
-                inner.running.insert(
-                    id.clone(),
-                    RunningTask {
-                        cancel: cancel.clone(),
-                        target: Mutex::new(TargetState::Running),
+                {
+                    let mut inner = match self.inner.lock() {
+                        Ok(g) => g,
+                        Err(p) => p.into_inner(),
+                    };
+                    inner.running.remove(&task.id);
+                }
+                let _ = app.emit(
+                    "download://state",
+                    DownloadStateChange {
+                        id: task.id.clone(),
+                        status: "cancelled".to_string(),
                     },
                 );
+                continue;
             }
 
             // 通知前端：任务开始下载
             let _ = app.emit(
                 "download://state",
                 DownloadStateChange {
-                    id: id.clone(),
+                    id: task.id.clone(),
                     status: "downloading".to_string(),
                 },
             );
 
             let task_id = task.id.clone();
             let task_cancel = task.cancel.clone();
+            let task_delete_tmp = Arc::clone(&task.delete_tmp);
             let app_clone = app.clone();
             // 在 params 被 move 进 execute_download 之前克隆标题，供完成时发桌面通知
             let task_title = task.params.title.clone();
@@ -379,7 +427,8 @@ impl DownloadManager {
             tauri::async_runtime::spawn(async move {
                 let _permit = _permit; // 持有全局 permit 直到本任务收尾
                 let params = task.params;
-                let outcome = execute_download(&app_clone, params, &task_cancel).await;
+                let outcome =
+                    execute_download(&app_clone, params, &task_cancel, &task_delete_tmp).await;
 
                 // 读 target 并从 running 表移除该任务。
                 // 锁中毒时也恢复内部数据（与项目其它锁处理一致），避免一次 panic 永久拖垮调度。
@@ -415,8 +464,14 @@ async fn finalize_outcome(
 ) {
     match (outcome, target) {
         (ExecOutcome::Done(path), _) => {
-            // 完成时统计最终文件大小（统计面板用）。失败或文件不存在记 0。
-            let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+            // 完成时统计最终文件大小（统计面板用）。
+            // 仅对普通文件统计：字幕库模式返回的是目录（目录的 len 是文件系统
+            // 内部值，无意义），跳过记 0，避免统计面板虚增几 KB 的假大小。
+            let size = std::fs::metadata(&path)
+                .ok()
+                .filter(|m| m.is_file())
+                .map(|m| m.len())
+                .unwrap_or(0);
             let _ = app.emit(
                 "download://complete",
                 crate::bilibili::download::DownloadComplete {

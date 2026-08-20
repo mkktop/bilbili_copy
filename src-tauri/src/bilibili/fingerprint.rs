@@ -194,9 +194,12 @@ fn generate_dm_img_str(_gpu: &GpuPreset) -> String {
 
 /// 生成 dm_cover_img_str (Base64 编码的 GPU 信息)
 fn generate_dm_cover_img_str(gpu: &GpuPreset) -> String {
+    // 厂商名跟随预设（model 首词）：AMD/Intel 卡绝不能拼出 "NVIDIA" 前缀——
+    // 这种自相矛盾正是风控最容易抓的指纹特征。
+    let vendor = gpu.model.split_whitespace().next().unwrap_or("NVIDIA");
     let full_gpu_info = format!(
-        "{} | NVIDIA {} {} | Device: {} | Driver: vs_5_0 ps_5_0 | DirectX: Direct3D11",
-        gpu.angle_info, gpu.model, gpu.device_id, gpu.device_id
+        "{} | {} {} {} | Device: {} | Driver: vs_5_0 ps_5_0 | DirectX: Direct3D11",
+        gpu.angle_info, vendor, gpu.model, gpu.device_id, gpu.device_id
     );
     general_purpose::STANDARD.encode(full_gpu_info.as_bytes())
 }

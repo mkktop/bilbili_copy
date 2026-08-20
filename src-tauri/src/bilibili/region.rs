@@ -68,7 +68,7 @@ pub async fn get_region(
     log::debug!(
         "[region] rid={} 响应前 500 字: {}",
         rid,
-        &resp_text[..resp_text.len().min(500)]
+        resp_text.chars().take(500).collect::<String>()
     );
 
     let resp: Value =

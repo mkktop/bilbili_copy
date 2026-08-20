@@ -38,7 +38,7 @@ pub async fn get_upper_info(mid: i64, credential: Option<&Credential>) -> Result
     let resp_text = request.send().await?.text().await?;
     log::debug!(
         "[submission] card 响应: {}",
-        &resp_text[..resp_text.len().min(500)]
+        resp_text.chars().take(500).collect::<String>()
     );
 
     let resp: Value = serde_json::from_str(&resp_text).context("UP 主卡片响应解析失败")?;
@@ -107,7 +107,7 @@ pub async fn get_submission_videos(
 
     log::debug!(
         "[submission] arc/search 响应: {}",
-        &resp_text[..resp_text.len().min(500)]
+        resp_text.chars().take(500).collect::<String>()
     );
 
     let resp: Value = serde_json::from_str(&resp_text).context("投稿列表响应解析失败")?;

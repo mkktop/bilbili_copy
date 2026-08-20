@@ -90,10 +90,12 @@ export default function App() {
   const [downloadTotal, setDownloadTotal] = useState(0);
 
   const { phase, updateInfo } = useUpdate();
-  const { settings, save } = useSettings();
+  const { settings, save, patch } = useSettings();
+  // 主题切换走 patch_settings 局部保存：拿陈旧 settings 快照整份覆盖会把
+  // 设置页里未保存的修改静默回滚。
   const { resolved: resolvedTheme, toggle: toggleTheme } = useThemeApplier(
     settings.theme,
-    useCallback((t: ThemeMode) => save({ ...settings, theme: t }), [save, settings])
+    useCallback((t: ThemeMode) => patch({ theme: t }), [patch])
   );
   const { userInfo, logout, generateQrcode, pollQrcode } = useLogin();
   const toast = useToast();
@@ -146,7 +148,12 @@ export default function App() {
       setCaptchaVoucher(vVoucher);
       toast.error("触发风控验证，请完成验证后重试");
     },
-    onDownloadError: (error) => toast.error(`下载失败：${error}`),
+    onDownloadError: (error) => {
+      // 风控错误已有专门的 risk_control 事件弹窗（onRiskControl），这里不再重复 toast
+      if (!error.startsWith("RISK_CONTROL:")) {
+        toast.error(`下载失败：${error}`);
+      }
+    },
   });
 
   // 解析输入框（受控：剪贴板/拖放识别到的链接从这里填入）
@@ -182,7 +189,8 @@ export default function App() {
   };
 
   const handleParse = async (url: string) => {
-    const id = Date.now().toString();
+    // 同毫秒内并发解析（多入口）会撞 id：加随机后缀
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const item: ParsedItem = {
       id,
       url,
@@ -242,10 +250,11 @@ export default function App() {
     subtitleOnly?: boolean,
     audioOnly?: boolean,
     videoMeta?: VideoMeta,
-    ownerName?: string
-  ) => {
+    ownerName?: string,
+    qn?: number | null
+  ): Promise<boolean> => {
     // 用 ref 防止重复提交（queued/downloading 都算活跃，禁止重复）
-    if (downloadingIds.current.has(id)) return;
+    if (downloadingIds.current.has(id)) return true;
     downloadingIds.current.add(id);
 
     // UP 主名：显式参数优先（恢复/重试从 DB 回传），其次取 videoMeta 透传（新提交）
@@ -269,17 +278,23 @@ export default function App() {
         status: "queued", progress: 0, phase: null,
         error_msg: null, output_path: null,
         pic: pic ?? null, created_at: new Date().toISOString(),
-        quality: null, video_title: videoTitle || null,
+        // qn 落库：恢复/重试时作为 qn 重新提交，保证跨会话续传的流指纹匹配
+        quality: qn ?? null, video_title: videoTitle || null,
         duration: duration ?? null,
         owner_name: owner ?? null,
+        // 模式落库（101 schema 新列）：恢复/重试时按同模式提交，
+        // 否则仅字幕/仅音频任务重试后会变成下载完整视频
+        subtitle_only: subtitleOnly ?? false,
+        audio_only: audioOnly ?? false,
       }
     }).catch(() => {});
 
     // 提交到调度器（立即返回；下载中途状态/进度/完成/失败全走事件）。
     // 命令返回的 Err 仅代表提交阶段失败（如未登录）。
     try {
-      await invoke("download_video", { id, bvid, cid, title, videoTitle, epId, duration, subtitleOnly, audioOnly, videoMeta, ownerName: owner ?? null });
+      await invoke("download_video", { id, bvid, cid, title, videoTitle, epId, duration, subtitleOnly, audioOnly, videoMeta, ownerName: owner ?? null, qn: qn ?? null });
       // downloadingIds 在 download://complete/error/state(cancelled) 中清理
+      return true;
     } catch (err) {
       downloadingIds.current.delete(id);
       setDownloads((prev) =>
@@ -288,6 +303,7 @@ export default function App() {
         )
       );
       toast.error(`下载失败：${friendlyError(err)}`);
+      return false;
     }
   };
 
@@ -359,10 +375,13 @@ export default function App() {
       toast.error("恢复失败：缺少下载参数");
       return;
     }
-    handleDownload(
+    // 透传原始模式（仅字幕/仅音频）与画质（qn）：画质一致才能命中续传指纹，
+    // 模式一致才不会把字幕库任务变成下整视频
+    void handleDownload(
       item.id, item.bvid, item.cid, item.title, item.videoTitle || item.title,
       item.epId ?? undefined, item.duration, item.pic,
-      undefined, undefined, undefined, item.ownerName
+      item.subtitleOnly ?? undefined, item.audioOnly ?? undefined, undefined, item.ownerName,
+      item.quality ?? null
     );
   };
 
@@ -372,10 +391,11 @@ export default function App() {
       toast.error("重试失败：缺少下载参数");
       return;
     }
-    handleDownload(
+    void handleDownload(
       item.id, item.bvid, item.cid, item.title, item.videoTitle || item.title,
       item.epId ?? undefined, item.duration, item.pic,
-      undefined, undefined, undefined, item.ownerName
+      item.subtitleOnly ?? undefined, item.audioOnly ?? undefined, undefined, item.ownerName,
+      item.quality ?? null
     );
   };
 
@@ -584,6 +604,7 @@ export default function App() {
             <SettingsPage
               settings={settings}
               onSave={handleSaveSettings}
+              onPatch={patch}
               onBack={() => setCurrentView("main")}
               onClearParse={() => loadParsePage(1)}
               onClearDownload={() => loadDownloadPage(1)}

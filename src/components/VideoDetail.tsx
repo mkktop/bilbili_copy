@@ -20,6 +20,7 @@ interface VideoDetailProps {
   /** 在线播放（在线强制 H.264；下载仍用用户 codec 设置，互不影响）。
    *  pages=正片分P列表，多分P时播放器顶部显示「选集」菜单可切换。 */
   onPlay?: (p: PlayingItem) => void;
+  /** 返回提交是否成功（false=提交阶段失败如未登录，按钮保持可点） */
   onDownload: (
     id: string,
     bvid: string,
@@ -32,7 +33,7 @@ interface VideoDetailProps {
     subtitleOnly?: boolean,
     audioOnly?: boolean,
     videoMeta?: VideoMeta
-  ) => void;
+  ) => Promise<boolean>;
 }
 
 export function VideoDetail({ entry, sourceLabel, onBack, onOpenUpper, onPlay, onDownload }: VideoDetailProps) {
@@ -56,6 +57,16 @@ export function VideoDetail({ entry, sourceLabel, onBack, onOpenUpper, onPlay, o
     } catch { /* 静默 */ }
   };
 
+  // 以下派生值与 hook 必须在 early return 之前（Rules of Hooks）：
+  // 条件 return 放在 useMemo 前会让同一挂载内 info 从有变无时 hook 数量变化，
+  // React 抛 "Rendered more hooks..." 整页崩溃。
+  const hasExtra = (info?.extra_pages?.length ?? 0) > 0;
+  const rawPages = info ? (episodeTab === "main" ? info.pages : (info.extra_pages ?? [])) : [];
+  const currentPages = useMemo(
+    () => sortAsc ? rawPages : [...rawPages].reverse(),
+    [rawPages, sortAsc]
+  );
+
   if (!info) {
     return (
       <div className="flex flex-col items-center justify-center h-full text-ink-3 gap-2">
@@ -67,12 +78,6 @@ export function VideoDetail({ entry, sourceLabel, onBack, onOpenUpper, onPlay, o
     );
   }
 
-  const hasExtra = (info.extra_pages?.length ?? 0) > 0;
-  const rawPages = episodeTab === "main" ? info.pages : (info.extra_pages ?? []);
-  const currentPages = useMemo(
-    () => sortAsc ? rawPages : [...rawPages].reverse(),
-    [rawPages, sortAsc]
-  );
   const isMultiPage = info.pages.length > 1 || hasExtra;
   const hasSelection = !isMultiPage || selectedPages.size > 0;
 
@@ -95,7 +100,7 @@ export function VideoDetail({ entry, sourceLabel, onBack, onOpenUpper, onPlay, o
   const selectAll = () => setSelectedPages(new Set(currentPages.map((p) => p.page)));
   const deselectAll = () => setSelectedPages(new Set());
 
-  const handleDownload = () => {
+  const handleDownload = async () => {
     const folderName = info.series_title || info.title;
     // 从已解析的 videoInfo 构造 NFO 元数据快照（透传给后端生成 .nfo + 封面图）。
     // 分P场景下 title 按具体分P覆盖，其它字段（简介/UP主/封面/统计）合集共用。
@@ -116,11 +121,12 @@ export function VideoDetail({ entry, sourceLabel, onBack, onOpenUpper, onPlay, o
     });
 
     const ids: string[] = [];
+    const submits: Promise<boolean>[] = [];
     if (!isMultiPage) {
       const p = info.pages[0];
       const pageBvid = p.bvid || info.bvid;
       const pageEpId = p.ep_id || info.ep_id;
-      onDownload(entry.id, pageBvid, p.cid, info.title, folderName, pageEpId, p.duration, info.pic, subtitleOnly, audioOnly, buildMeta(info.title, p.duration));
+      submits.push(onDownload(entry.id, pageBvid, p.cid, info.title, folderName, pageEpId, p.duration, info.pic, subtitleOnly, audioOnly, buildMeta(info.title, p.duration)));
       ids.push(entry.id);
     } else {
       selectedPages.forEach((page) => {
@@ -130,14 +136,19 @@ export function VideoDetail({ entry, sourceLabel, onBack, onOpenUpper, onPlay, o
           const pageEpId = p.ep_id || info.ep_id;
           const title = `P${p.page} ${p.part}`;
           const id = `${entry.id}_P${p.page}`;
-          onDownload(id, pageBvid, p.cid, title, folderName, pageEpId, p.duration, info.pic, subtitleOnly, audioOnly, buildMeta(title, p.duration));
+          submits.push(onDownload(id, pageBvid, p.cid, title, folderName, pageEpId, p.duration, info.pic, subtitleOnly, audioOnly, buildMeta(title, p.duration)));
           ids.push(id);
         }
       });
     }
+    // 仅把"提交成功"的标记为已提交下载：提交失败（如未登录）时按钮保持可点，
+    // 否则只能去下载列表重试（旧实现一调用就锁死按钮）。
+    const results = await Promise.all(submits);
     setDownloadedIds((prev) => {
       const next = new Set(prev);
-      ids.forEach((id) => next.add(id));
+      ids.forEach((id, i) => {
+        if (results[i]) next.add(id);
+      });
       return next;
     });
   };

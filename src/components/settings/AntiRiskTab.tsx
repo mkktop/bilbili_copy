@@ -1,5 +1,7 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { useToast } from "../Toast";
+import { friendlyError } from "../../lib/errors";
 import { Shield, Cpu, Timer, RefreshCw, Check } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { SettingCard } from "./shared";
@@ -54,6 +56,7 @@ export function AntiRiskTab({
   const [resOptions, setResOptions] = useState<PresetOption[]>([]);
   const [generating, setGenerating] = useState(false);
   const [generated, setGenerated] = useState(!!dmImgStr);
+  const toast = useToast();
 
   useEffect(() => {
     invoke<[string, string][]>("get_gpu_presets").then((opts) =>
@@ -79,6 +82,8 @@ export function AntiRiskTab({
       onDmImgListChange(fp.dm_img_list);
       onDmImgInterChange(fp.dm_img_inter);
       setGenerated(true);
+    } catch (e) {
+      toast.error(`生成指纹失败：${friendlyError(e)}`);
     } finally {
       setGenerating(false);
     }
@@ -100,6 +105,8 @@ export function AntiRiskTab({
       onGpuPresetChange("");
       onResolutionPresetChange("");
       setGenerated(true);
+    } catch (e) {
+      toast.error(`生成指纹失败：${friendlyError(e)}`);
     } finally {
       setGenerating(false);
     }

@@ -169,7 +169,7 @@ pub async fn get_pgc_rank(
     log::debug!(
         "[pgc] season_type={} 响应前 300 字: {}",
         season_type,
-        &resp_text[..resp_text.len().min(300)]
+        resp_text.chars().take(300).collect::<String>()
     );
 
     let resp: Value =

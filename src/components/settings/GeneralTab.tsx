@@ -41,6 +41,7 @@ export function GeneralTab({
   const toast = useToast();
 
   const handleClearParse = async () => {
+    if (!window.confirm("确定清除全部解析记录吗？清除后不可恢复。")) return;
     setClearing("parse");
     try {
       await invoke("clear_parse_history");
@@ -54,6 +55,7 @@ export function GeneralTab({
   };
 
   const handleClearDownload = async () => {
+    if (!window.confirm("确定清除全部下载记录吗？清除后不可恢复（统计累计值保留）。")) return;
     setClearing("download");
     try {
       await invoke("clear_download_history");

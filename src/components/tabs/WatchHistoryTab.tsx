@@ -2,8 +2,9 @@ import { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Loader2, AlertCircle, History } from "lucide-react";
 import type {
+  HistoryCursor,
   HistoryItem,
-  PagedResult,
+  HistoryResult,
   ParsedVideoInfo,
 } from "../../types";
 import { VideoCard } from "../VideoCard";
@@ -16,13 +17,13 @@ interface Props {
 
 /**
  * 观看历史 Tab（cursor 分页）。
- * cursor 分页机制：每页返回的最后一条 view_at 作为下一页的 max_view_at，
- * 首页传 null。has_more 由后端按「返回条数 == 页大小」判断。
+ * cursor 分页机制：后端返回原始游标 {max, view_at, business}（未过滤的），
+ * 翻页时原样回传，首页传 null。
  */
 export function WatchHistoryTab({ onParseVideo, onSelectItem }: Props) {
   const [items, setItems] = useState<HistoryItem[]>([]);
-  // 下一页游标：上一次返回的最后一条 view_at；null 表示首页或无更多
-  const [nextCursor, setNextCursor] = useState<number | null>(null);
+  // 下一页游标：后端返回的原始 cursor；null 表示首页或无更多
+  const [nextCursor, setNextCursor] = useState<HistoryCursor | null>(null);
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -30,7 +31,7 @@ export function WatchHistoryTab({ onParseVideo, onSelectItem }: Props) {
   const [parsingBvid, setParsingBvid] = useState<string | null>(null);
 
   const load = useCallback(
-    async (cursor: number | null, append: boolean) => {
+    async (cursor: HistoryCursor | null, append: boolean) => {
       if (append) {
         setLoadingMore(true);
       } else {
@@ -38,13 +39,11 @@ export function WatchHistoryTab({ onParseVideo, onSelectItem }: Props) {
       }
       if (!append) setError(null);
       try {
-        const res = await invoke<PagedResult<HistoryItem>>("get_watch_history", {
-          maxViewAt: cursor,
+        const res = await invoke<HistoryResult>("get_watch_history", {
+          cursor,
         });
         setItems((prev) => (append ? [...prev, ...res.items] : res.items));
-        // 下一页游标：本页最后一条的 view_at（按时间倒序，最后一条最旧）
-        const last = res.items[res.items.length - 1];
-        setNextCursor(last ? last.view_at : null);
+        setNextCursor(res.next_cursor);
         setHasMore(res.has_more);
       } catch (e) {
         const msg = friendlyError(e);
@@ -125,7 +124,7 @@ export function WatchHistoryTab({ onParseVideo, onSelectItem }: Props) {
       <div className="space-y-2">
         {items.map((item) => (
           <VideoCard
-            key={`${item.bvid}-${item.view_at}` || item.title}
+            key={`${item.bvid}-${item.view_at}`}
             title={item.title}
             cover={item.cover}
             upperName={item.upper_name}

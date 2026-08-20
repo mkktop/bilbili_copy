@@ -66,7 +66,9 @@ pub fn render_filename_template(template: &str, ctx: &TemplateCtx) -> String {
 
 /// 总路径过长时裁剪（防 Windows MAX_PATH）：从最后一段（文件名）往前依次裁剪，
 /// 每段至少保留 1 字符；裁剪后重跑 sanitize 以重新套用保留名保护。
-/// `dir_chars` = 下载目录绝对路径字符数，`ext_len` = 扩展名长度（不含点）。
+/// `dir_chars` = 下载目录绝对路径长度，`ext_len` = 扩展名长度（不含点）。
+/// 长度按 UTF-16 码元计（Windows MAX_PATH 的计量单位）：emoji 等
+/// 增补平面字符 1 char = 2 码元，按 char 计数仍会超预算。
 pub fn truncate_to_fit(rel: &str, dir_chars: usize, ext_len: usize, budget: usize) -> String {
     let mut segments: Vec<String> = rel.split('/').map(String::from).collect();
     // 总长 = 目录 + 目录后分隔符 + 各段 + 段间分隔符 + '.' + 扩展名
@@ -75,7 +77,7 @@ pub fn truncate_to_fit(rel: &str, dir_chars: usize, ext_len: usize, budget: usiz
             + 1
             + ext_len
             + 1
-            + segs.iter().map(|s| s.chars().count()).sum::<usize>()
+            + segs.iter().map(|s| s.encode_utf16().count()).sum::<usize>()
             + segs.len().saturating_sub(1)
     };
     if path_len(&segments) <= budget {
@@ -87,27 +89,41 @@ pub fn truncate_to_fit(rel: &str, dir_chars: usize, ext_len: usize, budget: usiz
             break;
         }
         let over = total - budget;
-        let len = segments[i].chars().count();
+        let len = segments[i].encode_utf16().count();
         let keep = len.saturating_sub(over).max(1);
         segments[i] = shrink_segment(&segments[i], keep);
     }
     segments.join("/")
 }
 
-/// 截断单段至 `keep` 个字符并重新 sanitize。
+/// 按 UTF-16 码元预算截取字符串前缀（不会把字符截一半）
+fn cut_to_utf16(seg: &str, budget: usize) -> String {
+    let mut used = 0usize;
+    let mut out = String::new();
+    for ch in seg.chars() {
+        let w = ch.len_utf16();
+        if used + w > budget {
+            break;
+        }
+        out.push(ch);
+        used += w;
+    }
+    out
+}
+
+/// 截断单段至 `keep` 个 UTF-16 码元并重新 sanitize。
 /// 重跑 sanitize 是必要的：截断可能把段尾恰好截成 Windows 保留名
 /// （"CONxxxx" → "CON"），sanitize 会补 "_video" 后缀；若后缀撑爆预算则缩量重试
 /// （保留名均 ≤4 字符，第二轮必收敛），空结果兜底 "_"。
 fn shrink_segment(seg: &str, keep: usize) -> String {
     let keep = keep.max(1);
-    let cut: String = seg.chars().take(keep).collect();
+    let cut = cut_to_utf16(seg, keep);
     let sanitized = sanitize_filename(&cut);
-    if sanitized.chars().count() <= keep {
+    if sanitized.encode_utf16().count() <= keep {
         return if sanitized.is_empty() { "_".to_string() } else { sanitized };
     }
-    let keep2 = keep.saturating_sub(sanitized.chars().count() - keep).max(1);
-    let cut2: String = seg.chars().take(keep2).collect();
-    let out = sanitize_filename(&cut2);
+    let keep2 = keep.saturating_sub(sanitized.encode_utf16().count() - keep).max(1);
+    let out = sanitize_filename(&cut_to_utf16(seg, keep2));
     if out.is_empty() { "_".to_string() } else { out }
 }
 

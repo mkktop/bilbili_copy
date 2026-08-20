@@ -78,7 +78,7 @@ pub async fn get_comments(
         "[comment] aid={} pn={} 响应前 500 字: {}",
         aid,
         pn,
-        &resp_text[..resp_text.len().min(500)]
+        resp_text.chars().take(500).collect::<String>()
     );
 
     let resp: Value =

@@ -246,6 +246,23 @@ impl AppSettings {
         opt
     }
 
+    /// 越界钳制 + 归一化：settings.json 可被手改、save_settings 收到任意前端值，
+    /// 内核逻辑依赖这些数值有下限（0 并发会死锁、弹幕 duration=0 会 NaN panic 等）。
+    /// load 与 save 双向套用，保证落盘与运行时值始终合法。
+    pub fn sanitized(mut self) -> Self {
+        self.max_concurrent_downloads = self.max_concurrent_downloads.clamp(1, 16);
+        self.max_pages_per_video = self.max_pages_per_video.clamp(1, 10);
+        self.parallel_threads = self.parallel_threads.clamp(1, 16);
+        self.request_delay_ms = self.request_delay_ms.min(60_000);
+        self.danmaku_font_size = self.danmaku_font_size.clamp(8, 72);
+        self.danmaku_scroll_duration = self.danmaku_scroll_duration.clamp(0.1, 120.0);
+        self.danmaku_opacity = self.danmaku_opacity.clamp(0.0, 1.0);
+        if !matches!(self.theme.as_str(), "light" | "dark" | "system") {
+            self.theme = "light".to_string();
+        }
+        self
+    }
+
     /// 字幕导出格式归一化为 "srt" 或 "vtt"（非法值回退 srt）
     pub fn normalized_subtitle_format(&self) -> &str {
         if self.subtitle_format.eq_ignore_ascii_case("vtt") {
@@ -279,7 +296,9 @@ pub fn load_settings() -> AppSettings {
         Ok(c) => c,
         Err(_) => return AppSettings::default(),
     };
-    serde_json::from_str::<AppSettings>(&content).unwrap_or_default()
+    serde_json::from_str::<AppSettings>(&content)
+        .unwrap_or_default()
+        .sanitized()
 }
 
 /// 原子写回设置（tmp + rename，与 save_settings 命令一致）。
@@ -302,6 +321,7 @@ pub fn get_settings() -> Result<AppSettings, String> {
 
 #[tauri::command]
 pub fn save_settings(settings: AppSettings) -> Result<(), String> {
+    let settings = settings.sanitized();
     let path = settings_path();
     let content = serde_json::to_string_pretty(&settings).map_err(|e| e.to_string())?;
     // 原子写入：先写临时文件再 rename，防止崩溃导致数据丢失
@@ -313,6 +333,25 @@ pub fn save_settings(settings: AppSettings) -> Result<(), String> {
         e.to_string()
     })?;
     Ok(())
+}
+
+/// 局部更新设置：patch 为 AppSettings 顶层字段的子集（合并到磁盘当前值）。
+/// 用于主题 / auto_update 等单字段保存——前端若用陈旧快照整份覆盖，
+/// 会把设置页未保存的修改静默回滚。
+#[tauri::command]
+pub fn patch_settings(patch: serde_json::Value) -> Result<AppSettings, String> {
+    let mut base = serde_json::to_value(load_settings()).map_err(|e| e.to_string())?;
+    let patch_obj = patch
+        .as_object()
+        .ok_or_else(|| "patch 必须是键值对象".to_string())?;
+    if let Some(base_obj) = base.as_object_mut() {
+        for (k, v) in patch_obj {
+            base_obj.insert(k.clone(), v.clone());
+        }
+    }
+    let merged: AppSettings = serde_json::from_value(base).map_err(|e| e.to_string())?;
+    store_settings(&merged)?;
+    Ok(merged)
 }
 
 /// 获取 GPU 预设选项列表

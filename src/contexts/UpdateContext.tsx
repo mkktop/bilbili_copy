@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { friendlyError } from "../lib/errors";
 import {
   checkForUpdate,
   justUpdated,
@@ -75,7 +76,7 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
         setPhase("upToDate");
       }
     } catch (err) {
-      setError(String(err));
+      setError(friendlyError(err));
       setPhase("error");
     }
   }, []);
@@ -89,7 +90,7 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
       await installer();
       setPhase("installing");
     } catch (err) {
-      setError(String(err));
+      setError(friendlyError(err));
       setPhase("error");
     }
   }, []);

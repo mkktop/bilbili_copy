@@ -14,12 +14,14 @@ type Tab = "general" | "quality" | "download" | "subtitle" | "antirisk" | "about
 interface SettingsPageProps {
   settings: AppSettings;
   onSave: (settings: AppSettings) => Promise<void>;
+  /** 单字段局部保存（走后端 patch_settings，不整份覆盖） */
+  onPatch?: (partial: Partial<AppSettings>) => Promise<void>;
   onBack: () => void;
   onClearParse?: () => void;
   onClearDownload?: () => void;
 }
 
-export function SettingsPage({ settings, onSave, onBack, onClearParse, onClearDownload }: SettingsPageProps) {
+export function SettingsPage({ settings, onSave, onPatch, onBack, onClearParse, onClearDownload }: SettingsPageProps) {
   const [activeTab, setActiveTab] = useState<Tab>("general");
   const [dir, setDir] = useState(settings.default_download_dir);
   const [videoMaxQuality, setVideoMaxQuality] = useState(settings.video_max_quality);
@@ -142,6 +144,10 @@ export function SettingsPage({ settings, onSave, onBack, onClearParse, onClearDo
       });
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
+    } catch (e) {
+      // 保存失败必须可见：否则用户以为已保存，重启后设置丢失
+      console.error(e);
+      window.alert(`保存设置失败：${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setSaving(false);
     }
@@ -199,7 +205,10 @@ export function SettingsPage({ settings, onSave, onBack, onClearParse, onClearDo
             onClearParse={onClearParse}
             onClearDownload={onClearDownload}
             theme={settings.theme}
-            onThemeChange={(t) => { onSave({ ...settings, theme: t }); }}
+            onThemeChange={(t) => {
+              // 局部保存主题：整份覆盖会把本页未保存的其它修改一起落盘（旧值回滚）
+              void (onPatch ? onPatch({ theme: t }) : onSave({ ...settings, theme: t }));
+            }}
             closeToTray={closeToTray}
             onCloseToTrayChange={(v) => { setCloseToTray(v); setSaved(false); }}
             notifyOnComplete={notifyOnComplete}
@@ -295,6 +304,7 @@ export function SettingsPage({ settings, onSave, onBack, onClearParse, onClearDo
           <AboutTab
             settings={settings}
             onSave={onSave}
+            onPatch={onPatch}
           />
         )}
       </div>

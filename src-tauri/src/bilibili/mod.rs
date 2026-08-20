@@ -87,8 +87,12 @@ pub struct PagedResult<T> {
 
 // ==================== 共享工具函数 ====================
 
-/// 将 http:// URL 替换为 https://，避免混合内容被 WebView 拦截
+/// URL 规范化为 https：http:// 前缀替换 + 协议相对 URL（//host/...）补 https:。
+/// 后者不处理会让 WebView 按页面相对路径解析，封面/图片裂图。
 pub fn http_to_https(url: &str) -> String {
+    if url.starts_with("//") {
+        return format!("https:{}", url);
+    }
     if url.starts_with("http://") {
         url.replacen("http://", "https://", 1)
     } else {
@@ -131,6 +135,9 @@ pub fn create_api_headers() -> reqwest::header::HeaderMap {
     headers.insert("sec-ch-ua-platform", HeaderValue::from_static("\"Windows\""));
     headers.insert("sec-fetch-dest", HeaderValue::from_static("empty"));
     headers.insert("sec-fetch-mode", HeaderValue::from_static("cors"));
-    headers.insert("sec-fetch-site", HeaderValue::from_static("cross-site"));
+    // www.bilibili.com 页面请求 api.bilibili.com 是 same-site（Chrome 实际发送
+    // Sec-Fetch-Site: same-site）；发 cross-site 会与 Referer/Origin 头自相矛盾，
+    // 恰是风控容易抓的破绽。
+    headers.insert("sec-fetch-site", HeaderValue::from_static("same-site"));
     headers
 }

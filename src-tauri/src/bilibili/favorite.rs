@@ -132,7 +132,7 @@ pub async fn get_user_favorite_folders(credential: &Credential) -> Result<Vec<Fa
         .text()
         .await?;
 
-    log::debug!("[favorite] created/list-all 响应: {}", &resp_text[..resp_text.len().min(500)]);
+    log::debug!("[favorite] created/list-all 响应: {}", resp_text.chars().take(500).collect::<String>());
 
     let resp: BilibiliResponse<FavFolderListData> = serde_json::from_str(&resp_text)
         .context("收藏夹列表反序列化失败")?;
@@ -191,7 +191,7 @@ pub async fn get_favorite_videos(
         .text()
         .await?;
 
-    log::debug!("[favorite] resource/list 响应: {}", &resp_text[..resp_text.len().min(500)]);
+    log::debug!("[favorite] resource/list 响应: {}", resp_text.chars().take(500).collect::<String>());
 
     let resp: BilibiliResponse<FavResourceData> = serde_json::from_str(&resp_text)
         .context("收藏夹视频列表反序列化失败")?;

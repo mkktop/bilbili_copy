@@ -92,7 +92,8 @@ export function LoginDialog({
             break;
           case "confirmed":
             setPhase("success");
-            setTimeout(() => cbRef.current.onSuccess(), 800);
+            // 登记到 ref：800ms 内手动关窗也要清理，避免关窗后仍触发 onSuccess
+            pollTimerRef.current = setTimeout(() => cbRef.current.onSuccess(), 800);
             return;
           case "expired":
             setPhase("expired");

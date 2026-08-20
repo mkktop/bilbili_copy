@@ -5,6 +5,10 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+/// 列表类接口翻页保险丝：正常 UP 主/用户远达不到此上限；
+/// API 异常反复返回同页（total 虚高/页内容不变）时避免无限请求。
+const MAX_LIST_PAGES: u32 = 50;
+
 /// UP 主的合集/系列条目
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CollectionInfo {
@@ -142,6 +146,11 @@ pub async fn get_upper_collections(mid: i64, credential: Option<&Credential>) ->
         if total_count > 0 && all.len() >= total_count as usize {
             break;
         }
+        // 保险丝：API 异常反复返回同页（total_count 虚高）时避免无限翻页请求
+        if page_num >= MAX_LIST_PAGES {
+            log::warn!("[collection] seasons/series 翻页达上限 {} 页，停止: mid={}", MAX_LIST_PAGES, mid);
+            break;
+        }
         page_num += 1;
         // 避免请求过于频繁
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
@@ -212,7 +221,7 @@ pub async fn get_collection_videos(
     log::debug!(
         "[collection] {} 视频响应: {}",
         collection_type,
-        &resp_text[..resp_text.len().min(500)]
+        resp_text.chars().take(500).collect::<String>()
     );
 
     let resp: Value = serde_json::from_str(&resp_text).context("合集视频响应解析失败")?;
@@ -322,6 +331,11 @@ pub async fn get_subscribed_collections(credential: &Credential) -> Result<Vec<S
         }
 
         if list.len() < page_size as usize {
+            break;
+        }
+        // 翻页保险丝（同上：防 API 异常时的无限请求）
+        if page >= MAX_LIST_PAGES {
+            log::warn!("[collection] 订阅合集翻页达上限 {} 页，停止", MAX_LIST_PAGES);
             break;
         }
         page += 1;

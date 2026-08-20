@@ -15,10 +15,11 @@ pub fn db_path() -> PathBuf {
     exe_dir.join("data.db")
 }
 
-/// 1.0 世代 schema 版本号。
-/// 与 0.x 的增量迁移链（v2~v8）断代：1.0 起不再维护逐版本补列迁移，
-/// 版本不匹配的旧库（含所有 0.x 库）直接整库重建，旧数据丢弃。
-const SCHEMA_VERSION: i64 = 100;
+/// schema 版本号。
+/// - 100：v1.0.0 断代基线（与 0.x 不兼容，版本不匹配整库重建）
+/// - 101：download_history 新增 subtitle_only / audio_only 列（100 → 101 走
+///   ALTER TABLE 增量迁移**保留用户数据**；更老的库（0.x / 全新空库）仍整库重建）
+const SCHEMA_VERSION: i64 = 101;
 
 /// 初始化数据库：建表 + WAL + 版本校验（不匹配则重建）+ 清理残留
 pub fn init_db() -> anyhow::Result<DbState> {
@@ -30,25 +31,59 @@ pub fn init_db() -> anyhow::Result<DbState> {
     // 全新库 version=0 也走此路径（drop 空表重建 + 记版本），逻辑统一。
     let version = current_schema_version(&conn);
     if version != SCHEMA_VERSION {
-        if version > 0 {
-            log::warn!(
-                "[db] 检测到旧版数据库(schema_version={})，1.0 不兼容旧数据结构，重建数据库",
-                version
-            );
+        if version == 100 {
+            migrate_100_to_101(&conn)?;
+        } else {
+            if version > 0 {
+                log::warn!(
+                    "[db] 检测到旧版数据库(schema_version={})，1.0 不兼容旧数据结构，重建数据库",
+                    version
+                );
+            }
+            rebuild_db(&conn)?;
         }
-        rebuild_db(&conn)?;
     }
 
     // 应用异常退出后残留的 downloading 任务改为 paused（而非 error），
     // 让用户可在「下载列表」手动恢复（复用 .tmp 续传）。临时文件由指纹机制保护，
     // 不匹配时 download_stream 会自动丢弃重下，不会损坏。
     conn.execute(
-        "UPDATE download_history SET status='paused' WHERE status='downloading'",
+        "UPDATE download_history SET status='paused' WHERE status IN ('downloading', 'queued')",
         [],
     )?;
 
     log::info!("[db] 数据库初始化完成: {:?}", db_path());
     Ok(DbState(Mutex::new(conn)))
+}
+
+/// 100 → 101 增量迁移：补 subtitle_only / audio_only 两列，保留全部用户数据。
+fn migrate_100_to_101(conn: &Connection) -> anyhow::Result<()> {
+    log::info!("[db] 迁移 schema 100→101：download_history 增加 subtitle_only/audio_only 列（保留数据）");
+    if !column_exists(conn, "download_history", "subtitle_only") {
+        conn.execute(
+            "ALTER TABLE download_history ADD COLUMN subtitle_only INTEGER NOT NULL DEFAULT 0",
+            [],
+        )?;
+    }
+    if !column_exists(conn, "download_history", "audio_only") {
+        conn.execute(
+            "ALTER TABLE download_history ADD COLUMN audio_only INTEGER NOT NULL DEFAULT 0",
+            [],
+        )?;
+    }
+    set_schema_version(conn, SCHEMA_VERSION)?;
+    Ok(())
+}
+
+/// 判断表里是否已有某列（表/列名均为代码内硬编码字面量，无注入面）
+fn column_exists(conn: &Connection, table: &str, column: &str) -> bool {
+    let sql = format!(
+        "SELECT COUNT(*) FROM pragma_table_info('{}') WHERE name = '{}'",
+        table, column
+    );
+    conn.query_row(&sql, [], |r| r.get::<_, i64>(0))
+        .unwrap_or(0)
+        > 0
 }
 
 /// 整库重建：drop 全部表 → 按最新 SCHEMA_SQL 建表 → 记录当前版本。
@@ -124,6 +159,12 @@ pub struct DownloadHistoryEntry {
     /// UP 主名（v6 schema 新增）：文件名模板 {up} 占位符用，恢复/重试时重建输出路径。旧记录为 None。
     #[serde(default)]
     pub owner_name: Option<String>,
+    /// 字幕库模式（101 schema 新增）：恢复/重试时按同模式重新提交，避免变成下整视频。旧记录 false。
+    #[serde(default)]
+    pub subtitle_only: bool,
+    /// 仅音频模式（101 schema 新增）：同上。旧记录 false。
+    #[serde(default)]
+    pub audio_only: bool,
 }
 
 // ==================== CRUD ====================
@@ -195,8 +236,8 @@ pub fn clear_all_parses(conn: &Connection) -> anyhow::Result<()> {
 
 pub fn insert_download(conn: &Connection, entry: &DownloadHistoryEntry) -> anyhow::Result<()> {
     conn.execute(
-        "INSERT OR REPLACE INTO download_history (id, title, bvid, cid, ep_id, status, progress, phase, error_msg, output_path, pic, quality, video_title, size, duration, owner_name) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
-        params![entry.id, entry.title, entry.bvid, entry.cid, entry.ep_id, entry.status, entry.progress, entry.phase, entry.error_msg, entry.output_path, entry.pic, entry.quality, entry.video_title, entry.size, entry.duration, entry.owner_name],
+        "INSERT OR REPLACE INTO download_history (id, title, bvid, cid, ep_id, status, progress, phase, error_msg, output_path, pic, quality, video_title, size, duration, owner_name, subtitle_only, audio_only) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
+        params![entry.id, entry.title, entry.bvid, entry.cid, entry.ep_id, entry.status, entry.progress, entry.phase, entry.error_msg, entry.output_path, entry.pic, entry.quality, entry.video_title, entry.size, entry.duration, entry.owner_name, entry.subtitle_only, entry.audio_only],
     )?;
     Ok(())
 }
@@ -212,7 +253,9 @@ pub fn update_download(
     size: Option<i64>,
 ) -> anyhow::Result<()> {
     conn.execute(
-        "UPDATE download_history SET status = ?1, progress = COALESCE(?2, progress), phase = COALESCE(?3, phase), error_msg = COALESCE(?4, error_msg), output_path = COALESCE(?5, output_path), size = COALESCE(?6, size) WHERE id = ?7",
+        // error_msg：done 时显式清空——error→重试→done 的记录若保留旧错误，
+        // 重启后前端恢复 errorMsg，已完成行会显示旧的红色"下载失败"文案。
+        "UPDATE download_history SET status = ?1, progress = COALESCE(?2, progress), phase = COALESCE(?3, phase), error_msg = CASE WHEN ?1 = 'done' THEN NULL ELSE COALESCE(?4, error_msg) END, output_path = COALESCE(?5, output_path), size = COALESCE(?6, size) WHERE id = ?7",
         params![status, progress, phase, error_msg, output_path, size, id],
     )?;
     Ok(())
@@ -238,7 +281,7 @@ pub fn get_download_row_status(
 
 pub fn get_all_downloads(conn: &Connection, limit: u32, offset: u32) -> anyhow::Result<Vec<DownloadHistoryEntry>> {
     let mut stmt = conn.prepare(
-        "SELECT id, title, bvid, cid, ep_id, status, progress, phase, error_msg, output_path, pic, created_at, quality, video_title, size, duration, owner_name FROM download_history ORDER BY created_at DESC LIMIT ?1 OFFSET ?2",
+        "SELECT id, title, bvid, cid, ep_id, status, progress, phase, error_msg, output_path, pic, created_at, quality, video_title, size, duration, owner_name, subtitle_only, audio_only FROM download_history ORDER BY created_at DESC LIMIT ?1 OFFSET ?2",
     )?;
     let rows = stmt.query_map(params![limit, offset], |row| {
         Ok(DownloadHistoryEntry {
@@ -259,6 +302,8 @@ pub fn get_all_downloads(conn: &Connection, limit: u32, offset: u32) -> anyhow::
             size: row.get(14)?,
             duration: row.get(15)?,
             owner_name: row.get(16)?,
+            subtitle_only: row.get::<_, i64>(17)? != 0,
+            audio_only: row.get::<_, i64>(18)? != 0,
         })
     })?;
     Ok(rows.filter_map(|r| r.ok()).collect())
@@ -446,7 +491,9 @@ CREATE TABLE IF NOT EXISTS download_history (
     video_title TEXT,
     size INTEGER,
     duration INTEGER,
-    owner_name TEXT
+    owner_name TEXT,
+    subtitle_only INTEGER NOT NULL DEFAULT 0,
+    audio_only INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS download_stats (
@@ -571,6 +618,46 @@ mod tests {
             size: None,
             duration: Some(360),
             owner_name: Some("某UP".into()),
+            subtitle_only: false,
+            audio_only: false,
         }
+    }
+
+    #[test]
+    fn migrate_100_to_101_preserves_data_and_adds_columns() {
+        // 模拟 1.0.0 库（version=100，无新列，含用户数据）：
+        // 迁移后数据保留、两列可读写、版本更新、重复迁移幂等
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(SCHEMA_SQL).unwrap();
+        conn.execute("DROP TABLE download_history", []).unwrap();
+        conn.execute_batch("
+            CREATE TABLE download_history (
+                id TEXT PRIMARY KEY, title TEXT NOT NULL, bvid TEXT NOT NULL, cid INTEGER NOT NULL,
+                ep_id INTEGER, status TEXT NOT NULL DEFAULT 'downloading', progress REAL NOT NULL DEFAULT 0.0,
+                phase TEXT, error_msg TEXT, output_path TEXT, pic TEXT,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')), quality INTEGER, video_title TEXT,
+                size INTEGER, duration INTEGER, owner_name TEXT
+            );
+        ").unwrap();
+        conn.execute("INSERT OR REPLACE INTO schema_version (version) VALUES (100)", []).unwrap();
+        conn.execute(
+            "INSERT INTO download_history (id, title, bvid, cid, status, progress) VALUES ('keep-1', 'lao', 'BV0yy', 1, 'done', 100.0)",
+            [],
+        ).unwrap();
+
+        migrate_100_to_101(&conn).unwrap();
+        assert_eq!(current_schema_version(&conn), SCHEMA_VERSION);
+        let rows = get_all_downloads(&conn, 10, 0).unwrap();
+        assert_eq!(rows.len(), 1, "迁移必须保留用户数据");
+        assert_eq!(rows[0].id, "keep-1");
+        assert!(!rows[0].subtitle_only && !rows[0].audio_only, "旧行默认 false");
+
+        let mut e = rows.into_iter().next().unwrap();
+        e.subtitle_only = true;
+        insert_download(&conn, &e).unwrap();
+        let rows = get_all_downloads(&conn, 10, 0).unwrap();
+        assert!(rows[0].subtitle_only, "subtitle_only 必须能往返落库");
+
+        migrate_100_to_101(&conn).unwrap();
     }
 }

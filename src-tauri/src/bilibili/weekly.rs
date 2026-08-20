@@ -92,7 +92,7 @@ pub async fn get_weekly_series_list(
 
     log::debug!(
         "[weekly] series/list 响应: {}",
-        &resp_text[..resp_text.len().min(500)]
+        resp_text.chars().take(500).collect::<String>()
     );
 
     let resp: Value =
@@ -151,7 +151,7 @@ pub async fn get_weekly_detail(
 
     log::debug!(
         "[weekly] series/one 响应: {}",
-        &resp_text[..resp_text.len().min(500)]
+        resp_text.chars().take(500).collect::<String>()
     );
 
     let resp: Value =

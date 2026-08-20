@@ -1,5 +1,5 @@
 use crate::bilibili::credential::Credential;
-use crate::bilibili::{PagedResult, REFERER, api_client, http_to_https};
+use crate::bilibili::{REFERER, api_client, http_to_https};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -30,28 +30,72 @@ pub struct HistoryItem {
     pub progress: i64,
 }
 
+/// 观看历史翻页游标：{max, view_at, business} 三者联合充当 next 指针
+/// （bilibili-API-collect 文档），必须整体原样回传，只传 view_at 会跳过同秒记录。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HistoryCursor {
+    /// view_at 游标（unix 秒）
+    pub view_at: i64,
+    /// business 过滤（原样回传，通常为空）
+    #[serde(default)]
+    pub business: String,
+    /// max 限定（原样回传，通常为空）
+    #[serde(default)]
+    pub max: String,
+}
+
+/// 观看历史分页结果：items 为过滤后（有 bvid）的条目，next_cursor 为
+/// **未过滤**原始响应的游标——不能用过滤后列表的末条推导（末条可能被过滤掉，
+/// 指向更旧位置会拉回重复记录）。
+#[derive(Debug, Clone, Serialize)]
+pub struct HistoryResult {
+    pub items: Vec<HistoryItem>,
+    pub has_more: bool,
+    pub next_cursor: Option<HistoryCursor>,
+}
+
+/// 从响应 data.cursor 解析原始游标
+fn parse_cursor(cursor: &Value) -> Option<HistoryCursor> {
+    let view_at = cursor["view_at"].as_i64()?;
+    if view_at <= 0 {
+        return None;
+    }
+    let as_string = |v: &Value| {
+        v.as_str()
+            .map(|s| s.to_string())
+            .or_else(|| v.as_i64().map(|n| n.to_string()))
+            .unwrap_or_default()
+    };
+    Some(HistoryCursor {
+        view_at,
+        business: as_string(&cursor["business"]),
+        max: as_string(&cursor["max"]),
+    })
+}
+
 /// 获取当前登录用户的观看历史（cursor 分页）
 /// API: GET https://api.bilibili.com/x/web-interface/history/cursor
 /// 鉴权：cookie（无需 WBI 签名）
 ///
 /// cursor 分页机制：
-/// - 首页 max_view_at 传 None
-/// - 后端响应 data.cursor 返回下一页所需的 {max, view_at, business}
-/// - 调用方把上一次返回的最后一条 view_at 作为下一次的 max_view_at
-///
-/// @param max_view_at 上一页最后一条的 view_at（首页传 None）
+/// - 首页 cursor 传 None
+/// - 后端响应 data.cursor 返回下一页所需的 {max, view_at, business}，原样回传
 pub async fn get_watch_history(
-    max_view_at: Option<i64>,
+    cursor: Option<HistoryCursor>,
     credential: &Credential,
-) -> Result<PagedResult<HistoryItem>> {
+) -> Result<HistoryResult> {
     let client = api_client();
     let page_size = 20i64;
 
-    // 按 bilibili-API-collect 文档：首页不带游标；翻页用上次最后一条的 view_at。
-    // （注意是 view_at 不是 max —— max 是限定上限，view_at 才是游标）
     let mut query: Vec<(&str, String)> = vec![("ps", page_size.to_string())];
-    if let Some(ts) = max_view_at {
-        query.push(("view_at", ts.to_string()));
+    if let Some(c) = &cursor {
+        query.push(("view_at", c.view_at.to_string()));
+        if !c.business.is_empty() {
+            query.push(("business", c.business.clone()));
+        }
+        if !c.max.is_empty() {
+            query.push(("max", c.max.clone()));
+        }
     }
 
     let resp_text = client
@@ -66,7 +110,7 @@ pub async fn get_watch_history(
 
     log::debug!(
         "[history] history/cursor 响应前 500 字: {}",
-        &resp_text[..resp_text.len().min(500)]
+        resp_text.chars().take(500).collect::<String>()
     );
 
     let resp: Value =
@@ -79,6 +123,8 @@ pub async fn get_watch_history(
             resp["message"].as_str().unwrap_or("未知错误")
         );
     }
+
+    let raw_cursor = parse_cursor(&resp["data"]["cursor"]);
 
     let list = resp["data"]["list"]
         .as_array()
@@ -116,24 +162,18 @@ pub async fn get_watch_history(
 
     // has_more 判断：cursor 返回下一页游标（view_at > 0）即可能有更早的历史。
     // 不依赖 items.len() == page_size，因为首页/末页可能不足一页但仍有后续。
-    let has_more = resp["data"]["cursor"]["view_at"]
-        .as_i64()
-        .unwrap_or(0)
-        > 0
-        && !items.is_empty();
+    let has_more = raw_cursor.is_some() && !items.is_empty();
 
     log::info!(
-        "[history] 获取到 {} 条观看历史（max_view_at={:?}, has_more={}）",
+        "[history] 获取到 {} 条观看历史（cursor={:?}, has_more={}）",
         items.len(),
-        max_view_at,
+        cursor.map(|c| c.view_at),
         has_more
     );
 
-    // total 用 -1 表示 cursor 接口不返回总数（前端只关心 has_more）
-    Ok(PagedResult {
+    Ok(HistoryResult {
         items,
-        total: -1,
         has_more,
-        page: 0,
+        next_cursor: if has_more { raw_cursor } else { None },
     })
 }

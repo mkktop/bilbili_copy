@@ -406,7 +406,6 @@ pub async fn download_stream(
             stream_label, download_id, resume.size, detail
         );
     }
-    let existing_size = resume.size;
     // 上次并行标记单线程 → 本次强制单线程（append 模式可续传）
     let effective_threads = if resume.force_single { 1 } else { parallel_threads };
     let parallel_resume = resume.parallel;
@@ -426,6 +425,12 @@ pub async fn download_stream(
             // 每轮重试前检查取消信号（避免在已 cancel 后仍发起请求）
             check_cancel(cancel, "download_stream 重试循环")?;
 
+            // 每次尝试前重读磁盘上的临时文件大小：上一次尝试可能已把文件写大
+            // （中途超时/断连后重试/换 CDN）。沿用进循环前算好的旧值会以旧 offset
+            // append，把服务器从旧 offset 起的内容再追加一遍 → 前段重复、文件
+            // 长度大于 total 的损坏文件（且能通过下方 <1024 的过小校验）。
+            let attempt_size = get_existing_size(&temp_path).await;
+
             match download_file(
                 &client,
                 app,
@@ -434,7 +439,7 @@ pub async fn download_stream(
                 credential,
                 &temp_path,
                 stream_label,
-                existing_size,
+                attempt_size,
                 effective_threads,
                 fingerprint,
                 max_bps,
@@ -452,7 +457,8 @@ pub async fn download_stream(
                         last_error = format!("下载文件过小 ({}bytes)", metadata.len());
                         log::warn!("[download] {} 流文件过小: id={}, size={}bytes", stream_label, download_id, metadata.len());
                         if let Ok(content) = tokio::fs::read_to_string(&temp_path).await {
-                            log::debug!("[download] 错误响应内容: id={}, 内容={}", download_id, &content[..content.len().min(500)]);
+                            let head: String = content.chars().take(500).collect();
+                            log::debug!("[download] 错误响应内容: id={}, 内容={}", download_id, head);
                         }
                         let _ = tokio::fs::remove_file(&temp_path).await;
                         let _ = tokio::fs::remove_file(temp_path.with_extension("meta")).await;
@@ -675,15 +681,21 @@ async fn download_parallel(
     let segment_count = calculate_segments(total_size, threads);
     let segment_size = total_size / segment_count as u64;
 
-    // 续传位图：仅当 pr 的 segment_count 与本次一致时才采纳（threads 变了分片边界不同）
+    // 续传位图：仅当 pr 的 segment_count 与 threads 都与本次一致时才采纳
+    // （任一变化都会改变分片边界，旧位图对不上新分片）
+    let resume_mismatch = matches!(&parallel_resume,
+        Some(p) if p.segment_count != segment_count || p.threads != threads);
     let mut done: Vec<bool> = match &parallel_resume {
-        Some(p) if p.segment_count == segment_count => p.done.clone(),
+        Some(p) if p.segment_count == segment_count && p.threads == threads => p.done.clone(),
         _ => vec![false; segment_count],
     };
-    if parallel_resume.is_some() && parallel_resume.as_ref().unwrap().segment_count != segment_count {
+    if resume_mismatch {
         log::warn!(
-            "[download] {} 流分片数变化 ({} vs {})，无法续传，重下所有分片: id={}",
-            stream_label, parallel_resume.as_ref().unwrap().segment_count, segment_count, download_id
+            "[download] {} 流分片参数变化 (分片数{} vs {}，线程{} vs {})，无法续传，重下所有分片: id={}",
+            stream_label,
+            parallel_resume.as_ref().unwrap().segment_count, segment_count,
+            parallel_resume.as_ref().unwrap().threads, threads,
+            download_id
         );
     }
 
@@ -826,10 +838,12 @@ async fn download_parallel(
         }
     };
 
-    // 验证：本次新下载的字节 + 续传已有字节 ≈ total_size
+    // 验证：本次新下载的字节 + 续传已有字节 必须精确等于 total_size。
+    // 分片长度是精确求和，无任何舍入来源；旧版容忍 1024 字节缺失会让缺尾的
+    // mp4 通过校验，也不查"多给"（越界覆盖相邻分片）的情况。
     let newly_downloaded: u64 = segment_results.into_iter().sum();
     let total_accounted = newly_downloaded + initial_downloaded;
-    if total_accounted < total_size.saturating_sub(1024) {
+    if total_accounted != total_size {
         anyhow::bail!(
             "并行下载不完整: 本次{} + 续传{} / 总{}",
             newly_downloaded, initial_downloaded, total_size
@@ -929,6 +943,17 @@ async fn download_range_segment(
     }
 
     file.flush().await?;
+    // 分片长度必须精确等于请求的 Range 长度：服务器多给字节会越过本分片边界
+    // 覆盖相邻分片（少给则文件有洞），两种都产出损坏文件。
+    let expected_len = end - start + 1;
+    if segment_downloaded != expected_len {
+        anyhow::bail!(
+            "分片#{} 长度不符: 收到{}bytes / 期望{}bytes",
+            seg_idx,
+            segment_downloaded,
+            expected_len
+        );
+    }
     log::debug!(
         "[download] {} 流分片#{} 完成: id={}, size={}bytes",
         stream_label, seg_idx, download_id, segment_downloaded
@@ -964,8 +989,21 @@ async fn download_single(
     let response = request.send().await.context("请求视频流失败")?;
 
     let status = response.status();
-    // 206 (Partial Content) 或 200 都可以接受
-    if !status.is_success() && status != reqwest::StatusCode::PARTIAL_CONTENT {
+    if resume_from > 0 {
+        // 续传必须拿到 206：服务器忽略 Range 返回 200（全量 body）时若按 append
+        // 追加，会得到 existing + total 字节、进度 >100% 的损坏文件。
+        // 收到 200/其它成功状态时降级为从头下载（递归一次，resume_from=0 不会再进此分支）。
+        if status != reqwest::StatusCode::PARTIAL_CONTENT {
+            log::warn!(
+                "[download] {} 流续传收到 {}（非 206，服务器忽略 Range），改为从头下载: id={}",
+                stream_label, status, download_id
+            );
+            return Box::pin(download_single(
+                client, app, download_id, url, credential, temp_path, stream_label,
+                0, max_bps, cancel,
+            )).await;
+        }
+    } else if !status.is_success() {
         anyhow::bail!("视频流请求失败: HTTP {}", status);
     }
 
@@ -1048,6 +1086,16 @@ async fn download_single(
     }
 
     file.flush().await.context("刷新文件失败")?;
+
+    // 完整性校验：连接提前断开（chunked 流中止）时 downloaded 会小于预期总长，
+    // 静默 Ok 会把截断文件交给 ffmpeg 合并出坏视频。这里显式报错交给重试逻辑。
+    if effective_total > 0 && downloaded != effective_total {
+        anyhow::bail!(
+            "下载不完整: {}/{}bytes（连接提前结束）",
+            downloaded,
+            effective_total
+        );
+    }
     log::info!(
         "[download] {} 流下载完成: id={}, size={}bytes, host={}",
         stream_label, download_id, downloaded, url_host
@@ -1056,6 +1104,21 @@ async fn download_single(
 }
 
 // ==================== ffmpeg 合并 / 转封装 ====================
+
+/// ffmpeg 输出临时路径：`video.mp4` → `video.tmp.mp4`。
+/// 保留原扩展名（ffmpeg 按扩展名选 muxer），插入 `.tmp` 段避免直接写最终名：
+/// ffmpeg 中途失败/被杀会留下半截"成品"被媒体库误认；成功后 rename 原子替换。
+fn with_tmp_suffix(path: &Path) -> PathBuf {
+    let stem = path.file_stem().unwrap_or_default();
+    let ext = path.extension().unwrap_or_default();
+    let mut name = stem.to_os_string();
+    name.push(".tmp");
+    if !ext.is_empty() {
+        name.push(".");
+        name.push(ext);
+    }
+    path.with_file_name(name)
+}
 
 /// 使用 ffmpeg 合并视频和音频流
 pub async fn merge_streams(
@@ -1075,6 +1138,7 @@ pub async fn merge_streams(
     }
 
     let metadata_title = format!("BilbliCopy {}", chrono::Local::now().format("%Y-%m-%d %H:%M:%S"));
+    let tmp_output = with_tmp_suffix(output_path);
     let output = create_ffmpeg_command(&ffmpeg)
         .args([
             "-i", video_path.to_str().unwrap_or(""),
@@ -1083,16 +1147,20 @@ pub async fn merge_streams(
             "-strict", "unofficial",
             "-metadata", &format!("title={}", metadata_title),
             "-y",
-            output_path.to_str().unwrap_or(""),
+            tmp_output.to_str().unwrap_or(""),
         ])
         .output()
         .await
         .context(format!("执行ffmpeg失败，内置ffmpeg可能缺失。当前路径: {}", ffmpeg))?;
 
     if !output.status.success() {
+        let _ = tokio::fs::remove_file(&tmp_output).await;
         let stderr = String::from_utf8_lossy(&output.stderr);
         anyhow::bail!("ffmpeg合并失败: {}", stderr);
     }
+    tokio::fs::rename(&tmp_output, output_path)
+        .await
+        .context("合并结果改名失败")?;
 
     Ok(())
 }
@@ -1113,6 +1181,7 @@ pub async fn remux_to_mp4(
     }
 
     let metadata_title = format!("BilbliCopy {}", chrono::Local::now().format("%Y-%m-%d %H:%M:%S"));
+    let tmp_output = with_tmp_suffix(output_path);
     let output = create_ffmpeg_command(&ffmpeg)
         .args([
             "-i", input_path.to_str().unwrap_or(""),
@@ -1120,16 +1189,20 @@ pub async fn remux_to_mp4(
             "-movflags", "+faststart",
             "-metadata", &format!("title={}", metadata_title),
             "-y",
-            output_path.to_str().unwrap_or(""),
+            tmp_output.to_str().unwrap_or(""),
         ])
         .output()
         .await
         .context(format!("执行ffmpeg转封装失败，内置ffmpeg可能缺失。当前路径: {}", ffmpeg))?;
 
     if !output.status.success() {
+        let _ = tokio::fs::remove_file(&tmp_output).await;
         let stderr = String::from_utf8_lossy(&output.stderr);
         anyhow::bail!("ffmpeg转封装失败: {}", stderr);
     }
+    tokio::fs::rename(&tmp_output, output_path)
+        .await
+        .context("转封装结果改名失败")?;
 
     Ok(())
 }
@@ -1153,6 +1226,7 @@ pub async fn remux_audio(
     }
 
     let metadata_title = format!("BilbliCopy {}", chrono::Local::now().format("%Y-%m-%d %H:%M:%S"));
+    let tmp_output = with_tmp_suffix(output_path);
 
     let output = if format == "mp3" {
         // MP3 转码：AAC → MP3（有损，VBR ~190kbps，兼容老旧设备）
@@ -1164,7 +1238,7 @@ pub async fn remux_audio(
                 "-q:a", "2",                    // VBR 质量（2 ≈ 190kbps）
                 "-metadata", &format!("title={}", metadata_title),
                 "-y",
-                output_path.to_str().unwrap_or(""),
+                tmp_output.to_str().unwrap_or(""),
             ])
             .output()
             .await
@@ -1177,7 +1251,7 @@ pub async fn remux_audio(
                 "-c", "copy",
                 "-metadata", &format!("title={}", metadata_title),
                 "-y",
-                output_path.to_str().unwrap_or(""),
+                tmp_output.to_str().unwrap_or(""),
             ])
             .output()
             .await
@@ -1185,9 +1259,13 @@ pub async fn remux_audio(
     .context(format!("执行ffmpeg音频封装失败，内置ffmpeg可能缺失。当前路径: {}", ffmpeg))?;
 
     if !output.status.success() {
+        let _ = tokio::fs::remove_file(&tmp_output).await;
         let stderr = String::from_utf8_lossy(&output.stderr);
         anyhow::bail!("ffmpeg音频封装失败: {}", stderr);
     }
+    tokio::fs::rename(&tmp_output, output_path)
+        .await
+        .context("音频封装结果改名失败")?;
 
     Ok(())
 }
@@ -1211,7 +1289,7 @@ fn create_ffmpeg_command(ffmpeg: &str) -> tokio::process::Command {
     let mut cmd = tokio::process::Command::new(ffmpeg);
     #[cfg(target_os = "windows")]
     {
-        use std::os::windows::process::CommandExt;
+        // tokio::process::Command 在 Windows 上自带 creation_flags 方法，无需 CommandExt trait
         cmd.creation_flags(0x08000000);
     }
     cmd

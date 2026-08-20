@@ -19,7 +19,7 @@ pub async fn get_watch_later(credential: &Credential) -> Result<Vec<VideoListIte
 
     log::debug!(
         "[watch_later] toview 响应: {}",
-        &resp_text[..resp_text.len().min(500)]
+        resp_text.chars().take(500).collect::<String>()
     );
 
     let resp: Value =

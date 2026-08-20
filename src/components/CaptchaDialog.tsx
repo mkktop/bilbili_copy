@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { friendlyError } from "../lib/errors";
 import { ShieldCheck, Loader2, AlertCircle } from "lucide-react";
 
 interface CaptchaDialogProps {
@@ -98,7 +99,7 @@ export function CaptchaDialog({ vVoucher, onSuccess, onCancel }: CaptchaDialogPr
                   setStatus("success");
                   successTimerRef.current = setTimeout(() => onSuccess(), 500);
                 } catch (err) {
-                  setErrorMsg(String(err));
+                  setErrorMsg(friendlyError(err));
                   setStatus("error");
                 }
               }
@@ -120,7 +121,7 @@ export function CaptchaDialog({ vVoucher, onSuccess, onCancel }: CaptchaDialogPr
         );
       } catch (err) {
         if (!cancelled) {
-          setErrorMsg(String(err));
+          setErrorMsg(friendlyError(err));
           setStatus("error");
         }
       }

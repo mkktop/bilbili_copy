@@ -30,7 +30,7 @@ async fn interaction_post(
         .text()
         .await?;
 
-    log::debug!("[interaction] POST {} 响应前 300 字: {}", url, &resp_text[..resp_text.len().min(300)]);
+    log::debug!("[interaction] POST {} 响应前 300 字: {}", url, resp_text.chars().take(300).collect::<String>());
 
     let resp: Value =
         serde_json::from_str(&resp_text).context("互动接口响应解析失败")?;

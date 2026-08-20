@@ -3,7 +3,7 @@
 //! 实现参考 bili-sync-up 的 `write_movie_nfo`，简化为单 P UGC 场景（无 tvshow/season/episode 层级）。
 //! XML 通过 `String` 拼接生成，避免引入 quick-xml 依赖；特殊字符转义 + CDATA 处理。
 
-use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
+use chrono::{DateTime, FixedOffset, TimeZone};
 
 use crate::commands::settings::AppSettings;
 use crate::download_manager::VideoMeta;
@@ -138,12 +138,15 @@ fn push_text(out: &mut String, tag: &str, value: &str, indent: usize) {
 }
 
 /// 写入 CDATA 包裹的文本元素：`<indent><tag><![CDATA[value]]></tag>\n`
+/// 简介是 UP 主可控内容：含 `]]>` 会提前闭合 CDATA，其后内容成为裸 XML
+/// （轻则解析失败，重则向媒体库注入任意元素）。标准处理是拆成
+/// `]]]]><![CDATA[>` 两段 CDATA 连接。
 fn push_cdata(out: &mut String, tag: &str, value: &str, indent: usize) {
     out.push_str(&" ".repeat(indent));
     out.push('<');
     out.push_str(tag);
     out.push_str("><![CDATA[");
-    out.push_str(value);
+    out.push_str(&value.replace("]]>", "]]]]><![CDATA[>"));
     out.push_str("]]></");
     out.push_str(tag);
     out.push_str(">\n");
@@ -174,15 +177,13 @@ fn empty_fallback<'a>(s: &'a str, fallback: &'a str) -> &'a str {
     }
 }
 
-/// Unix 秒 → UTC DateTime（NFO 时间格式不强制时区，UTC 与 B站 API 默认时区一致即可）
-fn timestamp_to_datetime(secs: i64) -> Option<DateTime<Utc>> {
-    Utc.timestamp_opt(secs, 0).single()
+/// Unix 秒 → 北京时间（UTC+8）。B站的发布时间均以北京时间展示；
+/// 用 UTC 格式化会让每天 0:00-8:00 发布的视频日期早一天（含年份边界）。
+fn timestamp_to_datetime(secs: i64) -> Option<DateTime<FixedOffset>> {
+    FixedOffset::east_opt(8 * 3600)?
+        .timestamp_opt(secs, 0)
+        .single()
 }
-
-// 让 NaiveDateTime 的导入不产生未使用告警（保留以便未来扩展本地时区格式化）
-const _: fn() = || {
-    let _ = NaiveDateTime::default;
-};
 
 #[cfg(test)]
 mod tests {

@@ -205,7 +205,7 @@ async fn fetch_segment(
     let content_type = headers.get("content-type");
     if !content_type.is_some_and(|v| v == "application/octet-stream") {
         let body = resp.text().await.unwrap_or_default();
-        anyhow::bail!("弹幕响应 content-type 异常: {:?}, body: {:?}", content_type, &body[..body.len().min(200)]);
+        anyhow::bail!("弹幕响应 content-type 异常: {:?}, body: {:?}", content_type, body.chars().take(200).collect::<String>());
     }
 
     let bytes = resp.bytes().await?;
@@ -354,7 +354,8 @@ impl Lane {
     }
 
     fn available_for(&self, other: &Danmu, config: &DanmakuOption, width: f64) -> Collision {
-        let t = config.duration;
+        // duration 下限保护：0 会让 v1/v2 变 inf、NaN 传播到排序 panic
+        let t = config.duration.max(0.1);
         let w = width;
         let gap = config.horizontal_gap;
 
@@ -449,7 +450,8 @@ impl Canvas {
             }
         }
         if !collisions.is_empty() {
-            collisions.sort_unstable_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+            // total_cmp 对 NaN 也全序，杜绝 settings 异常值传播 NaN 时的 unwrap panic
+collisions.sort_unstable_by(|a, b| a.0.total_cmp(&b.0));
             let (time_need, lane_idx) = collisions[0];
             if time_need < 1.0 {
                 danmu.timeline_s += time_need + 0.01;
@@ -637,9 +639,13 @@ fn build_event_name(danmu: &Danmu) -> String {
     }
 }
 
-/// ASS 文本转义（换行符 -> \N）
+/// ASS 文本转义：换行 -> \N；花括号替换为全角——他人弹幕可携带 {\pos(...)} 等
+/// override 标签，不处理会作用于整条渲染（覆盖全屏/错位）。
 fn escape_ass_text(text: &str) -> String {
-    text.trim().replace('\n', "\\N")
+    text.trim()
+        .replace('\n', "\\N")
+        .replace('{', "｛")
+        .replace('}', "｝")
 }
 
 #[cfg(test)]

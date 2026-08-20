@@ -3,7 +3,7 @@ mod bilibili;
 mod db;
 mod download_manager;
 
-use commands::settings::{get_settings, save_settings, get_gpu_presets, get_resolution_presets, generate_fingerprint_cmd, generate_random_fingerprint, load_settings, store_settings};
+use commands::settings::{get_settings, save_settings, patch_settings, get_gpu_presets, get_resolution_presets, generate_fingerprint_cmd, generate_random_fingerprint, load_settings, store_settings};
 use tauri::Manager;
 use commands::video::parse_video;
 use commands::download::{download_video, pause_download, cancel_download, set_download_priority};
@@ -141,6 +141,35 @@ async fn biliproxy_fetch(
         base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(b64.trim_end_matches('='))?,
     )?;
 
+    // 安全校验：URL 来自 webview（可被注入脚本构造），必须限定 http/https 且
+    // 禁止 localhost / 内网 IP 字面量，防止把本协议当作 SSRF 探测内网的跳板。
+    let parsed = reqwest::Url::parse(&bili_url)?;
+    anyhow::ensure!(
+        matches!(parsed.scheme(), "http" | "https"),
+        "biliproxy 仅允许 http/https URL"
+    );
+    if let Some(host) = parsed.host_str() {
+        let h = host.trim_end_matches('.').to_ascii_lowercase();
+        let is_local = h == "localhost"
+            || h == "127.0.0.1"
+            || h == "[::1]"
+            || h == "0.0.0.0"
+            || h.starts_with("127.")
+            || h.starts_with("10.")
+            || h.starts_with("192.168.")
+            || h.starts_with("169.254.")
+            || h.starts_with("172.16.")
+            || h.starts_with("172.17.")
+            || h.starts_with("172.18.")
+            || h.starts_with("172.19.")
+            || h.starts_with("172.2")
+            || h.starts_with("172.30.")
+            || h.starts_with("172.31.")
+            || h.ends_with(".local")
+            || h.ends_with(".localhost");
+        anyhow::ensure!(!is_local, "biliproxy 禁止访问本地/内网地址");
+    }
+
     // 透传 Range（MSE 分块请求）
     let range = request
         .headers()
@@ -148,8 +177,21 @@ async fn biliproxy_fetch(
         .and_then(|v| v.to_str().ok())
         .map(|s| s.to_string());
 
-    // 复用池化 client：同 host 连续分块复用 TCP+TLS 连接，省掉每块握手
-    let cred = bilibili::credential::Credential::load().ok().flatten();
+    // 复用池化 client：同 host 连续分块复用 TCP+TLS 连接，省掉每块握手。
+    // Cookie 只发给 *.bilibili.com：流媒体 CDN 不需要 Cookie，且绝不能把用户
+    // 登录凭证（SESSDATA/bili_jct）带给任意第三方域（防凭据外带）。
+    let is_bili_site = parsed
+        .host_str()
+        .map(|h| {
+            let h = h.trim_end_matches('.').to_ascii_lowercase();
+            h == "bilibili.com" || h.ends_with(".bilibili.com")
+        })
+        .unwrap_or(false);
+    let cred = if is_bili_site {
+        bilibili::credential::Credential::load().ok().flatten()
+    } else {
+        None
+    };
     let mut req = PROXY_CLIENT
         .get(&bili_url)
         .header("Referer", bilibili::REFERER)
@@ -284,6 +326,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_settings,
             save_settings,
+            patch_settings,
             get_gpu_presets,
             get_resolution_presets,
             generate_fingerprint_cmd,

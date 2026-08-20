@@ -72,7 +72,7 @@ pub async fn get_recommend(
     log::debug!(
         "[recommend] fresh_idx={} 响应前 500 字: {}",
         fresh_idx,
-        &resp_text[..resp_text.len().min(500)]
+        resp_text.chars().take(500).collect::<String>()
     );
 
     let resp: Value =

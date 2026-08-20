@@ -48,11 +48,18 @@ fn lock_or_recover<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 }
 
 /// 全局下载并发限流器：持有当前已配置的容量与对应信号量。
-/// 仅在配置容量变化时才重建信号量——重建时机错误（如过去用 available_permits 判断）
-/// 会导致只要有下载在跑就误重建出满额信号量，使并发限制完全失效。参见 tests。
+/// 信号量实例终生不变（同一 Arc），容量变化通过 add_permits / 扣留许可原地调整：
+/// - 增大容量：先归还扣留的许可，不够再 add_permits；
+/// - 缩小容量：把差额许可「扣留」起来（永久持有 = 有效容量降低）。
+///   这样重建不存在，也就不会出现「旧任务持着旧信号量的 permit、新信号量又满额」
+///   的瞬时超限（1→3 时 1 旧 + 3 新 = 4 并发）。
 struct GlobalLimiter {
     capacity: usize,
+    /// 信号量中累计创建过的许可总数（初始容量 + add_permits 之和）
+    total: usize,
     sem: Arc<Semaphore>,
+    /// 缩容时扣留的许可。持有不还即降低有效容量；增容时优先归还它们。
+    reserved: Vec<tokio::sync::OwnedSemaphorePermit>,
 }
 
 impl GlobalLimiter {
@@ -60,18 +67,65 @@ impl GlobalLimiter {
         let cap = clamp_permits(capacity);
         Self {
             capacity: cap,
+            total: cap,
             sem: Arc::new(Semaphore::new(cap)),
+            reserved: Vec::new(),
         }
     }
 
-    /// 返回与 `want` 容量匹配的信号量：容量不变时复用（permits 计数共享），
-    /// 容量变化时重建。`want` 会被 clamp 到 >=1。
+    /// 返回与 `want` 容量匹配的信号量（始终是同一个实例），容量原地调整。
+    /// `want` 会被 clamp 到 >=1。
     fn ensure(&mut self, want: usize) -> Arc<Semaphore> {
         let want = clamp_permits(want);
-        if self.capacity != want {
-            self.capacity = want;
-            self.sem = Arc::new(Semaphore::new(want));
+        if self.capacity == want {
+            return self.sem.clone();
         }
+        let effective = self.total - self.reserved.len();
+        if want > effective {
+            // 增容：先归还扣留的许可，不够再新建
+            let mut release = want - effective;
+            while release > 0 {
+                match self.reserved.pop() {
+                    Some(_permit) => release -= 1, // drop 即归还 1 个许可
+                    None => {
+                        self.sem.add_permits(release);
+                        self.total += release;
+                        release = 0;
+                    }
+                }
+            }
+        } else if want < effective {
+            // 缩容：扣留差额许可。运行中任务占用的许可此刻拿不到，
+            // 立即扣留能拿到的部分，剩余由后台任务等运行中任务释放后补扣
+            // （补扣完成前并发会短暂高于新上限，随任务自然结束收敛，不会死锁）。
+            let need = (effective - want) as u32;
+            let mut got = 0u32;
+            if let Ok(p) = Arc::clone(&self.sem).try_acquire_many_owned(need) {
+                self.reserved.push(p);
+                got = need;
+            } else {
+                while got < need {
+                    match Arc::clone(&self.sem).try_acquire_many_owned(1) {
+                        Ok(p) => {
+                            self.reserved.push(p);
+                            got += 1;
+                        }
+                        Err(_) => break,
+                    }
+                }
+            }
+            if got < need {
+                let missing = need - got;
+                let sem = Arc::clone(&self.sem);
+                tauri::async_runtime::spawn(async move {
+                    if let Ok(p) = sem.acquire_many_owned(missing).await {
+                        let mut guard = lock_or_recover(&DOWNLOAD_SEMAPHORE);
+                        guard.reserved.push(p);
+                    }
+                });
+            }
+        }
+        self.capacity = want;
         self.sem.clone()
     }
 }
@@ -240,10 +294,12 @@ pub fn set_download_priority(id: String, priority: i32) -> Result<bool, String> 
 /// 执行一个下载任务（由 dispatcher 在 acquire permit 后 spawn 调用）。
 /// 这是旧 download_video 命令的核心逻辑，剥离了全局 Semaphore 获取（dispatcher 负责），
 /// 新增 cancel 检查贯穿，返回 ExecOutcome 让 dispatcher 决定 emit。
+/// `cancel_deletes_tmp`：中断原因是「取消」时为 true（中断后清理 .tmp），「暂停」为 false（保留续传）。
 pub async fn execute_download(
     app: &AppHandle,
     params: DownloadParams,
     cancel: &CancellationToken,
+    cancel_deletes_tmp: &std::sync::atomic::AtomicBool,
 ) -> ExecOutcome {
     let DownloadParams {
         id,
@@ -279,11 +335,19 @@ pub async fn execute_download(
     // video_title 为空（极少数异常提交）时回退 bvid。
     let video_group_key = video_semaphore_key(&video_title, &bvid);
 
-    // 获取 per-video 分P permit（避免同一视频/番剧分P过多并发触发风控）
+    // 获取 per-video 分P permit（避免同一视频/番剧分P过多并发触发风控）。
+    // acquire 可被取消打断：已暂停/取消的任务不再排队占坑（也少占一个全局并发名额），
+    // tokio Semaphore::acquire 是 cancel-safe 的，打断不会丢失许可。
     let video_sem = get_video_semaphore(&video_group_key, max_pages);
-    let _video_permit = match video_sem.acquire().await {
-        Ok(p) => p,
-        Err(e) => return ExecOutcome::Failed(format!("获取分P下载许可失败: {}", e)),
+    let _video_permit = tokio::select! {
+        p = video_sem.acquire() => match p {
+            Ok(p) => p,
+            Err(e) => return ExecOutcome::Failed(format!("获取分P下载许可失败: {}", e)),
+        },
+        _ = cancel.cancelled() => {
+            log::info!("[download] 等待分P许可时被中断: id={}", download_id);
+            return ExecOutcome::Interrupted;
+        }
     };
 
     log::info!(
@@ -345,10 +409,11 @@ pub async fn execute_download(
         up: owner_name.as_deref(),
     };
     let rel = crate::bilibili::filename::render_filename_template(&settings.filename_template, &template_ctx);
-    // 防 Windows MAX_PATH：总长超限时只裁剪最后一段（文件名）
+    // 防 Windows MAX_PATH：总长超限时只裁剪最后一段（文件名）。
+    // 长度按 UTF-16 码元计（与 truncate_to_fit 内部一致）
     let rel = crate::bilibili::filename::truncate_to_fit(
         &rel,
-        download_dir.to_string_lossy().chars().count(),
+        download_dir.to_string_lossy().encode_utf16().count(),
         ext.len(),
         240,
     );
@@ -361,8 +426,8 @@ pub async fn execute_download(
         }
     }
 
-    // 全局限速：KB/s → B/s（0 = 无限制）
-    let max_bps = settings.max_download_speed_kbps.saturating_mul(1024) / 8;
+    // 全局限速：KB/s → B/s（0 = 无限制）。前端单位是 KB/s（千字节/秒），×1024 即可。
+    let max_bps = settings.max_download_speed_kbps.saturating_mul(1024);
 
     // 字幕库模式：跳过视频下载，只取字幕（可选附加弹幕，按全局开关）。
     // 单任务选项优先于全局 download_subtitle（勾选即强制下载字幕）。
@@ -371,14 +436,22 @@ pub async fn execute_download(
         let aid = url::bvid_to_aid(&bvid);
         let dur = duration.unwrap_or(0);
         let base_path = download_dir.join(&rel);
-        download_subtitle_only(
+        let sub_result = download_subtitle_only(
             &download_id, &bvid, cid, aid, dur, &credential,
             &base_path, settings.download_danmaku, &settings,
         ).await;
         cleanup_video_semaphore(&video_group_key);
-        // 与历史语义一致：字幕库模式返回字幕所在目录（output_path 的父目录）
-        let containing = output_path.parent().unwrap_or(&download_dir);
-        return ExecOutcome::Done(containing.to_string_lossy().to_string());
+        return match sub_result {
+            Ok(()) => {
+                // 与历史语义一致：字幕库模式返回字幕所在目录（output_path 的父目录）
+                let containing = output_path.parent().unwrap_or(&download_dir);
+                ExecOutcome::Done(containing.to_string_lossy().to_string())
+            }
+            Err(e) => {
+                log::warn!("[download] 字幕库模式失败: id={}, {}", download_id, e);
+                ExecOutcome::Failed(e)
+            }
+        };
     }
 
     // 防风控指纹参数
@@ -395,12 +468,14 @@ pub async fn execute_download(
         &codec_priority, &credential, &download_dir, &output_path,
         settings.parallel_threads, max_bps, audio_only, &settings.audio_format, ep_id,
         &dm_img_str, &dm_cover_img_str, &dm_img_list, &dm_img_inter,
-        request_delay_ms, cancel,
+        request_delay_ms, cancel, cancel_deletes_tmp,
     ).await;
 
-    cleanup_video_semaphore(&bvid);
+    // 1b2fe39 残留修复：permit 以 video_group_key 获取，清理也必须用同一个键，
+    // 否则 map 条目永不移除（内存泄漏 + 旧容量分P信号量活到重启，调小设置不自愈）。
+    cleanup_video_semaphore(&video_group_key);
 
-    // 取消信号中断：立即返回 Interrupted（run_download 内部已处理 .tmp 保留）
+    // 取消信号中断：立即返回 Interrupted（run_download 内部按 pause/cancel 区分处理 .tmp）
     if let Err(ref e) = result {
         if is_interrupted(e) {
             return ExecOutcome::Interrupted;
@@ -420,7 +495,7 @@ pub async fn execute_download(
                     &codec_priority, &credential, &download_dir, &output_path,
                     settings.parallel_threads, max_bps, audio_only, &settings.audio_format, ep_id,
                     &dm_img_str, &dm_cover_img_str, &dm_img_list, &dm_img_inter,
-                    request_delay_ms, cancel,
+                    request_delay_ms, cancel, cancel_deletes_tmp,
                 ).await
             } else {
                 result
@@ -537,6 +612,7 @@ async fn run_download(
     dm_img_inter: &str,
     request_delay_ms: u64,
     cancel: &CancellationToken,
+    cancel_deletes_tmp: &std::sync::atomic::AtomicBool,
 ) -> anyhow::Result<()> {
     // 5. 获取视频流地址
     log::info!(
@@ -615,13 +691,21 @@ async fn run_download(
     }
 
     // 清理策略：
-    // - 取消中断：保留 .tmp 供恢复续传（不调用 cleanup_temp_files）
     // - 正常完成/失败：清理 .tmp
+    // - 暂停中断：保留 .tmp 供恢复续传
+    // - 取消中断：清理 .tmp（用户明确不要这个任务了，残留数 GB 临时文件违反 manager 契约）
     if !interrupted {
+        cleanup_temp_files(&temp_files).await;
+    } else if cancel_deletes_tmp.load(std::sync::atomic::Ordering::SeqCst) {
+        log::info!(
+            "[download] 任务被取消，清理临时文件: id={}, files={}",
+            download_id,
+            temp_files.len()
+        );
         cleanup_temp_files(&temp_files).await;
     } else {
         log::info!(
-            "[download] 任务被中断，保留临时文件供续传: id={}, files={}",
+            "[download] 任务被暂停，保留临时文件供续传: id={}, files={}",
             download_id,
             temp_files.len()
         );
@@ -685,8 +769,8 @@ async fn download_extras(
         if !want_subtitle {
             return;
         }
-        // 字幕下载（按 settings.subtitle_format 决定 SRT / VTT）
-        fetch_and_save_subtitles(
+        // 字幕下载（按 settings.subtitle_format 决定 SRT / VTT）；失败已内部 log，非致命
+        let _ = fetch_and_save_subtitles(
             &client, download_id, bvid, cid, aid, credential,
             &base_path, settings,
         )
@@ -792,6 +876,8 @@ async fn fetch_image(
 
 /// 字幕库模式：跳过视频，只下载字幕（可选附加弹幕，按全局开关）。
 /// base_path 为不含扩展名的字幕文件前缀（视频未下载，用 title 作为文件名）。
+/// Err = 字幕没有产出（列表获取失败 / 无可用字幕 / 全部下载失败），
+/// 调用方据此把任务记为失败而不是假完成。
 async fn download_subtitle_only(
     download_id: &str,
     bvid: &str,
@@ -802,19 +888,22 @@ async fn download_subtitle_only(
     base_path: &std::path::Path,
     want_danmaku: bool,
     settings: &AppSettings,
-) {
+) -> Result<(), String> {
     let client = match build_extras_client() {
         Some(c) => c,
-        None => return,
+        None => return Err("创建附加下载客户端失败".to_string()),
     };
 
     // 字幕库模式强制下载字幕（单任务选项优先于全局开关）
-    fetch_and_save_subtitles(
+    let saved = fetch_and_save_subtitles(
         &client, download_id, bvid, cid, aid, credential,
         base_path, settings,
-    ).await;
+    ).await?;
+    if saved == 0 {
+        return Err("该视频没有可用字幕（或字幕全部下载失败）".to_string());
+    }
 
-    // 可选附加弹幕
+    // 可选附加弹幕（非致命）
     if want_danmaku {
         let opt = settings.to_danmaku_option();
         match crate::bilibili::danmaku::fetch_danmaku_ass(
@@ -835,6 +924,7 @@ async fn download_subtitle_only(
             }
         }
     }
+    Ok(())
 }
 
 /// 构建附加下载（弹幕/字幕）专用 reqwest 客户端
@@ -856,6 +946,7 @@ fn build_extras_client() -> Option<reqwest::Client> {
 
 /// 获取字幕列表并逐条保存为 SRT/VTT（按 settings.subtitle_format）。
 /// 文件名：<base_path>.<lan>.{srt|vtt}，lan 经 sanitize 防路径穿越。
+/// 返回成功保存的字幕条数；列表获取失败返回 Err（细节已内部 log）。
 async fn fetch_and_save_subtitles(
     client: &reqwest::Client,
     download_id: &str,
@@ -865,13 +956,15 @@ async fn fetch_and_save_subtitles(
     credential: &Credential,
     base_path: &std::path::Path,
     settings: &AppSettings,
-) {
+) -> Result<usize, String> {
     let format = settings.normalized_subtitle_format(); // "srt" | "vtt"
     match crate::bilibili::subtitle::get_subtitle_urls(client, credential, cid, bvid, aid).await {
         Ok(subtitles) => {
             if subtitles.is_empty() {
                 log::info!("[download] 该视频无可用字幕(id={}, format={})", download_id, format);
+                return Ok(0);
             }
+            let mut saved = 0usize;
             for sub in &subtitles {
                 let fetch_result = if format == "vtt" {
                     crate::bilibili::subtitle::fetch_subtitle_vtt(client, &sub.subtitle_url).await
@@ -884,19 +977,24 @@ async fn fetch_and_save_subtitles(
                         let safe_lan = sanitize_filename(&sub.lan);
                         let out_path = format!("{}.{}.{}", base_path.display(), safe_lan, format);
                         match tokio::fs::write(&out_path, &content).await {
-                            Ok(()) => log::info!(
-                                "[download] 字幕保存成功({}, {}): {}",
-                                sub.lan, format, out_path
-                            ),
+                            Ok(()) => {
+                                saved += 1;
+                                log::info!(
+                                    "[download] 字幕保存成功({}, {}): {}",
+                                    sub.lan, format, out_path
+                                );
+                            }
                             Err(e) => log::warn!("[download] 字幕写入失败({}): {}", sub.lan, e),
                         }
                     }
                     Err(e) => log::warn!("[download] 字幕下载失败({}): {}", sub.lan, e),
                 }
             }
+            Ok(saved)
         }
         Err(e) => {
             log::warn!("[download] 获取字幕列表失败(id={}): {}", download_id, e);
+            Err(format!("获取字幕列表失败: {}", e))
         }
     }
 }
@@ -950,12 +1048,42 @@ mod tests {
     }
 
     #[test]
-    fn limiter_rebuilds_when_capacity_changes() {
+    fn limiter_grows_capacity_in_place() {
         let mut limiter = GlobalLimiter::new(2);
         let s1 = limiter.ensure(2);
-        let s2 = limiter.ensure(4); // 容量变化 → 重建
-        assert!(!Arc::ptr_eq(&s1, &s2), "容量变化应重建信号量");
+        let s2 = limiter.ensure(4); // 容量变化 → 原地增容（同一信号量实例）
+        assert!(
+            Arc::ptr_eq(&s1, &s2),
+            "容量调整不应更换信号量实例（更换会让旧 permit 归还到死信号量）"
+        );
         assert_eq!(s2.available_permits(), 4);
+    }
+
+    /// 缩容：差额被扣留（永久持有），available 立即反映新上限。
+    #[test]
+    fn limiter_shrinks_capacity_by_reserving() {
+        let mut limiter = GlobalLimiter::new(4);
+        let _s = limiter.ensure(4);
+        let s2 = limiter.ensure(2);
+        assert_eq!(s2.available_permits(), 2, "4→2 应扣留 2 个许可");
+        // 再增容：先归还扣留的许可
+        let s3 = limiter.ensure(4);
+        assert_eq!(s3.available_permits(), 4, "2→4 应归还扣留的许可恢复到 4");
+    }
+
+    /// 缩容时运行中任务占用的许可此刻拿不到：只扣留能拿到的部分，
+    /// 不得因此把 available 扣成负数或死锁（剩余差额由后台补扣，异步不在此测）。
+    #[test]
+    fn limiter_shrink_with_inflight_holders_only_reserves_available() {
+        let mut limiter = GlobalLimiter::new(4);
+        let s1 = limiter.ensure(4);
+        let _held = s1.try_acquire().expect("应能获取许可"); // 模拟 1 个任务在跑
+        let s2 = limiter.ensure(2); // 4→2：需要扣 2，实际只有 3 可用
+        assert_eq!(
+            s2.available_permits(),
+            1,
+            "总 4 - 运行中 1 - 扣留 2 = 1：瞬时并发 1 运行 + 1 新任务 = 2，不超新上限"
+        );
     }
 
     #[test]

@@ -334,9 +334,18 @@ async function feedStream(
   }
 }
 
+/** fetch 超时：CDN 挂起不抛错时 await 永远 pending（起播/追帧 loading 卡死），
+ *  15s 无进展按失败处理交给重试逻辑。与外部 abort signal 组合（任一触发即中止）。 */
+function withTimeoutSignal(signal: AbortSignal | undefined, timeoutMs = 15_000): AbortSignal {
+  const timeout = AbortSignal.timeout(timeoutMs);
+  // 外部已中止则直接用外部（timeout 信号保持待机即可，无泄漏影响）
+  const composite = AbortSignal.any(signal ? [signal, timeout] : [timeout]);
+  return composite;
+}
+
 /** fetchRange 同时返回 total（来自 content-range） */
 async function fetchRangeTotal(url: string, start: number, endExclusive: number, signal?: AbortSignal): Promise<{ buf: ArrayBuffer; total: number }> {
-  const res = await fetch(url, { headers: { Range: `bytes=${start}-${endExclusive - 1}` }, signal });
+  const res = await fetch(url, { headers: { Range: `bytes=${start}-${endExclusive - 1}` }, signal: withTimeoutSignal(signal) });
   if (res.status !== 206 && res.status !== 200) throw new Error(`拉流失败 HTTP ${res.status}`);
   const buf = await res.arrayBuffer();
   const cr = res.headers.get("content-range");
@@ -572,11 +581,12 @@ export function VideoPlayer({ bvid, aid, cid, epId, duration, title, pages, play
    *  无弹幕/未登录 → 空列表 → 开关按钮禁用。 */
   useEffect(() => {
     const req = ++dmReqRef.current;
+    let active = true; // 卸载守卫：组件卸载后不再 setState（与字幕 effect 写法一致）
     danmakuListRef.current = [];
     setDanmakuCount(0);
     invoke<DanmakuItem[]>("get_danmaku_json", { cid: currentCid, aid: effAid, duration: currentDuration })
       .then((list) => {
-        if (dmReqRef.current !== req) return;
+        if (!active || dmReqRef.current !== req) return;
         // 离屏 canvas 测量文本宽（与渲染字体一致，保证碰撞布局准确）
         const ctx = document.createElement("canvas").getContext("2d");
         if (!ctx) return;
@@ -586,6 +596,7 @@ export function VideoPlayer({ bvid, aid, cid, epId, duration, title, pages, play
         setDanmakuCount(laid.length);
       })
       .catch(() => { /* 无弹幕或异常：按钮禁用即可，不打断播放 */ });
+    return () => { active = false; };
   }, [effBvid, currentCid, effAid, currentDuration]);
 
   /** 弹幕渲染：rAF 循环直绘 canvas（不走 React state，避免高频重渲染）。

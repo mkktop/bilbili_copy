@@ -23,7 +23,7 @@
     <img src="https://img.shields.io/github/v/release/mkktop/bilbili_copy?style=flat-square&logo=github&color=blue" alt="Release" />
   </a>
   <a href="https://github.com/mkktop/bilbili_copy/releases/latest">
-    <img src="https://img.shields.io/github/downloads/mkktop/bilbli_copy/total?style=flat-square&color=blue" alt="Downloads" />
+    <img src="https://img.shields.io/github/downloads/mkktop/bilbili_copy/total?style=flat-square&color=blue" alt="Downloads" />
   </a>
   <img src="https://img.shields.io/badge/platform-Windows-0078D4?style=flat-square&logo=windows" alt="Platform" />
   <img src="https://img.shields.io/badge/Tauri-2-orange?style=flat-square&logo=tauri&logoColor=white" alt="Tauri" />
@@ -79,7 +79,7 @@
 - Export to Markdown or PDF (multi-page, full images)
 
 ### 🛡️ Account & Anti-Risk
-- QR-code login, automatic cookie refresh, credentials stored locally only
+- QR-code login, automatic cookie refresh; credentials encrypted at rest with Windows DPAPI and never leave your machine
 - Configurable device fingerprint (GPU / resolution presets) and request throttling; in-app captcha dialog when risk-control is triggered
 - Clear prompts for VIP / paid / member-only content — never mistakenly downloads a preview clip as the full video
 
@@ -193,10 +193,10 @@ Data files (`settings.json`, `credentials.json`, `data.db`, `app.log`) live next
 
 ## 🤝 Contributing
 
-Contributions are welcome! Please note this repo currently has **no linter, formatter, or test suite** configured — keep changes clean and consistent with the surrounding code.
+Contributions are welcome! Please note this repo has **no linter or formatter** configured — keep changes clean and consistent with the surrounding code. Core Rust logic is covered by unit tests.
 
 1. Fork the repository and create a feature branch.
-2. Make your changes. Verify with `pnpm typecheck` and `cd src-tauri && cargo check`.
+2. Make your changes. Verify with `pnpm typecheck` and `cd src-tauri && cargo check && cargo test`.
 3. Open a Pull Request describing **what** and **why**.
 
 For larger features, please open an issue first to discuss the design.

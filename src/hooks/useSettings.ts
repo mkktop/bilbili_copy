@@ -119,5 +119,17 @@ export function useSettings() {
     setSettings(updated);
   }, []);
 
-  return { settings, loading, save };
+  // 局部更新：patch 为 AppSettings 顶层字段子集，后端合并到磁盘当前值后返回完整设置。
+  // 用于主题/auto_update 等单字段保存——前端若拿陈旧快照整份覆盖，
+  // 会把设置页里未保存的修改静默回滚。
+  const patch = useCallback(async (partial: Partial<AppSettings>) => {
+    try {
+      const merged = await invoke<AppSettings>("patch_settings", { patch: partial });
+      setSettings(merged);
+    } catch {
+      // 合并失败保持现值；调用方按需 toast
+    }
+  }, []);
+
+  return { settings, loading, save, patch };
 }

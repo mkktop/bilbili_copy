@@ -92,6 +92,7 @@ pub struct QualityInfo {
 }
 
 /// 选中的音视频流（包含备用 URL）
+#[derive(Debug)]
 pub struct SelectedStreams {
     pub video_urls: Vec<String>,
     pub audio_urls: Vec<String>,
@@ -129,8 +130,10 @@ const QUALITY_LEVELS: &[i64] = &[
     16,  // 360P
 ];
 
-/// B站 API codec ID → 编解码器名称
-fn codec_name(codecid: i64) -> &'static str {
+/// B站 API codec ID → 编解码器名称。
+/// 注意用 "HEV"（B站 settings/前端一致的短名）：这是全项目唯一的 codecid→名称
+/// 映射，展示与匹配共用，避免两套命名改一处漏一处导致编码永远选不中。
+pub fn codec_name(codecid: i64) -> &'static str {
     match codecid {
         7 => "AVC",
         12 => "HEV",
@@ -151,6 +154,21 @@ fn check_preview(data: &PlayUrlData) -> Result<()> {
 /// 会员/付费类硬错误：重试其它画质无意义，应立即向上抛出（避免无效请求触发风控）
 fn is_vip_error(msg: &str) -> bool {
     msg.contains("大会员") || msg.contains("充电专享") || msg.contains("付费") || msg.contains("专享限制")
+}
+
+/// 与画质无关的硬错误：换档位重试同样会失败，逐档降级只会连发无效请求
+/// （最坏 9 档 × 2 次 WBI 重试 + 番剧侧 10 档 ≈ 28 次），还推高风控概率。
+/// 覆盖：会员/付费类 + 登录过期(-101) + 风控校验(-352) + 参数错误(-400) + 拦截(-412)。
+fn is_hard_error(msg: &str) -> bool {
+    is_vip_error(msg)
+        || msg.contains("-101")
+        || msg.contains("账号未登录")
+        || msg.contains("-352")
+        || msg.contains("风控校验失败")
+        || msg.contains("-400")
+        || msg.contains("请求错误")
+        || msg.contains("-412")
+        || msg.contains("请求被拦截")
 }
 
 // ==================== 核心 API 调用 ====================
@@ -181,18 +199,17 @@ pub async fn get_playurl(
     );
 
     // 1. 尝试标准 playurl API（带画质降级链）
-    match try_playurl_with_fallback(
+    let std_result = try_playurl_with_fallback(
         &client, bvid, cid, credential, video_max_qn, video_min_qn,
         audio_max_qn, audio_min_qn, codec_priority,
         dm_img_str, dm_cover_img_str, dm_img_list, dm_img_inter, request_delay_ms,
     )
-    .await
-    {
-        Ok(streams) => return Ok(streams),
-        Err(e) => {
-            log::warn!("[playurl] 标准API全部失败: {}", e);
-        }
+    .await;
+    if let Ok(streams) = std_result {
+        return Ok(streams);
     }
+    let std_err = std_result.unwrap_err();
+    log::warn!("[playurl] 标准API全部失败: {}", std_err);
 
     // 2. 尝试番剧 API 回退
     match try_bangumi_playurl(
@@ -202,11 +219,16 @@ pub async fn get_playurl(
     )
     .await
     {
-        Ok(streams) => return Ok(streams),
+        Ok(streams) => Ok(streams),
         Err(e) => {
             log::warn!("[playurl] 番剧API失败: {}", e);
             // 透传真实失败原因（如「大会员专享限制」），而非笼统的「均失败」——
-            // 否则会员集无权限时用户看不到真实原因，前端也无法映射友好文案
+            // 否则会员集无权限时用户看不到真实原因，前端也无法映射友好文案。
+            // UGC 视频（无 ep_id）在番剧 API 上必然失败：报标准 API 的真实原因，
+            // 避免用户看到误导性的「番剧 API 全部画质失败」。
+            if ep_id.is_none() {
+                anyhow::bail!("获取视频流失败: {}", std_err)
+            }
             anyhow::bail!("获取视频流失败: {}", e)
         }
     }
@@ -251,7 +273,7 @@ async fn try_playurl_with_fallback(
         }
         Err(e) => {
             let err_str = e.to_string();
-            if is_vip_error(&err_str) || err_str.contains("试看") {
+            if is_hard_error(&err_str) || err_str.contains("试看") {
                 return Err(e);
             }
             log::warn!("[playurl] 单次请求失败，回退逐档降级: {}", e);
@@ -292,7 +314,7 @@ async fn try_playurl_with_fallback(
             }
             Err(e) => {
                 let err_str = e.to_string();
-                if is_vip_error(&err_str) || err_str.contains("试看") {
+                if is_hard_error(&err_str) || err_str.contains("试看") {
                     return Err(e);
                 }
                 last_error = err_str;
@@ -452,8 +474,9 @@ async fn try_bangumi_playurl(
 
         if resp.code != 0 {
             last_error = resp.message.unwrap_or_else(|| "未知错误".to_string());
-            // 会员/付费类硬错误：其它画质同样无权限，立即退出避免剩余档位的无效请求
-            if is_vip_error(&last_error) {
+            // 硬错误（会员/付费/登录过期/风控/参数错）：其它画质同样失败，立即退出
+            // 避免剩余档位的无效请求
+            if is_hard_error(&last_error) {
                 anyhow::bail!("{}", last_error);
             }
             continue;
@@ -493,13 +516,30 @@ fn parse_streams(
             return None;
         }
 
-        // 选择画质范围内的最高画质视频流
+        // 选择画质范围内的最高画质视频流。范围内无可选流时兜底：
+        // ① ≤max_qn 的最高档（尊重上限——用户限 480P 省流量时不偷偷拿高清流）；
+        // ② 所有流都超上限时取最低画质并打 warn（总得能下）。
+        // 绝不静默取 dash.video.first()（B站返回的第一条通常是最高画质）。
         let video_stream = dash
             .video
             .iter()
             .filter(|s| s.id <= max_qn && s.id >= min_qn)
             .max_by_key(|s| s.id)
-            .or_else(|| dash.video.first())?;
+            .or_else(|| {
+                let capped = dash.video.iter().filter(|s| s.id <= max_qn).max_by_key(|s| s.id);
+                if capped.is_some() {
+                    log::warn!("[playurl] [min_qn={}, max_qn={}] 范围内无画质，兜底到上限内最高档（低于 min_qn）", min_qn, max_qn);
+                }
+                capped
+            })
+            .or_else(|| {
+                let lowest = dash.video.iter().min_by_key(|s| s.id)?;
+                log::warn!(
+                    "[playurl] 无 ≤max_qn={} 的画质可用，兜底取最低画质 qn={}（超出用户上限）",
+                    max_qn, lowest.id
+                );
+                Some(lowest)
+            })?;
 
         // 如果有同画质的多个编码流，按编解码器优先级选择
         let video_stream = select_best_codec(dash, video_stream.id, codec_priority)
@@ -650,8 +690,21 @@ fn select_audio(dash: &DashData, max_qn: i64, min_qn: i64) -> (Vec<String>, i64)
         return (build_url_list(&audio.base_url, &audio.backup_url), audio.id);
     }
 
-    // 没有符合范围的，退而求其次选最高质量的
-    if let Some(audio) = all_audio.iter().max_by_key(|s| s.id) {
+    // 范围内没有：兜底仍尊重上限（max_qn>0 时选 ≤max_qn 的最高音质），
+    // 不能静默取全场最高（那通常是 Hi-Res/Dolby，超出用户设置）。
+    let fallback = if max_qn > 0 {
+        all_audio.iter().filter(|s| s.id <= max_qn).max_by_key(|s| s.id)
+    } else {
+        None
+    };
+    let fallback = match fallback {
+        Some(a) => Some(a),
+        None => {
+            log::warn!("[playurl] 音频范围内无可用流，兜底取最高音质（可能超出设置范围）");
+            all_audio.iter().max_by_key(|s| s.id)
+        }
+    };
+    if let Some(audio) = fallback {
         return (build_url_list(&audio.base_url, &audio.backup_url), audio.id);
     }
 

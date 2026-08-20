@@ -73,7 +73,7 @@ pub async fn get_dynamic_feed(offset: &str, credential: &Credential) -> Result<D
     log::debug!(
         "[dynamic] offset={:?} 响应前 500 字: {}",
         offset,
-        &resp_text[..resp_text.len().min(500)]
+        resp_text.chars().take(500).collect::<String>()
     );
 
     let resp: Value = serde_json::from_str(&resp_text).context("动态流响应解析失败")?;

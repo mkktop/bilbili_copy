@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
   Loader2,
@@ -26,8 +26,12 @@ export function CommentSection({ aid }: Props) {
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // 请求序号：刷新会重置列表，若"加载更多"的在途请求晚于刷新返回，
+  // 会把旧页 append 回来造成评论重复 —— 过期请求的响应直接丢弃。
+  const reqSeq = useRef(0);
   const load = useCallback(
     async (pn: number, append: boolean) => {
+      const seq = ++reqSeq.current;
       if (append) setLoadingMore(true);
       else setLoading(true);
       if (!append) setError(null);
@@ -36,15 +40,19 @@ export function CommentSection({ aid }: Props) {
           "get_video_comments",
           { aid, pn }
         );
+        if (seq !== reqSeq.current) return; // 已有更新的请求，丢弃本次响应
         setComments((prev) => (append ? [...prev, ...res.items] : res.items));
         setPage(pn);
         setHasMore(res.has_more);
         setTotal(res.total);
       } catch (e) {
+        if (seq !== reqSeq.current) return;
         if (!append) setError(friendlyError(e));
       } finally {
-        if (append) setLoadingMore(false);
-        else setLoading(false);
+        if (seq === reqSeq.current) {
+          if (append) setLoadingMore(false);
+          else setLoading(false);
+        }
       }
     },
     [aid]
@@ -70,7 +78,7 @@ export function CommentSection({ aid }: Props) {
         </h3>
         <button
           onClick={() => load(1, false)}
-          disabled={loading}
+          disabled={loading || loadingMore}
           title="刷新评论"
           className="ml-auto p-1 rounded text-ink-3 hover:text-ink-2 hover:bg-panel-2 transition-colors disabled:opacity-50"
         >

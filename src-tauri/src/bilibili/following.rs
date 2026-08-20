@@ -37,7 +37,7 @@ pub async fn get_followings(page: u32, credential: &Credential) -> Result<PagedR
 
     log::debug!(
         "[following] followings 响应: {}",
-        &resp_text[..resp_text.len().min(500)]
+        resp_text.chars().take(500).collect::<String>()
     );
 
     let resp: Value =

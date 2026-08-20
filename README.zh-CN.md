@@ -23,7 +23,7 @@
     <img src="https://img.shields.io/github/v/release/mkktop/bilbili_copy?style=flat-square&logo=github&color=blue" alt="Release" />
   </a>
   <a href="https://github.com/mkktop/bilbili_copy/releases/latest">
-    <img src="https://img.shields.io/github/downloads/mkktop/bilbli_copy/total?style=flat-square&color=blue" alt="Downloads" />
+    <img src="https://img.shields.io/github/downloads/mkktop/bilbili_copy/total?style=flat-square&color=blue" alt="Downloads" />
   </a>
   <img src="https://img.shields.io/badge/平台-Windows-0078D4?style=flat-square&logo=windows" alt="Platform" />
   <img src="https://img.shields.io/badge/Tauri-2-orange?style=flat-square&logo=tauri&logoColor=white" alt="Tauri" />
@@ -79,7 +79,7 @@
 - 导出 Markdown 落盘，或导出 PDF（多页分页、图片完整）
 
 ### 🛡️ 账号与防风控
-- 扫码登录，Cookie 自动刷新，凭证仅存本地
+- 扫码登录，Cookie 自动刷新；凭证经 Windows DPAPI 加密存储在本地，绝不上传
 - 可配置设备指纹（GPU / 分辨率预设）与请求节流，触发风控时弹窗完成验证即可继续
 - 大会员 / 充电 / 付费内容无权限时明确提示，不会误把试看片段当正片下载
 
@@ -196,7 +196,7 @@ BilbliCopy 是一个 **Tauri 2** 应用：Rust 后端处理全部网络与文件
 欢迎贡献代码！请注意本仓库目前**未配置 linter、formatter 或测试套件** —— 请保持改动整洁，并与周边代码风格一致。
 
 1. Fork 仓库并创建功能分支。
-2. 完成修改，并通过 `pnpm typecheck` 与 `cd src-tauri && cargo check` 验证。
+2. 完成修改，并通过 `pnpm typecheck` 与 `cd src-tauri && cargo check && cargo test` 验证。
 3. 提交 Pull Request，说明**改了什么**以及**为什么改**。
 
 对于较大的功能，请先开 Issue 讨论设计方案。

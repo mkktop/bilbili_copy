@@ -126,6 +126,10 @@ export interface DownloadTask {
   duration?: number;
   /** 下载完成后的文件绝对路径（done 状态才有；用于「打开所在目录」） */
   outputPath?: string;
+  /** 字幕库模式（恢复/重试时透传，避免变成下整视频） */
+  subtitleOnly?: boolean;
+  /** 仅音频模式（恢复/重试时透传） */
+  audioOnly?: boolean;
 }
 
 /**
@@ -196,6 +200,10 @@ export interface DownloadHistoryEntry {
   duration?: number | null;
   /** UP 主名（v6 schema 新增，旧记录为 null）：文件名模板 {up} 用 */
   owner_name?: string | null;
+  /** 字幕库模式（101 schema 新增，旧记录 false）：恢复/重试时透传 */
+  subtitle_only?: boolean;
+  /** 仅音频模式（101 schema 新增，旧记录 false）：恢复/重试时透传 */
+  audio_only?: boolean;
 }
 
 /** 下载统计聚合（对应后端 DownloadStats，仅 done 项累加大小/时长） */
@@ -240,6 +248,8 @@ export function dbToDownloadTask(entry: DownloadHistoryEntry): DownloadTask {
     ownerName: entry.owner_name ?? undefined,
     outputPath: entry.output_path ?? undefined,
     duration: entry.duration ?? undefined,
+    subtitleOnly: entry.subtitle_only ?? undefined,
+    audioOnly: entry.audio_only ?? undefined,
   };
 }
 
@@ -264,6 +274,20 @@ export interface HistoryItem extends VideoListItem {
   view_at: number;
   /** 已观看秒数 */
   progress: number;
+}
+
+/** 观看历史翻页游标：{max, view_at, business} 联合充当 next 指针，翻页原样回传 */
+export interface HistoryCursor {
+  view_at: number;
+  business: string;
+  max: string;
+}
+
+/** 观看历史分页结果：next_cursor 为后端原始游标（未过滤条目推导） */
+export interface HistoryResult {
+  items: HistoryItem[];
+  has_more: boolean;
+  next_cursor: HistoryCursor | null;
 }
 
 /** 排行榜条目：通用视频字段 + 名次 + 综合分 + 点赞 */

@@ -52,23 +52,125 @@ fn credentials_path() -> PathBuf {
     exe_dir.join("credentials.json")
 }
 
+// ==================== DPAPI 加密存储 ====================
+// 凭据（SESSDATA/bili_jct 等）不再明文落盘：Windows DPAPI 按当前用户加密，
+// 同机其他账户/直接读文件都拿不到明文。文件格式：b"DPAPIV1\n" + 密文；
+// 兼容旧版明文 JSON（读到即解析并在下次 save 时自动升级为密文）。
+
+#[cfg(target_os = "windows")]
+mod dpapi {
+    use windows_sys::Win32::Foundation::LocalFree;
+    use windows_sys::Win32::Security::Cryptography::{
+        CryptProtectData, CryptUnprotectData, CRYPT_INTEGER_BLOB,
+    };
+
+    const UI_FORBIDDEN: u32 = 0x1;
+
+    pub fn protect(data: &[u8]) -> Option<Vec<u8>> {
+        let mut input = data.to_vec();
+        let in_blob = CRYPT_INTEGER_BLOB {
+            cbData: input.len() as u32,
+            pbData: input.as_mut_ptr(),
+        };
+        let mut out_blob = CRYPT_INTEGER_BLOB { cbData: 0, pbData: std::ptr::null_mut() };
+        let ok = unsafe {
+            CryptProtectData(&in_blob, std::ptr::null(), std::ptr::null(), std::ptr::null(), std::ptr::null(), UI_FORBIDDEN, &mut out_blob)
+        };
+        if ok == 0 {
+            return None;
+        }
+        let out = unsafe {
+            let slice = std::slice::from_raw_parts(out_blob.pbData, out_blob.cbData as usize);
+            let v = slice.to_vec();
+            LocalFree(out_blob.pbData as _);
+            v
+        };
+        Some(out)
+    }
+
+    pub fn unprotect(data: &[u8]) -> Option<Vec<u8>> {
+        let mut input = data.to_vec();
+        let in_blob = CRYPT_INTEGER_BLOB {
+            cbData: input.len() as u32,
+            pbData: input.as_mut_ptr(),
+        };
+        let mut out_blob = CRYPT_INTEGER_BLOB { cbData: 0, pbData: std::ptr::null_mut() };
+        let mut desc_out: *mut u16 = std::ptr::null_mut(); // 出参（描述串），不使用
+        let ok = unsafe {
+            CryptUnprotectData(&in_blob, &mut desc_out, std::ptr::null(), std::ptr::null(), std::ptr::null(), UI_FORBIDDEN, &mut out_blob)
+        };
+        if ok == 0 {
+            return None;
+        }
+        let out = unsafe {
+            let slice = std::slice::from_raw_parts(out_blob.pbData, out_blob.cbData as usize);
+            let v = slice.to_vec();
+            LocalFree(out_blob.pbData as _);
+            v
+        };
+        Some(out)
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+mod dpapi {
+    pub fn protect(data: &[u8]) -> Option<Vec<u8>> {
+        Some(data.to_vec())
+    }
+    pub fn unprotect(data: &[u8]) -> Option<Vec<u8>> {
+        Some(data.to_vec())
+    }
+}
+
+const DPAPI_MAGIC: &[u8] = b"DPAPIV1\n";
+
+/// 旧明文 → 密文的迁移只需做一次；load() 会被高频并发调用，
+/// 用原子标记避免多个线程同时回写造成 tmp 文件互踩。
+static LEGACY_MIGRATED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 impl Credential {
     pub fn load() -> Result<Option<Self>> {
         let path = credentials_path();
         if !path.exists() {
             return Ok(None);
         }
-        let content = std::fs::read_to_string(&path)?;
+        let bytes = std::fs::read(&path)?;
+        // 新格式：DPAPI 密文
+        if bytes.starts_with(DPAPI_MAGIC) {
+            let plain = match dpapi::unprotect(&bytes[DPAPI_MAGIC.len()..]) {
+                Some(p) => p,
+                None => {
+                    // 密文无法解密（用户账户变更/文件损坏）：按未登录处理，不中断启动
+                    log::warn!("[credential] DPAPI 解密失败，视为未登录（凭证可能已失效）");
+                    return Ok(None);
+                }
+            };
+            let cred: Credential = serde_json::from_slice(&plain)?;
+            return Ok(Some(cred));
+        }
+        // 旧格式：明文 JSON。解析成功后立即回写为密文，完成原地升级（仅一次）。
+        let content = String::from_utf8_lossy(&bytes).to_string();
         let cred: Credential = serde_json::from_str(&content)?;
+        if !LEGACY_MIGRATED.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            let _ = cred.save();
+        }
         Ok(Some(cred))
     }
 
     pub fn save(&self) -> Result<()> {
         let path = credentials_path();
-        let content = serde_json::to_string_pretty(self)?;
+        let plain = serde_json::to_string_pretty(self)?;
+        let mut out = DPAPI_MAGIC.to_vec();
+        match dpapi::protect(plain.as_bytes()) {
+            Some(cipher) => out.extend_from_slice(&cipher),
+            None => {
+                // 加密不可用时退回明文（非 Windows 目标），保持可用性优先
+                out = plain.into_bytes();
+            }
+        }
         // 原子写入：先写临时文件再 rename，防止崩溃导致数据丢失
         let tmp_path = path.with_extension("json.tmp");
-        std::fs::write(&tmp_path, &content)?;
+        std::fs::write(&tmp_path, &out)?;
         std::fs::rename(&tmp_path, &path)?;
         Ok(())
     }

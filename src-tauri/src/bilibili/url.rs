@@ -74,7 +74,11 @@ fn extract_media_id(url: &str) -> Option<u64> {
     for segment in url.split('/') {
         if let Some(md_str) = segment.strip_prefix("md") {
             let media_id = md_str.split('?').next().unwrap_or(md_str);
-            return media_id.parse().ok();
+            // 前缀命中但解析失败时继续看后续段（旧实现提前 return None，
+            // 会漏掉 /md废弃段/.../md28233723 这种合法 URL）
+            if let Ok(id) = media_id.parse() {
+                return Some(id);
+            }
         }
     }
     None
@@ -150,8 +154,10 @@ fn parse_from_url(url: &str) -> Result<ParsedUrl> {
         });
     }
 
-    // 短链接（b23.tv）需要异步解析重定向
-    if url.contains("b23.tv") {
+    // 短链接（b23.tv）需要异步解析重定向。
+    // 用 host 判定而非子串匹配：`https://evil.com/?x=b23.tv` 不应被当作短链
+    // 向任意站点发起 HEAD 请求（意外外联面）。
+    if is_b23_short_url(url) {
         return Ok(ParsedUrl {
             bvid: None,
             aid: None,
@@ -164,6 +170,17 @@ fn parse_from_url(url: &str) -> Result<ParsedUrl> {
     }
 
     anyhow::bail!("无法从链接中提取视频 ID: {}", url)
+}
+
+/// 判定 URL 的 host 是否为 b23.tv 短链域（www.b23.tv 同样合法）
+fn is_b23_short_url(url: &str) -> bool {
+    url.split('/')
+        .nth(2)
+        .map(|authority| {
+            let host = authority.split(':').next().unwrap_or("").to_ascii_lowercase();
+            host == "b23.tv" || host.ends_with(".b23.tv")
+        })
+        .unwrap_or(false)
 }
 
 /// 解析 b23.tv 短链接，跟随重定向获取真实 URL 后提取视频 ID
@@ -204,11 +221,14 @@ fn extract_bvid(url: &str) -> Option<String> {
 }
 
 fn extract_aid(url: &str) -> Option<u64> {
-    // 匹配 /video/av12345 路径段
+    // 匹配 /video/av12345 路径段。前缀命中但不是纯数字时继续找后续段
+    // （如 /avatar.jpg/av12345 旧实现会在 avatar 段提前返回 None）
     for segment in url.split('/') {
         if let Some(av_part) = segment.strip_prefix("av") {
             let aid_str = av_part.split('?').next().unwrap_or(av_part);
-            return aid_str.parse().ok();
+            if let Ok(aid) = aid_str.parse() {
+                return Some(aid);
+            }
         }
     }
     None
@@ -219,7 +239,9 @@ fn extract_ep_id(url: &str) -> Option<u64> {
     for segment in url.split('/') {
         if let Some(ep_str) = segment.strip_prefix("ep") {
             let ep_id = ep_str.split('?').next().unwrap_or(ep_str);
-            return ep_id.parse().ok();
+            if let Ok(id) = ep_id.parse() {
+                return Some(id);
+            }
         }
     }
     None
@@ -230,7 +252,9 @@ fn extract_season_id(url: &str) -> Option<u64> {
     for segment in url.split('/') {
         if let Some(ss_str) = segment.strip_prefix("ss") {
             let season_id = ss_str.split('?').next().unwrap_or(ss_str);
-            return season_id.parse().ok();
+            if let Ok(id) = season_id.parse() {
+                return Some(id);
+            }
         }
     }
     None

@@ -63,7 +63,10 @@ fn qn_label(qn: i64) -> &'static str {
     }
 }
 
-/// codecid → 编码名（7=AVC,12=HEVC,13=AV1）
+/// codecid → 编码名（展示层完整名，7=AVC,12=HEVC,13=AV1）。
+/// 仅用于 UI 显示；编码「匹配」逻辑唯一权威是 bilibili::playurl::codec_name
+/// （"HEV" 短名，与 B站 settings 一致）。两处命名刻意不同，勿"顺手统一"——
+/// 匹配侧若改成 "HEVC" 会让 HEVC 流永远选不中。
 fn codec_label(codecid: i64) -> &'static str {
     match codecid {
         7 => "AVC",

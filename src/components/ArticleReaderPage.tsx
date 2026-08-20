@@ -25,6 +25,15 @@ const ALLOWED_TAGS = new Set([
 /** 危险标签：连子内容一起丢弃 */
 const DROP_TAGS = new Set(["SCRIPT", "STYLE", "IFRAME", "OBJECT", "EMBED", "LINK", "META"]);
 
+/** HTML 属性值转义：src/href 内插前必须调用，防止属性逃逸注入 onerror 等 */
+function escAttr(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
 /** 图片地址规范化：data-src 懒加载属性优先，// 前缀补 https: */
 function imgSrc(el: Element): string {
   const raw = el.getAttribute("data-src") || el.getAttribute("src") || "";
@@ -49,14 +58,14 @@ function sanitizeHtml(html: string): string {
     if (!ALLOWED_TAGS.has(el.tagName)) return children; // 未知标签解包
     const tag = el.tagName.toLowerCase();
     if (tag === "img") {
-      const src = imgSrc(el);
+      const src = escAttr(imgSrc(el));
       return src ? `<img src="${src}" loading="lazy"/>` : "";
     }
     if (tag === "a") {
       const href = el.getAttribute("href") ?? "";
       const safe = href.startsWith("http") || href.startsWith("//") ? href : "";
       return safe
-        ? `<a href="${safe.startsWith("//") ? `https:${safe}` : safe}" target="_blank" rel="noreferrer">${children}</a>`
+        ? `<a href="${escAttr(safe.startsWith("//") ? `https:${safe}` : safe)}" target="_blank" rel="noreferrer">${children}</a>`
         : children;
     }
     if (tag === "br" || tag === "hr") return `<${tag}/>`;
@@ -248,7 +257,7 @@ export function ArticleReaderPage({ cvid, opusId, onBack }: Props) {
     </style></head><body>
       <h1 class="doc-title">${esc(article.title)}</h1>
       <div class="doc-meta">${esc(metaLine)}</div>
-      ${article.banner_url ? `<img src="${article.banner_url}"/>` : ""}
+      ${article.banner_url ? `<img src="${escAttr(article.banner_url)}"/>` : ""}
       ${bodyHtml}
     </body></html>`;
 

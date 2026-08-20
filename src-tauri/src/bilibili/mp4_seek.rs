@@ -29,33 +29,40 @@ pub struct StreamSeekIndex {
 // ==================== box 头解析 ====================
 
 /// 读 box 头，返回 (type, header_size, total_size)。越界 / 数据不全返回 None。
+///
+/// 安全约束（防畸形流 panic）：box 声明的大小必须 ≥ 头长度且完全落在缓冲区
+/// [off, end) 内。size==1 时 large size 可达 2^64，直接 `off + total` 会溢出
+/// 回绕绕过上界检查，随后 `data[off]` 越界 panic（畸形/被篡改的流头即可触发）。
 fn box_header(data: &[u8], off: usize, end: usize) -> Option<([u8; 4], usize, usize)> {
-    if off + 8 > end {
+    if off.checked_add(8)? > end {
         return None;
     }
-    let size = u32::from_be_bytes([data[off], data[off + 1], data[off + 2], data[off + 3]]) as usize;
+    let size = u32::from_be_bytes([data[off], data[off + 1], data[off + 2], data[off + 3]]) as u64;
     let typ: [u8; 4] = data[off + 4..off + 8].try_into().ok()?;
     let (hdr, total) = if size == 1 {
-        if off + 16 > end {
+        if off.checked_add(16)? > end {
             return None;
         }
-        let large = u64::from_be_bytes(data[off + 8..off + 16].try_into().ok()?) as usize;
-        (16, large)
+        let large = u64::from_be_bytes(data[off + 8..off + 16].try_into().ok()?);
+        (16usize, large)
     } else if size == 0 {
-        (8, end - off)
+        // size==0：box 延伸到缓冲区末尾
+        (8usize, (end - off) as u64)
     } else {
-        (8, size)
+        (8usize, size)
     };
+    let total = total as usize; // 64 位平台无损；32 位平台本模块无实际使用
+    if total < hdr || total > end - off {
+        return None;
+    }
     Some((typ, hdr, total))
 }
 
 /// 在 [start, end) 范围内查找第一个类型为 typ 的直接子 box，返回其 body（去掉头）范围。
+/// box_header 已保证 total ≥ 8 且 off + total ≤ end，推进不会溢出也不会死循环。
 fn find_child(data: &[u8], start: usize, end: usize, typ: &[u8; 4]) -> Option<(usize, usize)> {
     let mut off = start;
     while let Some((t, hdr, total)) = box_header(data, off, end) {
-        if total == 0 {
-            return None;
-        }
         if &t == typ {
             return Some((off + hdr, off + total));
         }
