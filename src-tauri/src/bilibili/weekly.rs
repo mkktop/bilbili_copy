@@ -222,3 +222,58 @@ pub async fn get_weekly_detail(
         list: videos,
     })
 }
+
+/// 获取入站必刷榜单（官方编辑精选的固定列表，结构与每周必看视频条目同构）
+/// API: GET https://api.bilibili.com/x/web-interface/popular/precious?page=1
+/// 公开接口，无需登录。条目无推荐理由字段，复用 WeeklyVideoItem（rcmd_reason 为空）。
+pub async fn get_precious_list(
+    credential: Option<&Credential>,
+) -> Result<Vec<WeeklyVideoItem>> {
+    let client = api_client();
+    let mut req = client
+        .get("https://api.bilibili.com/x/web-interface/popular/precious")
+        .header("Referer", REFERER)
+        .query(&[("page", "1")]);
+    if let Some(cred) = credential {
+        req = req.header("Cookie", cred.cookie_header());
+    }
+
+    let resp_text = req.send().await?.text().await?;
+    let resp: Value =
+        serde_json::from_str(&resp_text).context("入站必刷响应解析失败")?;
+    let code = resp["code"].as_i64().unwrap_or(-1);
+    if code != 0 {
+        anyhow::bail!(
+            "获取入站必刷失败: {}",
+            resp["message"].as_str().unwrap_or("未知错误")
+        );
+    }
+
+    let list = resp["data"]["list"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+
+    let videos: Vec<WeeklyVideoItem> = list
+        .into_iter()
+        .map(|v| WeeklyVideoItem {
+            bvid: v["bvid"].as_str().unwrap_or("").to_string(),
+            aid: v["aid"].as_i64().unwrap_or(0),
+            cid: v["cid"].as_i64().unwrap_or(0),
+            title: v["title"].as_str().unwrap_or("").to_string(),
+            cover: http_to_https(v["pic"].as_str().unwrap_or("")),
+            upper_name: v["owner"]["name"].as_str().unwrap_or("").to_string(),
+            upper_mid: v["owner"]["mid"].as_i64().unwrap_or(0),
+            duration: v["duration"].as_i64().unwrap_or(0),
+            play: v["stat"]["view"].as_i64().unwrap_or(0),
+            danmaku: v["stat"]["danmaku"].as_i64().unwrap_or(0),
+            like: v["stat"]["like"].as_i64().unwrap_or(0),
+            pubdate: v["pubdate"].as_i64().unwrap_or(0),
+            tname: v["tname"].as_str().unwrap_or("").to_string(),
+            rcmd_reason: String::new(),
+        })
+        .collect();
+
+    log::info!("[weekly] 入站必刷获取到 {} 条视频", videos.len());
+    Ok(videos)
+}

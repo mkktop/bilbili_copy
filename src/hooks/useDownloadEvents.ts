@@ -11,6 +11,8 @@ interface DownloadProgress {
   downloaded: number;
   total: number;
   percent: number;
+  /** 实时速度（字节/秒） */
+  speed: number;
 }
 
 /** download://complete 事件载荷 */
@@ -82,7 +84,7 @@ export function useDownloadEvents({ setDownloads, onRiskControl, onDownloadError
       const fns = await Promise.all([
         listen<DownloadProgress>("download://progress", (event) => {
           if (cancelled) return;
-          const { id, percent, label } = event.payload;
+          const { id, percent, label, speed, downloaded, total } = event.payload;
           const phase = label === "audio" ? ("audio" as const) : ("video" as const);
           // UI 节流：后端虽按 512KB 节流发射 progress，但并行分片仍会产生每秒数十次事件；
           // 这里把 setDownloads 纳入节流，避免每个事件都全量重渲染整个 App（downloads 在顶层 state）。
@@ -93,7 +95,9 @@ export function useDownloadEvents({ setDownloads, onRiskControl, onDownloadError
           lastUiUpdate.current.set(id, now);
           setDownloads((prev) =>
             prev.map((d) =>
-              d.id === id ? { ...d, status: "downloading" as const, progress: percent, phase } : d
+              d.id === id
+                ? { ...d, status: "downloading" as const, progress: percent, phase, speed, downloadedBytes: downloaded, totalBytes: total }
+                : d
             )
           );
           // 落库节流（比 UI 更稀疏）：中途进度仅在应用重启后恢复展示时用到，

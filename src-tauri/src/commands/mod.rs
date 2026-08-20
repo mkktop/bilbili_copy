@@ -21,3 +21,5 @@ pub mod dynamic;
 pub mod interaction;
 pub mod player;
 pub mod weekly;
+pub mod batch;
+pub mod subscription;

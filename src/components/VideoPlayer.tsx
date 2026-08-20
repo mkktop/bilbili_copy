@@ -5,7 +5,7 @@ import {
   MessageSquare, MessageSquareOff, PictureInPicture2, Minimize2, Maximize2, X, History,
   SkipForward, ListMusic, Repeat,
 } from "lucide-react";
-import type { VideoPage, PlaylistItem } from "../types";
+import type { VideoPage, PlaylistItem, DanmakuStyleConfig } from "../types";
 import { formatDuration } from "../types";
 
 interface Props {
@@ -22,6 +22,8 @@ interface Props {
   playlist?: PlaylistItem[];
   /** 播放列表起始索引（默认 0） */
   playlistIndex?: number;
+  /** 弹幕渲染样式（设置页与下载 ASS 同一份配置；缺省用下方模块级默认值） */
+  danmakuStyle?: DanmakuStyleConfig;
   onBack: () => void;
 }
 
@@ -62,20 +64,26 @@ interface LaidDanmaku extends DanmakuItem {
 }
 
 const DM_FONT_SIZE = 24;
-const DM_LANE_H = DM_FONT_SIZE + 8;
 const DM_SCROLL_DUR = 12; // 滚动弹幕跨屏时长（秒）
 const DM_FIXED_DUR = 5;   // 顶部/底部固定弹幕显示时长（秒）
 const DM_GAP = 24;        // 同通道前后弹幕最小间距（px）
 const DM_VIRTUAL_W = 1280; // 布局用虚拟画布宽（渲染时位置按实际宽度推导，轻微缩放无感）
 const DM_OPACITY = 0.85;
-const DM_FONT = `bold ${DM_FONT_SIZE}px "Microsoft YaHei", sans-serif`;
 
 /** 记住本会话弹幕开关（与画质/倍速同策略） */
 let lastDanmakuOn = true;
 
 /** 预布局：按时间顺序给每条弹幕分配通道。确定性布局 → seek 后位置可复现，
- *  碰撞规则与后端 ASS 布局（danmaku.rs Lane::available_for）同源简化。 */
-function layoutDanmaku(items: DanmakuItem[], measure: (text: string) => number): LaidDanmaku[] {
+ *  碰撞规则与后端 ASS 布局（danmaku.rs Lane::available_for）同源简化。
+ *  scrollDur/blockTop/blockBottom 来自设置（与下载 ASS 的弹幕配置同源），
+ *  改变设置后重新布局即可生效。 */
+function layoutDanmaku(
+  items: DanmakuItem[],
+  measure: (text: string) => number,
+  scrollDur: number,
+  blockTop: boolean,
+  blockBottom: boolean
+): LaidDanmaku[] {
   const scrollLanes = Array.from({ length: 14 }, () => ({ time: -1e9, width: 0 }));
   const topLanes: number[] = new Array(5).fill(-1e9);    // 通道占用截止时刻
   const bottomLanes: number[] = new Array(5).fill(-1e9);
@@ -83,14 +91,14 @@ function layoutDanmaku(items: DanmakuItem[], measure: (text: string) => number):
   const placeScroll = (it: DanmakuItem, w: number): number => {
     for (let i = 0; i < scrollLanes.length; i++) {
       const lane = scrollLanes[i];
-      const v1 = (DM_VIRTUAL_W + lane.width) / DM_SCROLL_DUR;
-      const v2 = (DM_VIRTUAL_W + w) / DM_SCROLL_DUR;
+      const v1 = (DM_VIRTUAL_W + lane.width) / scrollDur;
+      const v2 = (DM_VIRTUAL_W + w) / scrollDur;
       const dt = it.time - lane.time;
       const dx = v1 * dt - lane.width; // 前一条尾部已越过右边缘的距离
       if (dx < DM_GAP) continue;
       // 后一条更快时检查追尾：前一条离场前，后一条前端不能追进 GAP 内
       if (w > lane.width) {
-        const pos = v2 * (DM_SCROLL_DUR - dt);
+        const pos = v2 * (scrollDur - dt);
         if (pos > DM_VIRTUAL_W - DM_GAP) continue;
       }
       scrollLanes[i] = { time: it.time, width: w };
@@ -109,6 +117,9 @@ function layoutDanmaku(items: DanmakuItem[], measure: (text: string) => number):
   };
 
   return items.map((it) => {
+    // 屏蔽顶/底弹幕（设置项）：直接丢弃，不占通道
+    if (it.mode === 5 && blockTop) return { ...it, lane: -1, width: 0 };
+    if (it.mode === 4 && blockBottom) return { ...it, lane: -1, width: 0 };
     const width = measure(it.text);
     let lane: number;
     if (it.mode === 5) lane = placeFixed(it, topLanes);
@@ -423,8 +434,20 @@ function waitForBuffered(video: HTMLVideoElement, target: number, signal: AbortS
   });
 }
 
-export function VideoPlayer({ bvid, aid, cid, epId, duration, title, pages, playlist, playlistIndex, onBack }: Props) {
+export function VideoPlayer({ bvid, aid, cid, epId, duration, title, pages, playlist, playlistIndex, danmakuStyle, onBack }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
+
+  // 弹幕渲染样式：优先读设置（与下载 ASS 的弹幕配置同源），缺省回退模块级默认值。
+  // 样式变化会触发弹幕重新布局/重绘（见下方两个 danmaku effect 的依赖）。
+  const dmStyle = {
+    fontSize: danmakuStyle?.fontSize ?? DM_FONT_SIZE,
+    scrollDuration: danmakuStyle?.scrollDuration ?? DM_SCROLL_DUR,
+    opacity: danmakuStyle?.opacity ?? DM_OPACITY,
+    blockTop: danmakuStyle?.blockTop ?? false,
+    blockBottom: danmakuStyle?.blockBottom ?? false,
+  };
+  const dmFont = `bold ${dmStyle.fontSize}px "Microsoft YaHei", sans-serif`;
+  const dmLaneH = dmStyle.fontSize + 8;
 
   // 播放列表模式：跨稿件连续播放。playlistIdx 追踪当前项，变化后派生 bvid/cid 等 →
   // 初始化 effect 重跑加载新稿件流（与分P切换同机制，复用 MSE 生命周期）。
@@ -590,14 +613,14 @@ export function VideoPlayer({ bvid, aid, cid, epId, duration, title, pages, play
         // 离屏 canvas 测量文本宽（与渲染字体一致，保证碰撞布局准确）
         const ctx = document.createElement("canvas").getContext("2d");
         if (!ctx) return;
-        ctx.font = DM_FONT;
-        const laid = layoutDanmaku(list, (t) => ctx.measureText(t).width).filter((d) => d.lane >= 0);
+        ctx.font = dmFont;
+        const laid = layoutDanmaku(list, (t) => ctx.measureText(t).width, dmStyle.scrollDuration, dmStyle.blockTop, dmStyle.blockBottom).filter((d) => d.lane >= 0);
         danmakuListRef.current = laid;
         setDanmakuCount(laid.length);
       })
       .catch(() => { /* 无弹幕或异常：按钮禁用即可，不打断播放 */ });
     return () => { active = false; };
-  }, [effBvid, currentCid, effAid, currentDuration]);
+  }, [effBvid, currentCid, effAid, currentDuration, dmFont, dmStyle.scrollDuration, dmStyle.blockTop, dmStyle.blockBottom]);
 
   /** 弹幕渲染：rAF 循环直绘 canvas（不走 React state，避免高频重渲染）。
    *  开关关闭/无弹幕时清屏并停表；暂停时画面静止（currentTime 不变）。 */
@@ -622,13 +645,13 @@ export function VideoPlayer({ bvid, aid, cid, epId, duration, title, pages, play
       const list = danmakuListRef.current;
       if (list.length === 0) return;
       const t = video.currentTime;
-      ctx.font = DM_FONT;
+      ctx.font = dmFont;
       ctx.textBaseline = "top";
-      ctx.globalAlpha = DM_OPACITY;
+      ctx.globalAlpha = dmStyle.opacity;
       ctx.lineWidth = 2;
       ctx.strokeStyle = "rgba(0,0,0,0.8)";
       // 二分找第一条可能在屏的弹幕（列表按 time 升序；窗口取滚动/固定时长较大者）
-      const win = Math.max(DM_SCROLL_DUR, DM_FIXED_DUR);
+      const win = Math.max(dmStyle.scrollDuration, DM_FIXED_DUR);
       let lo = 0, hi = list.length;
       while (lo < hi) { const mid = (lo + hi) >> 1; if (list[mid].time <= t - win) lo = mid + 1; else hi = mid; }
       for (let i = lo; i < list.length; i++) {
@@ -639,15 +662,15 @@ export function VideoPlayer({ bvid, aid, cid, epId, duration, title, pages, play
         if (d.mode === 5 || d.mode === 4) {
           if (age > DM_FIXED_DUR) continue;
           x = (W - d.width) / 2;
-          y = d.mode === 5 ? 8 + d.lane * DM_LANE_H : H - 8 - (d.lane + 1) * DM_LANE_H;
+          y = d.mode === 5 ? 8 + d.lane * dmLaneH : H - 8 - (d.lane + 1) * dmLaneH;
         } else {
-          if (age > DM_SCROLL_DUR) continue;
+          if (age > dmStyle.scrollDuration) continue;
           // 碰撞布局按虚拟宽 1280 计算，渲染按实际宽度推导位置：同通道速度同比缩放，重叠风险可忽略
-          x = W - (age / DM_SCROLL_DUR) * (W + d.width);
+          x = W - (age / dmStyle.scrollDuration) * (W + d.width);
           if (x + d.width < 0 || x > W) continue;
-          y = 8 + d.lane * DM_LANE_H;
+          y = 8 + d.lane * dmLaneH;
         }
-        if (y < 0 || y + DM_FONT_SIZE > H) continue; // 迷你窗口等矮容器：超出可视区的通道直接不画
+        if (y < 0 || y + dmStyle.fontSize > H) continue; // 迷你窗口等矮容器：超出可视区的通道直接不画
         ctx.strokeText(d.text, x, y);
         ctx.fillStyle = d.color;
         ctx.fillText(d.text, x, y);
@@ -655,7 +678,7 @@ export function VideoPlayer({ bvid, aid, cid, epId, duration, title, pages, play
     };
     raf = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(raf);
-  }, [danmakuOn, danmakuCount]);
+  }, [danmakuOn, danmakuCount, dmFont, dmLaneH, dmStyle.opacity, dmStyle.scrollDuration]);
 
   /** 弹幕开关：本会话记忆（与画质/倍速同策略） */
   const toggleDanmaku = useCallback(() => {

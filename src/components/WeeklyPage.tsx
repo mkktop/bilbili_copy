@@ -13,6 +13,8 @@ import {
   Play,
   ChevronDown,
   Tag,
+  Download,
+  Gem,
 } from "lucide-react";
 import type {
   WeeklySeriesItem,
@@ -31,11 +33,18 @@ interface Props {
   onSelectItem: (videoInfo: ParsedVideoInfo) => void;
   /** 连续播放：传入播放列表，打开播放器 */
   onPlayPlaylist?: (items: PlaylistItem[], startIndex: number) => void;
+  /** 批量下载整期/全部（已下载的自动跳过） */
+  onBatchDownload?: (bvids: string[], folder?: string) => Promise<void>;
 }
 
-export function WeeklyPage({ onBack, onParseVideo, onSelectItem, onPlayPlaylist }: Props) {
+export function WeeklyPage({ onBack, onParseVideo, onSelectItem, onPlayPlaylist, onBatchDownload }: Props) {
+  // 内容源：每周必看（选期）/ 入站必刷（固定精选）
+  const [source, setSource] = useState<"weekly" | "precious">("weekly");
   const [seriesList, setSeriesList] = useState<WeeklySeriesItem[]>([]);
   const [detail, setDetail] = useState<WeeklyDetail | null>(null);
+  const [precious, setPrecious] = useState<WeeklyVideoItem[]>([]);
+  const [loadingPrecious, setLoadingPrecious] = useState(true);
+  const [batchBusy, setBatchBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectorOpen, setSelectorOpen] = useState(false);
@@ -49,6 +58,16 @@ export function WeeklyPage({ onBack, onParseVideo, onSelectItem, onPlayPlaylist 
       .then(setSeriesList)
       .catch(() => {});
   }, []);
+
+  // 入站必刷列表（仅首次切到该 tab 时加载）
+  useEffect(() => {
+    if (source !== "precious" || (precious.length > 0 && !loadingPrecious)) return;
+    setLoadingPrecious(true);
+    invoke<WeeklyVideoItem[]>("get_precious_list")
+      .then(setPrecious)
+      .catch(() => setPrecious([]))
+      .finally(() => setLoadingPrecious(false));
+  }, [source, precious.length, loadingPrecious]);
 
   // 加载某期详情（不传 number 则最新一期）
   const loadDetail = useCallback(async (number?: number) => {
@@ -119,6 +138,41 @@ export function WeeklyPage({ onBack, onParseVideo, onSelectItem, onPlayPlaylist 
     onPlayPlaylist(items, startIndex);
   };
 
+  // 入站必刷连续播放：从某条开始播放全部
+  const handlePlayPrecious = (startIndex: number) => {
+    if (!onPlayPlaylist) return;
+    const items: PlaylistItem[] = precious.map((v) => ({
+      bvid: v.bvid,
+      aid: v.aid,
+      cid: v.cid,
+      title: v.title,
+      duration: v.duration,
+      cover: v.cover,
+      upper_name: v.upper_name,
+    }));
+    onPlayPlaylist(items, startIndex);
+  };
+
+  // 批量下载整期/入站必刷全部（后端按下载历史去重）
+  const handleBatchDownload = async () => {
+    if (!onBatchDownload || batchBusy) return;
+    const list = source === "precious" ? precious : (detail?.list ?? []);
+    const bvids = list.map((v) => v.bvid).filter(Boolean);
+    if (bvids.length === 0) return;
+    const folder =
+      source === "precious"
+        ? "入站必刷"
+        : detail
+          ? `每周必看 第${detail.config.number}期`
+          : undefined;
+    setBatchBusy(true);
+    try {
+      await onBatchDownload(bvids, folder);
+    } finally {
+      setBatchBusy(false);
+    }
+  };
+
   return (
     <div className="flex flex-col h-screen bg-base text-ink">
       <header className="flex items-center gap-3 px-6 py-4 bg-panel border-b border-line">
@@ -128,11 +182,34 @@ export function WeeklyPage({ onBack, onParseVideo, onSelectItem, onPlayPlaylist 
         >
           <ArrowLeft size={16} />
         </button>
-        <CalendarDays size={18} className="text-pink-500" />
-        <h1 className="text-lg font-semibold text-ink">每周必看</h1>
+        {/* 内容源切换：每周必看 / 入站必刷 */}
+        <div className="flex rounded-lg border border-line p-0.5 bg-panel-2">
+          <button
+            onClick={() => setSource("weekly")}
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md transition-all ${
+              source === "weekly"
+                ? "bg-panel text-pink-500 shadow-sm border border-line font-medium"
+                : "text-ink-3 hover:text-ink-2"
+            }`}
+          >
+            <CalendarDays size={14} />
+            每周必看
+          </button>
+          <button
+            onClick={() => setSource("precious")}
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md transition-all ${
+              source === "precious"
+                ? "bg-panel text-pink-500 shadow-sm border border-line font-medium"
+                : "text-ink-3 hover:text-ink-2"
+            }`}
+          >
+            <Gem size={14} />
+            入站必刷
+          </button>
+        </div>
 
-        {/* 期数选择器 */}
-        {seriesList.length > 0 && (
+        {/* 期数选择器（仅每周必看） */}
+        {source === "weekly" && seriesList.length > 0 && (
           <div className="relative ml-2" ref={selectorRef}>
             <button
               onClick={() => setSelectorOpen((v) => !v)}
@@ -165,6 +242,53 @@ export function WeeklyPage({ onBack, onParseVideo, onSelectItem, onPlayPlaylist 
       </header>
 
       <div className="flex-1 overflow-auto px-6 py-4">
+        {/* ===== 入站必刷视图 ===== */}
+        {source === "precious" ? (
+          loadingPrecious ? (
+            <div className="flex items-center justify-center py-12 text-ink-3 gap-2">
+              <Loader2 size={20} className="animate-spin" />
+              <span className="text-sm">加载中...</span>
+            </div>
+          ) : precious.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-12 text-ink-3 gap-2">
+              <Gem size={40} strokeWidth={1.5} />
+              <p className="text-sm">暂无数据</p>
+            </div>
+          ) : (
+            <>
+              <div className="flex items-center gap-3 mb-4">
+                <h2 className="text-base font-semibold text-ink flex items-center gap-1.5">
+                  <Gem size={16} className="text-pink-500" />
+                  入站必刷
+                </h2>
+                <span className="text-xs text-ink-3">{precious.length} 个视频</span>
+                {onBatchDownload && (
+                  <button
+                    onClick={handleBatchDownload}
+                    disabled={batchBusy}
+                    className="ml-auto flex items-center gap-1.5 px-4 py-2 rounded-lg bg-pink-500 text-white text-sm font-medium hover:bg-pink-600 transition-colors shrink-0 disabled:opacity-70"
+                  >
+                    {batchBusy ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+                    {batchBusy ? "提交中..." : "批量下载全部"}
+                  </button>
+                )}
+              </div>
+              <div className="space-y-2">
+                {precious.map((item, idx) => (
+                  <WeeklyCard
+                    key={item.bvid || idx}
+                    item={item}
+                    index={idx + 1}
+                    loading={parsingBvid === item.bvid}
+                    onClick={() => handleSelectVideo(item)}
+                    onPlay={onPlayPlaylist ? () => handlePlayPrecious(idx) : undefined}
+                  />
+                ))}
+              </div>
+            </>
+          )
+        ) : (
+          <>
         {/* 错误 */}
         {error && (
           <div className="flex items-center gap-2 px-4 py-3 text-sm text-red-500 bg-red-50 border border-red-200 rounded-lg">
@@ -206,15 +330,29 @@ export function WeeklyPage({ onBack, onParseVideo, onSelectItem, onPlayPlaylist 
                   <p className="text-xs text-ink-3 mt-0.5">{detail.config.hint}</p>
                 )}
               </div>
-              {/* 连续播放按钮 */}
-              {onPlayPlaylist && detail.list.length > 0 && (
-                <button
-                  onClick={() => handlePlayAll(0)}
-                  className="ml-auto flex items-center gap-1.5 px-4 py-2 rounded-lg bg-pink-500 text-white text-sm font-medium hover:bg-pink-600 transition-colors shrink-0"
-                >
-                  <Play size={14} />
-                  连续播放
-                </button>
+              {/* 连续播放 / 下载整期按钮 */}
+              {detail.list.length > 0 && (
+                <div className="ml-auto flex items-center gap-2 shrink-0">
+                  {onBatchDownload && (
+                    <button
+                      onClick={handleBatchDownload}
+                      disabled={batchBusy}
+                      className="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-pink-300 text-pink-500 text-sm font-medium hover:bg-pink-50 transition-colors disabled:opacity-70"
+                    >
+                      {batchBusy ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+                      {batchBusy ? "提交中..." : "下载整期"}
+                    </button>
+                  )}
+                  {onPlayPlaylist && (
+                    <button
+                      onClick={() => handlePlayAll(0)}
+                      className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-pink-500 text-white text-sm font-medium hover:bg-pink-600 transition-colors"
+                    >
+                      <Play size={14} />
+                      连续播放
+                    </button>
+                  )}
+                </div>
               )}
             </div>
 
@@ -245,6 +383,8 @@ export function WeeklyPage({ onBack, onParseVideo, onSelectItem, onPlayPlaylist 
             <p className="text-sm">暂无数据</p>
           </div>
         ) : null}
+          </>
+        )}
       </div>
     </div>
   );

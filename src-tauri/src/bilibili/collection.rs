@@ -242,6 +242,7 @@ pub async fn get_collection_videos(
     let items: Vec<VideoListItem> = archives
         .into_iter()
         .map(|v| VideoListItem {
+            aid: v["aid"].as_i64().unwrap_or(0),
             bvid: v["bvid"].as_str().unwrap_or("").to_string(),
             title: v["title"].as_str().unwrap_or("").to_string(),
             cover: http_to_https(v["pic"].as_str().unwrap_or("")),

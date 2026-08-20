@@ -33,6 +33,8 @@ interface Props {
   onBack: () => void;
   onParseVideo: (url: string) => Promise<ParsedVideoInfo>;
   onSelectItem: (videoInfo: ParsedVideoInfo) => void;
+  /** 批量下载（透传给内嵌的 UP 主主页 UpperView） */
+  onBatchDownload?: (bvids: string[], folder?: string) => Promise<void>;
 }
 
 const TYPE_TABS: { key: SearchResultType; label: string; Icon: typeof Film }[] = [
@@ -61,7 +63,7 @@ const DURATION_OPTIONS = [
 
 // 视频分区 tid 复用全局常量（与排行榜筛选共享）：见文件顶部 import TID_OPTIONS
 
-export function ExplorePage({ onBack, onParseVideo, onSelectItem }: Props) {
+export function ExplorePage({ onBack, onParseVideo, onSelectItem, onBatchDownload }: Props) {
   const [keyword, setKeyword] = useState("");
   const [searchType, setSearchType] = useState<SearchResultType>("video");
   // 视频搜索筛选器（仅 video 类型有效；其它类型时 state 保留但后端忽略）
@@ -75,6 +77,10 @@ export function ExplorePage({ onBack, onParseVideo, onSelectItem }: Props) {
   const [searching, setSearching] = useState(false);
   const [searched, setSearched] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // 搜索联想：输入 ≥2 字符时防抖 300ms 拉取，点击直接搜索
+  const [suggests, setSuggests] = useState<string[]>([]);
+  const [suggestOpen, setSuggestOpen] = useState(false);
 
   const [upperMid, setUpperMid] = useState<number | null>(null);
   const [parsingKey, setParsingKey] = useState<string | null>(null);
@@ -102,6 +108,31 @@ export function ExplorePage({ onBack, onParseVideo, onSelectItem }: Props) {
     invoke("save_search_keyword", { keyword: k }).catch(() => {});
     setHistory((prev) => [k, ...prev.filter((x) => x !== k)].slice(0, 10));
   }, []);
+
+  // 联想词防抖：输入变化 300ms 后拉取（≥2 字符）；关闭下拉时清空
+  useEffect(() => {
+    const k = keyword.trim();
+    if (k.length < 2) {
+      setSuggests([]);
+      setSuggestOpen(false);
+      return;
+    }
+    const timer = setTimeout(() => {
+      invoke<string[]>("get_search_suggest", { term: k })
+        .then((items) => {
+          setSuggests(items);
+          setSuggestOpen(items.length > 0);
+        })
+        .catch(() => setSuggests([]));
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [keyword]);
+
+  // 点击联想词：填入并立即搜索（收起下拉）
+  const pickSuggest = (kw: string) => {
+    setSuggestOpen(false);
+    searchKeyword(kw);
+  };
 
   const doSearch = useCallback(
     async (
@@ -234,6 +265,7 @@ export function ExplorePage({ onBack, onParseVideo, onSelectItem }: Props) {
         onBack={() => setUpperMid(null)}
         onParseVideo={onParseVideo}
         onSelectItem={onSelectItem}
+        onBatchDownload={onBatchDownload}
       />
     );
   }
@@ -252,17 +284,43 @@ export function ExplorePage({ onBack, onParseVideo, onSelectItem }: Props) {
       </header>
 
       <div className="flex-1 overflow-auto px-6 py-4">
-        {/* 搜索框 */}
-        <div className="flex gap-2 mb-3">
-          <input
-            value={keyword}
-            onChange={(e) => setKeyword(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") handleSearch();
-            }}
-            placeholder="搜索视频、UP主、番剧..."
-            className="flex-1 px-3 py-2 text-sm border border-line-2 rounded-lg bg-panel text-ink-2 placeholder:text-ink-3 focus:outline-none focus:border-accent"
-          />
+        {/* 搜索框（含联想下拉） */}
+        <div className="relative flex gap-2 mb-3">
+          <div className="relative flex-1">
+            <input
+              value={keyword}
+              onChange={(e) => setKeyword(e.target.value)}
+              onFocus={() => { if (suggests.length > 0) setSuggestOpen(true); }}
+              onBlur={() => {
+                // 延迟收起：给 mousedown 选中联想词留出时间（blur 先于 click）
+                setTimeout(() => setSuggestOpen(false), 150);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  setSuggestOpen(false);
+                  handleSearch();
+                }
+              }}
+              placeholder="搜索视频、UP主、番剧..."
+              className="w-full px-3 py-2 text-sm border border-line-2 rounded-lg bg-panel text-ink-2 placeholder:text-ink-3 focus:outline-none focus:border-accent"
+            />
+            {/* 联想下拉 */}
+            {suggestOpen && suggests.length > 0 && (
+              <div className="absolute left-0 right-0 top-full z-30 mt-1 rounded-lg bg-panel border border-line shadow-xl py-1">
+                {suggests.map((s) => (
+                  <button
+                    key={s}
+                    // mousedown 触发（早于 input blur 收起下拉）
+                    onMouseDown={(e) => { e.preventDefault(); pickSuggest(s); }}
+                    className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-sm text-ink-2 hover:bg-panel-2 transition-colors"
+                  >
+                    <Search size={12} className="text-ink-3 shrink-0" />
+                    <span className="truncate">{s}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
           <button
             onClick={handleSearch}
             disabled={searching || !keyword.trim()}

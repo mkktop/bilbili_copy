@@ -81,6 +81,30 @@ const PHASE_TEXT: Record<string, string> = {
   merging: "合并中",
 };
 
+/** 速度格式化：B/s → KB/s → MB/s */
+function formatSpeed(bytesPerSec: number): string {
+  if (bytesPerSec <= 0) return "";
+  if (bytesPerSec >= 1024 * 1024) return `${(bytesPerSec / 1024 / 1024).toFixed(1)} MB/s`;
+  if (bytesPerSec >= 1024) return `${(bytesPerSec / 1024).toFixed(0)} KB/s`;
+  return `${bytesPerSec} B/s`;
+}
+
+/** 剩余时间估算：(total-downloaded)/speed → mm:ss / hh:mm:ss；数据不足返回空 */
+function formatEta(item: DownloadTask): string {
+  const { speed, downloadedBytes, totalBytes } = item;
+  if (!speed || speed < 1024 || !totalBytes || !downloadedBytes) return "";
+  const remaining = totalBytes - downloadedBytes;
+  if (remaining <= 0) return "";
+  const secs = Math.round(remaining / speed);
+  if (secs < 1 || secs > 24 * 3600) return "";
+  const h = Math.floor(secs / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  const s = secs % 60;
+  const mm = String(m).padStart(2, "0");
+  const ss = String(s).padStart(2, "0");
+  return h > 0 ? `${h}:${mm}:${ss}` : `${m}:${ss}`;
+}
+
 /** 小图标按钮（暂停/恢复/置顶/取消/重试/删除） */
 function IconButton({
   onClick,
@@ -179,6 +203,12 @@ const DownloadRow = memo(
                     {Math.round(item.progress)}%
                   </span>
                 )}
+              {item.status === "downloading" && item.speed && item.speed > 0 && (
+                <span className="text-xs text-ink-3 ml-1">
+                  {formatSpeed(item.speed)}
+                  {formatEta(item) && ` · 剩余 ${formatEta(item)}`}
+                </span>
+              )}
               {item.status === "error" && item.errorMsg && (
                 <span className="text-xs text-red-400 ml-1 truncate">
                   {item.errorMsg}
@@ -300,7 +330,10 @@ const DownloadRow = memo(
       a.errorMsg === b.errorMsg &&
       a.outputPath === b.outputPath &&
       a.pic === b.pic &&
-      a.title === b.title
+      a.title === b.title &&
+      a.speed === b.speed &&
+      a.downloadedBytes === b.downloadedBytes &&
+      a.totalBytes === b.totalBytes
     );
   }
 );

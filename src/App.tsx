@@ -25,7 +25,7 @@ import { useUrlIntake } from "./hooks/useUrlIntake";
 import { Settings, Download, Search, Trophy, Sparkles, LayoutGrid, Sun, Moon, BarChart3, Rss, CalendarDays } from "lucide-react";
 import type { AppSettings } from "./hooks/useSettings";
 import { useThemeApplier, type ThemeMode } from "./hooks/useTheme";
-import type { ParsedItem, DownloadTask, ParsedVideoInfo, ParseHistoryEntry, DownloadHistoryEntry, VideoMeta, VideoPage, PlayingItem, PlaylistItem } from "./types";
+import type { ParsedItem, DownloadTask, ParsedVideoInfo, ParseHistoryEntry, DownloadHistoryEntry, VideoMeta, VideoPage, PlayingItem, PlaylistItem, BatchDownloadResult } from "./types";
 import { dbToParsedItem, dbToDownloadTask } from "./types";
 import { friendlyError } from "./lib/errors";
 
@@ -408,6 +408,55 @@ export default function App() {
       .catch((e) => toast.error(`调整失败：${friendlyError(e)}`));
   };
 
+  // 批量下载一组 BV 号（列表页多选场景）。后端逐个解析 cid 并入队，
+  // 已在下载历史的自动跳过；完成后刷新下载列表第一页让新任务立即可见。
+  const handleBatchDownload = async (bvids: string[], folder?: string) => {
+    if (bvids.length === 0) return;
+    try {
+      const res = await invoke<BatchDownloadResult>("batch_download_bvids", {
+        bvids,
+        folder: folder ?? null,
+      });
+      if (res.queued > 0) {
+        toast.success(`批量下载：${res.queued} 个已加入队列${res.skipped > 0 ? `，${res.skipped} 个已存在/失败跳过` : ""}`);
+      } else {
+        toast.error(`没有新任务：${res.skipped} 个视频均已下载或正在队列中`);
+      }
+      loadDownloadPage(1);
+    } catch (e) {
+      toast.error(`批量下载失败：${friendlyError(e)}`);
+    }
+  };
+
+  // 批量下载整部番剧（按 season_id，后端解析全部正片入队）
+  const handleBatchDownloadSeason = async (seasonId: number, _title: string) => {
+    try {
+      const res = await invoke<BatchDownloadResult>("batch_download_season", { seasonId });
+      if (res.queued > 0) {
+        toast.success(`整季下载：${res.queued} 集已加入队列${res.skipped > 0 ? `，${res.skipped} 集已存在跳过` : ""}`);
+      } else {
+        toast.error(`没有新任务：${res.skipped} 集均已下载或正在队列中`);
+      }
+      loadDownloadPage(1);
+    } catch (e) {
+      toast.error(`整季下载失败：${friendlyError(e)}`);
+    }
+  };
+
+  // 全部暂停：排队移除 + 运行中断（保留 .tmp 续传）
+  const handlePauseAll = () => {
+    invoke<number>("pause_all_downloads")
+      .catch((e) => toast.error(`全部暂停失败：${friendlyError(e)}`));
+  };
+
+  // 重试当前页全部失败任务
+  const handleRetryAllFailed = () => {
+    const failed = downloads.filter((d) => d.status === "error");
+    if (failed.length === 0) return;
+    failed.forEach((item) => handleRetry(item));
+    toast.success(`已重新提交 ${failed.length} 个失败任务`);
+  };
+
   // 打开下载文件所在目录：
   // 1) 若有 output_path 且文件存在 → revealItemInDir 选中该文件
   // 2) 文件不存在（用户已删除）或无 output_path → 回退打开设置里的下载目录 default_download_dir
@@ -556,6 +605,27 @@ export default function App() {
             onOpenUpper={handleOpenUpper}
             onPlay={handlePlay}
             onDownload={handleDownload}
+            onOpenRelated={async (bvid: string) => {
+              // 相关推荐跳转：解析后替换当前详情内容（来源页保持不变）
+              const url = `https://www.bilibili.com/video/${bvid}`;
+              setIsParsing(true);
+              try {
+                const videoInfo = await handleParse(url);
+                if (videoInfo) {
+                  setSelectedItem({
+                    id: `rel-${videoInfo.bvid}`,
+                    url,
+                    title: videoInfo.title,
+                    status: "pending",
+                    videoInfo,
+                  });
+                }
+              } catch {
+                /* 错误已在 handleParse 内 toast */
+              } finally {
+                setIsParsing(false);
+              }
+            }}
           />
           {/* UP 主主页覆盖层：从详情页点头像进入，叠加在详情之上（更高 z-index）。
               外层 fixed 无 transform，内层 fixed 仍相对视口铺满；z-[60] > z-50，
@@ -569,6 +639,7 @@ export default function App() {
                 onBack={() => setUpperViewMid(null)}
                 onParseVideo={handleParse}
                 onSelectItem={handleSelectFromUpper}
+                onBatchDownload={handleBatchDownload}
               />
             </div>
           )}
@@ -588,6 +659,13 @@ export default function App() {
             pages={playingItem.pages}
             playlist={playingItem.playlist}
             playlistIndex={playingItem.playlistIndex}
+            danmakuStyle={{
+              fontSize: settings.danmaku_font_size,
+              scrollDuration: settings.danmaku_scroll_duration,
+              opacity: Math.min(Math.max(settings.danmaku_opacity, 0.05), 1),
+              blockTop: settings.danmaku_block_top,
+              blockBottom: settings.danmaku_block_bottom,
+            }}
             onBack={() => setPlayingItem(null)}
           />
         </Suspense>
@@ -637,6 +715,25 @@ export default function App() {
                 {activeDownloads} 个任务进行中
               </span>
             )}
+            {/* 批量操作：全部暂停（保留续传）/ 重试当前页全部失败 */}
+            <div className="ml-auto flex items-center gap-2">
+              {activeDownloads > 0 && (
+                <button
+                  onClick={handlePauseAll}
+                  className="px-3 py-1.5 text-xs text-amber-600 border border-amber-200 rounded-lg hover:bg-amber-50 transition-colors"
+                >
+                  全部暂停
+                </button>
+              )}
+              {downloads.some((d) => d.status === "error") && (
+                <button
+                  onClick={handleRetryAllFailed}
+                  className="px-3 py-1.5 text-xs text-blue-600 border border-blue-200 rounded-lg hover:bg-blue-50 transition-colors"
+                >
+                  重试全部失败
+                </button>
+              )}
+            </div>
           </div>
 
           {/* Download list */}
@@ -692,6 +789,8 @@ export default function App() {
           onBack={() => setCurrentView("main")}
           onParseVideo={handleParse}
           onSelectItem={(videoInfo: ParsedVideoInfo) => openDetail(videoInfo, "profile", "fav")}
+          onBatchDownload={handleBatchDownload}
+          onBatchDownloadSeason={handleBatchDownloadSeason}
         />
         {detailOverlay}
       </>
@@ -708,6 +807,7 @@ export default function App() {
           onBack={() => setCurrentView("main")}
           onParseVideo={handleParse}
           onSelectItem={(videoInfo: ParsedVideoInfo) => openDetail(videoInfo, "explore", "explore")}
+          onBatchDownload={handleBatchDownload}
         />
         {detailOverlay}
       </>
@@ -793,6 +893,7 @@ export default function App() {
           onParseVideo={handleParse}
           onSelectItem={(videoInfo: ParsedVideoInfo) => openDetail(videoInfo, "weekly", "weekly")}
           onPlayPlaylist={handlePlayPlaylist}
+          onBatchDownload={handleBatchDownload}
         />
         {detailOverlay}
       </>

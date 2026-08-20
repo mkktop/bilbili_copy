@@ -1,5 +1,6 @@
 use crate::bilibili::credential::Credential;
-use crate::bilibili::{REFERER, BilibiliResponse, api_client, http_to_https};
+use crate::bilibili::wbi;
+use crate::bilibili::{REFERER, VideoListItem, BilibiliResponse, api_client, create_api_headers, http_to_https};
 use anyhow::{Context, Result};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -343,6 +344,182 @@ pub async fn get_video_info(
         like_count: data.stat.as_ref().map(|s| s.like).unwrap_or(0),
         tags,
     })
+}
+
+// ==================== 相关推荐 ====================
+
+/// 获取视频的相关推荐列表（详情页右侧/播放器连播数据源）
+/// API: GET https://api.bilibili.com/x/web-interface/archive/related?bvid=xxx
+/// 公开接口，返回与 view API 同构的视频数组，映射为通用列表项。
+pub async fn get_related_videos(
+    bvid: &str,
+    credential: Option<&Credential>,
+) -> Result<Vec<VideoListItem>> {
+    let client = api_client();
+    let mut req = client
+        .get("https://api.bilibili.com/x/web-interface/archive/related")
+        .header("Referer", REFERER)
+        .query(&[("bvid", bvid)]);
+    if let Some(cred) = credential {
+        req = req.header("Cookie", cred.cookie_header());
+    }
+
+    let resp_text = req.send().await?.text().await?;
+    let resp: serde_json::Value =
+        serde_json::from_str(&resp_text).context("相关推荐响应解析失败")?;
+    let code = resp["code"].as_i64().unwrap_or(-1);
+    if code != 0 {
+        anyhow::bail!(
+            "获取相关推荐失败: {}",
+            resp["message"].as_str().unwrap_or("未知错误")
+        );
+    }
+
+    let items: Vec<VideoListItem> = resp["data"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|v| {
+            let bvid = v["bvid"].as_str()?.to_string();
+            if bvid.is_empty() {
+                return None;
+            }
+            Some(VideoListItem {
+                aid: v["aid"].as_i64().unwrap_or(0),
+                bvid,
+                title: v["title"].as_str().unwrap_or("").to_string(),
+                cover: http_to_https(v["pic"].as_str().unwrap_or("")),
+                upper_name: v["owner"]["name"].as_str().unwrap_or("").to_string(),
+                upper_mid: v["owner"]["mid"].as_i64().unwrap_or(0),
+                duration: v["duration"].as_i64().unwrap_or(0),
+                play: v["stat"]["view"].as_i64().unwrap_or(0),
+                danmaku: v["stat"]["danmaku"].as_i64().unwrap_or(0),
+                pubdate: v["pubdate"].as_i64().unwrap_or(0),
+            })
+        })
+        .collect();
+
+    log::info!("[video] 相关推荐 {}: {} 条", bvid, items.len());
+    Ok(items)
+}
+
+// ==================== AI 视频总结 ====================
+
+/// AI 总结大纲小节内的单个时间点条目
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AiOutlinePart {
+    /// 时间点（秒）
+    pub timestamp: i64,
+    pub content: String,
+}
+
+/// AI 总结大纲小节
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AiOutlineSection {
+    pub title: String,
+    pub parts: Vec<AiOutlinePart>,
+}
+
+/// 官方 AI 视频总结（B站 App 详情页的「视频看点」）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AiSummary {
+    /// 分点摘要
+    pub summary: Vec<String>,
+    /// 时间戳章节大纲
+    pub outline: Vec<AiOutlineSection>,
+}
+
+/// 获取官方 AI 视频总结（WBI 签名接口，需登录）
+/// API: GET https://api.bilibili.com/x/web-interface/view/conclusion/get?bvid=&cid=&up_mid=
+/// 非零 code（视频未生成总结 / UP 主未开启等）不算错误，统一返回 Ok(None) 供前端隐藏区块。
+pub async fn get_ai_summary(
+    bvid: &str,
+    cid: i64,
+    up_mid: u64,
+    credential: &Credential,
+) -> Result<Option<AiSummary>> {
+    let client = api_client();
+    let mixin_key = wbi::get_mixin_key_cached(credential)
+        .await
+        .context("获取 WBI 签名密钥失败")?;
+
+    let mut params: Vec<(String, String)> = vec![
+        ("bvid".to_string(), bvid.to_string()),
+        ("cid".to_string(), cid.to_string()),
+        ("up_mid".to_string(), up_mid.to_string()),
+    ];
+    wbi::sign_params(&mut params, &mixin_key);
+
+    let resp_text = client
+        .get("https://api.bilibili.com/x/web-interface/view/conclusion/get")
+        .headers(create_api_headers())
+        .header("Cookie", credential.cookie_header())
+        .query(&params)
+        .send()
+        .await?
+        .text()
+        .await?;
+
+    let resp: serde_json::Value =
+        serde_json::from_str(&resp_text).context("AI 总结响应解析失败")?;
+    let code = resp["code"].as_i64().unwrap_or(-1);
+    if code != 0 {
+        log::info!(
+            "[video] AI 总结不可用: bvid={}, code={}, msg={}",
+            bvid,
+            code,
+            resp["message"].as_str().unwrap_or("")
+        );
+        return Ok(None);
+    }
+
+    let mr = &resp["data"]["model_result"];
+    if mr.is_null() {
+        return Ok(None);
+    }
+
+    let summary: Vec<String> = mr["summary"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|s| s.as_str().map(|x| x.to_string()))
+        .filter(|s| !s.is_empty())
+        .collect();
+
+    let outline: Vec<AiOutlineSection> = mr["outline"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|o| AiOutlineSection {
+            title: o["title"].as_str().unwrap_or("").to_string(),
+            parts: o["part_outline"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default()
+                .into_iter()
+                .map(|p| AiOutlinePart {
+                    timestamp: p["timestamp"].as_i64().unwrap_or(0),
+                    content: p["content"].as_str().unwrap_or("").to_string(),
+                })
+                .collect(),
+        })
+        .filter(|s| !s.title.is_empty() || !s.parts.is_empty())
+        .collect();
+
+    if summary.is_empty() && outline.is_empty() {
+        return Ok(None);
+    }
+
+    log::info!(
+        "[video] AI 总结 {}: 摘要 {} 条, 大纲 {} 节",
+        bvid,
+        summary.len(),
+        outline.len()
+    );
+    Ok(Some(AiSummary { summary, outline }))
 }
 
 /// 通过番剧 season API 获取视频信息

@@ -41,6 +41,7 @@ pub async fn get_watch_later(credential: &Credential) -> Result<Vec<VideoListIte
     let items: Vec<VideoListItem> = list
         .into_iter()
         .map(|v| VideoListItem {
+            aid: v["aid"].as_i64().unwrap_or(0),
             bvid: v["bvid"].as_str().unwrap_or("").to_string(),
             title: v["title"].as_str().unwrap_or("(已失效视频)").to_string(),
             cover: http_to_https(v["pic"].as_str().unwrap_or("")),
@@ -55,4 +56,30 @@ pub async fn get_watch_later(credential: &Credential) -> Result<Vec<VideoListIte
 
     log::info!("[watch_later] 获取到 {} 个稍后再看视频", items.len());
     Ok(items)
+}
+
+/// 添加视频到稍后再看
+/// API: POST https://api.bilibili.com/x/v2/history/toview/add （form: aid + csrf）
+pub async fn add_watch_later(bvid: &str, credential: &Credential) -> Result<()> {
+    let aid = crate::bilibili::url::bvid_to_aid(bvid);
+    anyhow::ensure!(aid > 0, "无法解析 BV 号: {}", bvid);
+    crate::bilibili::interaction::interaction_post(
+        "https://api.bilibili.com/x/v2/history/toview/add",
+        vec![("aid", aid.to_string())],
+        credential,
+    )
+    .await
+}
+
+/// 从稍后再看移除视频
+/// API: POST https://api.bilibili.com/x/v2/history/toview/del （form: aid + csrf）
+pub async fn remove_watch_later(bvid: &str, credential: &Credential) -> Result<()> {
+    let aid = crate::bilibili::url::bvid_to_aid(bvid);
+    anyhow::ensure!(aid > 0, "无法解析 BV 号: {}", bvid);
+    crate::bilibili::interaction::interaction_post(
+        "https://api.bilibili.com/x/v2/history/toview/del",
+        vec![("aid", aid.to_string())],
+        credential,
+    )
+    .await
 }

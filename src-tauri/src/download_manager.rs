@@ -126,6 +126,20 @@ pub struct DownloadStateChange {
     pub status: String,
 }
 
+/// 暂停结果：区分「排队中被移除」与「运行中被中断」。
+/// 排队任务从未开始下载、也没有走 execute_download 收尾流程，命令层需为它补发
+/// paused 状态事件，否则前端列表停留在「排队中」直到手动刷新；运行中任务由
+/// execute_download 中断收尾时自行 emit paused。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PauseOutcome {
+    /// 排队中：已从队列移除（未产生 .tmp，无续传状态）
+    Pending,
+    /// 运行中：已标记 Pausing 并触发 cancel（execute_download 退出时 emit paused）
+    Running,
+    /// 任务不存在（可能已完成）
+    NotFound,
+}
+
 /// 调度器公开返回给命令层的结果。
 pub enum SubmitOutcome {
     /// 已加入队列（或同一 id 正在排队/运行中——重复提交被合并）
@@ -194,10 +208,10 @@ impl DownloadManager {
     }
 
     /// 暂停任务。
-    /// - 排队中：直接从队列移除（还未开始，无需中断），返回 true 表示「已暂停」。
+    /// - 排队中：直接从队列移除（还未开始，无需中断），返回 Pending（命令层补发 paused 事件）。
     /// - 运行中：设 target=Pausing 并触发 cancel，execute_download 退出时保留 .tmp 并 emit paused。
-    /// - 不存在：返回 false。
-    pub fn pause(&self, id: &str) -> bool {
+    /// - 不存在：返回 NotFound。
+    pub fn pause(&self, id: &str) -> PauseOutcome {
         let mut inner = match self.inner.lock() {
             Ok(g) => g,
             Err(p) => p.into_inner(),
@@ -207,7 +221,7 @@ impl DownloadManager {
         if let Some(pos) = inner.pending.iter().position(|t| t.id == id) {
             inner.pending.remove(pos);
             log::info!("[manager] 暂停排队中任务: id={}", id);
-            return true;
+            return PauseOutcome::Pending;
         }
 
         // 运行中：标记 Pausing 并触发 cancel（.tmp 保留供续传，delete_tmp 保持 false）
@@ -217,11 +231,41 @@ impl DownloadManager {
             }
             task.cancel.cancel();
             log::info!("[manager] 请求暂停运行中任务: id={}", id);
-            return true;
+            return PauseOutcome::Running;
         }
 
         log::warn!("[manager] 暂停失败，任务不存在: id={}", id);
-        false
+        PauseOutcome::NotFound
+    }
+
+    /// 暂停全部任务（批量操作）。
+    /// 返回「排队中被移除」的任务 id 列表（这些任务不会走 execute_download 收尾，
+    /// 命令层需为它们补发 paused 事件）；运行中任务由各自收尾流程 emit paused。
+    pub fn pause_all(&self) -> Vec<String> {
+        let mut inner = match self.inner.lock() {
+            Ok(g) => g,
+            Err(p) => p.into_inner(),
+        };
+
+        let pending_ids: Vec<String> = inner.pending.iter().map(|t| t.id.clone()).collect();
+        inner.pending.clear();
+
+        let running_ids: Vec<String> = inner.running.keys().cloned().collect();
+        for id in &running_ids {
+            if let Some(task) = inner.running.get(id) {
+                if let Ok(mut target) = task.target.lock() {
+                    *target = TargetState::Pausing;
+                }
+                task.cancel.cancel();
+            }
+        }
+
+        log::info!(
+            "[manager] 全部暂停: 排队 {} 个移除, 运行 {} 个中断",
+            pending_ids.len(),
+            running_ids.len()
+        );
+        pending_ids
     }
 
     /// 取消任务（删除排队/中断运行）。
@@ -604,8 +648,9 @@ mod tests {
     fn pause_removes_pending_task() {
         let mgr = DownloadManager::new();
         mgr.submit(params("a"), 0);
-        assert!(mgr.pause("a"));
+        assert_eq!(mgr.pause("a"), PauseOutcome::Pending);
         assert!(mgr.pop_highest().is_none(), "暂停后队列应为空");
+        assert_eq!(mgr.pause("a"), PauseOutcome::NotFound);
     }
 
     #[test]

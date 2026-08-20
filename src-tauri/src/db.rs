@@ -19,7 +19,8 @@ pub fn db_path() -> PathBuf {
 /// - 100：v1.0.0 断代基线（与 0.x 不兼容，版本不匹配整库重建）
 /// - 101：download_history 新增 subtitle_only / audio_only 列（100 → 101 走
 ///   ALTER TABLE 增量迁移**保留用户数据**；更老的库（0.x / 全新空库）仍整库重建）
-const SCHEMA_VERSION: i64 = 101;
+/// - 102：新增 subscriptions 表（订阅追更；CREATE IF NOT EXISTS 即可，无列变更）
+const SCHEMA_VERSION: i64 = 102;
 
 /// 初始化数据库：建表 + WAL + 版本校验（不匹配则重建）+ 清理残留
 pub fn init_db() -> anyhow::Result<DbState> {
@@ -33,6 +34,9 @@ pub fn init_db() -> anyhow::Result<DbState> {
     if version != SCHEMA_VERSION {
         if version == 100 {
             migrate_100_to_101(&conn)?;
+            migrate_101_to_102(&conn)?;
+        } else if version == 101 {
+            migrate_101_to_102(&conn)?;
         } else {
             if version > 0 {
                 log::warn!(
@@ -75,6 +79,28 @@ fn migrate_100_to_101(conn: &Connection) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// 101 → 102 增量迁移：创建 subscriptions 表（订阅追更）。纯新增表，无列变更。
+fn migrate_101_to_102(conn: &Connection) -> anyhow::Result<()> {
+    log::info!("[db] 迁移 schema 101→102：创建 subscriptions 表（订阅追更）");
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS subscriptions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            kind TEXT NOT NULL,
+            source_id TEXT NOT NULL,
+            title TEXT NOT NULL,
+            cover TEXT NOT NULL DEFAULT '',
+            upper_name TEXT NOT NULL DEFAULT '',
+            upper_mid INTEGER NOT NULL DEFAULT 0,
+            known_bvids TEXT NOT NULL DEFAULT '[]',
+            last_check TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_sub_kind_source ON subscriptions(kind, source_id);",
+    )?;
+    set_schema_version(conn, SCHEMA_VERSION)?;
+    Ok(())
+}
+
 /// 判断表里是否已有某列（表/列名均为代码内硬编码字面量，无注入面）
 fn column_exists(conn: &Connection, table: &str, column: &str) -> bool {
     let sql = format!(
@@ -95,6 +121,7 @@ fn rebuild_db(conn: &Connection) -> anyhow::Result<()> {
          DROP TABLE IF EXISTS download_stats;
          DROP TABLE IF EXISTS play_progress;
          DROP TABLE IF EXISTS search_history;
+         DROP TABLE IF EXISTS subscriptions;
          DROP TABLE IF EXISTS schema_version;",
     )?;
     conn.execute_batch(SCHEMA_SQL)?;
@@ -421,6 +448,120 @@ pub fn delete_play_progress(conn: &Connection, cid: i64) -> anyhow::Result<()> {
     Ok(())
 }
 
+// ---- Subscriptions（订阅追更） ----
+
+/// 订阅条目（本地追更：UP 合集 season/series 或收藏夹）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SubscriptionEntry {
+    pub id: i64,
+    /// "season"/"series"（UP 合集/列表）或 "favorite"（收藏夹）
+    pub kind: String,
+    /// season_id/series_id 或收藏夹 media_id
+    pub source_id: String,
+    pub title: String,
+    pub cover: String,
+    pub upper_name: String,
+    /// 合集所属 UP 的 mid（收藏夹为 0；season/series 检查时作查询参数）
+    pub upper_mid: i64,
+    /// 上次检查时已知的全部 bvid（JSON 数组；新检查 diff 出新增项）
+    pub known_bvids: Vec<String>,
+    /// 上次检查时间（datetime 文本；None = 尚未检查过）
+    pub last_check: Option<String>,
+    pub created_at: String,
+}
+
+/// 新增订阅（kind+source_id 唯一，重复添加返回 Err）
+pub fn insert_subscription(conn: &Connection, sub: &SubscriptionEntry) -> anyhow::Result<i64> {
+    let dup: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM subscriptions WHERE kind = ?1 AND source_id = ?2",
+        params![sub.kind, sub.source_id],
+        |r| r.get(0),
+    )?;
+    anyhow::ensure!(dup == 0, "已订阅过该内容");
+    conn.execute(
+        "INSERT INTO subscriptions (kind, source_id, title, cover, upper_name, upper_mid, known_bvids) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        params![sub.kind, sub.source_id, sub.title, sub.cover, sub.upper_name, sub.upper_mid, serde_json::to_string(&sub.known_bvids)?],
+    )?;
+    Ok(conn.last_insert_rowid())
+}
+
+/// 列出全部订阅
+pub fn list_subscriptions(conn: &Connection) -> anyhow::Result<Vec<SubscriptionEntry>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, kind, source_id, title, cover, upper_name, upper_mid, known_bvids, last_check, created_at FROM subscriptions ORDER BY id DESC",
+    )?;
+    let rows = stmt.query_map([], |row| {
+        let known: String = row.get(7)?;
+        Ok(SubscriptionEntry {
+            id: row.get(0)?,
+            kind: row.get(1)?,
+            source_id: row.get(2)?,
+            title: row.get(3)?,
+            cover: row.get(4)?,
+            upper_name: row.get(5)?,
+            upper_mid: row.get(6)?,
+            known_bvids: serde_json::from_str(&known).unwrap_or_default(),
+            last_check: row.get(8)?,
+            created_at: row.get(9)?,
+        })
+    })?;
+    Ok(rows.filter_map(|r| r.ok()).collect())
+}
+
+/// 删除订阅
+pub fn delete_subscription(conn: &Connection, id: i64) -> anyhow::Result<()> {
+    conn.execute("DELETE FROM subscriptions WHERE id = ?1", params![id])?;
+    Ok(())
+}
+
+/// 更新订阅的已知 bvid 集合与检查时间
+pub fn update_subscription_state(
+    conn: &Connection,
+    id: i64,
+    known_bvids: &[String],
+) -> anyhow::Result<()> {
+    conn.execute(
+        "UPDATE subscriptions SET known_bvids = ?1, last_check = datetime('now') WHERE id = ?2",
+        params![serde_json::to_string(known_bvids)?, id],
+    )?;
+    Ok(())
+}
+
+// ---- 批量下载去重辅助 ----
+
+/// 批量提交前的下载历史快照：
+/// - `skip`：bvid+cid 已存在且状态非 error 的记录（done/queued/downloading/paused → 跳过）
+/// - `reuse_id`：状态为 error 的记录（重新提交复用其 id，INSERT OR REPLACE 覆盖旧失败行）
+#[derive(Default)]
+pub struct DownloadDedup {
+    pub skip: std::collections::HashSet<String>,
+    pub reuse_id: std::collections::HashMap<String, String>,
+}
+
+/// 构建全量去重快照（一次查询；批量入队时逐条比对，避免每项一次锁+查询）
+pub fn build_download_dedup(conn: &Connection) -> anyhow::Result<DownloadDedup> {
+    let mut stmt = conn.prepare("SELECT bvid, cid, status, id FROM download_history")?;
+    let rows = stmt.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, i64>(1)?,
+            row.get::<_, String>(2)?,
+            row.get::<_, String>(3)?,
+        ))
+    })?;
+    let mut dedup = DownloadDedup::default();
+    for r in rows.filter_map(|r| r.ok()) {
+        let (bvid, cid, status, id) = r;
+        let key = format!("{}_{}", bvid, cid);
+        if status == "error" {
+            dedup.reuse_id.insert(key, id);
+        } else {
+            dedup.skip.insert(key);
+        }
+    }
+    Ok(dedup)
+}
+
 // ---- Search History ----
 
 /// 保存搜索关键词（keyword 主键 upsert：重复搜索只刷新时间置顶），容量控制保留最近 50 条
@@ -516,8 +657,22 @@ CREATE TABLE IF NOT EXISTS search_history (
     searched_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS subscriptions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind TEXT NOT NULL,
+    source_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    cover TEXT NOT NULL DEFAULT '',
+    upper_name TEXT NOT NULL DEFAULT '',
+    upper_mid INTEGER NOT NULL DEFAULT 0,
+    known_bvids TEXT NOT NULL DEFAULT '[]',
+    last_check TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE INDEX IF NOT EXISTS idx_download_created ON download_history(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_parse_parsed ON parse_history(parsed_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_sub_kind_source ON subscriptions(kind, source_id);
 ";
 
 #[cfg(test)]

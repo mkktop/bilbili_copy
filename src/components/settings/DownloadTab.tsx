@@ -1,4 +1,4 @@
-import { Download, Zap, Layers, Server, FileText, Sliders, GaugeCircle, Music, FolderTree } from "lucide-react";
+import { Download, Zap, Layers, Server, FileText, Sliders, GaugeCircle, Music, FolderTree, Bell } from "lucide-react";
 import { SettingCard, SegmentedControl, ToggleRow, ToggleSwitch, NumberInput } from "./shared";
 
 interface DownloadTabProps {
@@ -26,6 +26,9 @@ interface DownloadTabProps {
   onNfoIncludeActorChange: (v: boolean) => void;
   nfoIncludeStats: boolean;
   onNfoIncludeStatsChange: (v: boolean) => void;
+  // 订阅追更自动检查间隔（分钟，0 = 关闭）
+  subscriptionIntervalMin: number;
+  onSubscriptionIntervalMinChange: (v: number) => void;
   saving: boolean;
   saved: boolean;
   onSave: () => void;
@@ -33,6 +36,7 @@ interface DownloadTabProps {
 
 const NUMBER_OPTIONS = [1, 2, 3, 4, 5];
 const THREAD_OPTIONS = [1, 2, 4, 8];
+const SUB_INTERVAL_OPTIONS = [0, 15, 30, 60, 180, 360];
 
 export function DownloadTab({
   maxConcurrentDownloads,
@@ -55,6 +59,8 @@ export function DownloadTab({
   onNfoIncludeActorChange,
   nfoIncludeStats,
   onNfoIncludeStatsChange,
+  subscriptionIntervalMin,
+  onSubscriptionIntervalMinChange,
   saving,
   saved,
   onSave,
@@ -220,6 +226,22 @@ export function DownloadTab({
           </p>
         </SettingCard>
       )}
+
+      {/* 订阅追更 */}
+      <SettingCard
+        icon={Bell}
+        title="订阅追更检查间隔"
+        description="定时检查订阅的合集/收藏夹，发现新内容自动加入下载队列（已下载的自动跳过）。订阅入口在「我的 → 我的订阅 / 收藏夹 / UP 主合集」。"
+      >
+        <SegmentedControl
+          options={SUB_INTERVAL_OPTIONS.map((n) => ({
+            value: n,
+            label: n === 0 ? "关闭" : n >= 60 ? `${n / 60}小时` : `${n}分钟`,
+          }))}
+          value={subscriptionIntervalMin}
+          onChange={onSubscriptionIntervalMinChange}
+        />
+      </SettingCard>
 
       {/* Save button */}
       <button

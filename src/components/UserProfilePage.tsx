@@ -18,6 +18,8 @@ import {
   Bookmark,
   History,
   Tv,
+  Bell,
+  Check,
 } from "lucide-react";
 import type { UserInfo } from "../hooks/useLogin";
 import { WatchLaterTab } from "./tabs/WatchLaterTab";
@@ -26,6 +28,7 @@ import { SubscriptionsTab } from "./tabs/SubscriptionsTab";
 import { BangumiTab } from "./tabs/BangumiTab";
 import { FollowingsTab } from "./tabs/FollowingsTab";
 import { UpperView } from "./tabs/UpperView";
+import { BatchBar } from "./BatchBar";
 import { formatCount } from "./VideoCard";
 import { VirtualList } from "./VirtualList";
 import { useToast } from "./Toast";
@@ -37,6 +40,7 @@ import type {
   ParsedVideoInfo,
 } from "../types";
 import { formatDuration } from "../types";
+import { cn } from "../lib/utils";
 
 interface UserProfilePageProps {
   userInfo: UserInfo;
@@ -44,6 +48,10 @@ interface UserProfilePageProps {
   onBack: () => void;
   onParseVideo: (url: string) => Promise<ParsedVideoInfo>;
   onSelectItem: (videoInfo: ParsedVideoInfo) => void;
+  /** 批量下载（收藏夹/稍后再看/订阅列表/UP投稿多选） */
+  onBatchDownload?: (bvids: string[], folder?: string) => Promise<void>;
+  /** 整季批量下载（追番/追剧） */
+  onBatchDownloadSeason?: (seasonId: number, title: string) => Promise<void>;
 }
 
 export function UserProfilePage({
@@ -52,6 +60,8 @@ export function UserProfilePage({
   onBack,
   onParseVideo,
   onSelectItem,
+  onBatchDownload,
+  onBatchDownloadSeason,
 }: UserProfilePageProps) {
   const [folders, setFolders] = useState<FavoriteFolder[]>([]);
   const [loadingFolders, setLoadingFolders] = useState(true);
@@ -78,6 +88,13 @@ export function UserProfilePage({
 
   // 我的关注 tab 中选中的 UP 主 mid（null = 关注列表，非 null = 该 UP 主主页）
   const [selectedUpperMid, setSelectedUpperMid] = useState<number | null>(null);
+
+  // 收藏夹详情的批量下载选择
+  const [favSelectMode, setFavSelectMode] = useState(false);
+  const [favSelected, setFavSelected] = useState<Set<string>>(new Set());
+  const [favBatchBusy, setFavBatchBusy] = useState(false);
+  // 已订阅追更的收藏夹 key（本次会话内记忆）
+  const [subscribedFolder, setSubscribedFolder] = useState<number | null>(null);
 
   // Tab 切换：收藏夹 / 观看历史 / 稍后再看 / 我的关注 / 我的订阅 / 追番追剧
   const [tab, setTab] = useState<
@@ -142,6 +159,8 @@ export function UserProfilePage({
     setSelectedFolder(folder);
     setMedias([]);
     setMediaPage(1);
+    setFavSelected(new Set());
+    setFavSelectMode(false);
     loadMedias(folder, 1, false);
   };
 
@@ -149,6 +168,39 @@ export function UserProfilePage({
   const handleBackToFolders = () => {
     setSelectedFolder(null);
     setMedias([]);
+    setFavSelected(new Set());
+    setFavSelectMode(false);
+  };
+
+  // 收藏夹批量下载已选视频
+  const downloadFavSelected = async () => {
+    if (!onBatchDownload || favSelected.size === 0 || !selectedFolder) return;
+    setFavBatchBusy(true);
+    try {
+      await onBatchDownload([...favSelected], selectedFolder.title);
+      setFavSelected(new Set());
+      setFavSelectMode(false);
+    } finally {
+      setFavBatchBusy(false);
+    }
+  };
+
+  // 订阅收藏夹追更（收藏夹有新增时自动下载）
+  const handleSubscribeFolder = async (folder: FavoriteFolder) => {
+    try {
+      await invoke("add_subscription", {
+        kind: "favorite",
+        sourceId: folder.id.toString(),
+        title: folder.title,
+        cover: "",
+        upperName: userInfo.uname,
+        upperMid: userInfo.mid,
+      });
+      setSubscribedFolder(folder.id);
+      toast.success(`已订阅「${folder.title}」追更：新增收藏将自动下载`);
+    } catch (e) {
+      toast.error(friendlyError(e));
+    }
   };
 
   // 点击视频：解析后跳转详情
@@ -348,28 +400,46 @@ export function UserProfilePage({
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {folders.map((folder) => (
-                  <button
+                  <div
                     key={folder.id}
-                    onClick={() => handleSelectFolder(folder)}
-                    className="flex items-center gap-3 px-4 py-3 bg-panel border border-line rounded-lg hover:bg-base hover:border-line-2 transition-colors text-left"
+                    className="flex items-center gap-1 px-4 py-3 bg-panel border border-line rounded-lg hover:border-line-2 transition-colors"
                   >
-                    <FolderOpen
-                      size={20}
-                      className="text-yellow-500 shrink-0"
-                    />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-ink-2 truncate">
-                        {folder.title}
-                      </p>
-                      <p className="text-xs text-ink-3">
-                        {folder.media_count} 个视频
-                      </p>
-                    </div>
-                    <ChevronDown
-                      size={14}
-                      className="text-ink-3 -rotate-90 shrink-0"
-                    />
-                  </button>
+                    <button
+                      onClick={() => handleSelectFolder(folder)}
+                      className="flex items-center gap-3 flex-1 min-w-0 text-left"
+                    >
+                      <FolderOpen
+                        size={20}
+                        className="text-yellow-500 shrink-0"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-ink-2 truncate">
+                          {folder.title}
+                        </p>
+                        <p className="text-xs text-ink-3">
+                          {folder.media_count} 个视频
+                        </p>
+                      </div>
+                      <ChevronDown
+                        size={14}
+                        className="text-ink-3 -rotate-90 shrink-0"
+                      />
+                    </button>
+                    {/* 订阅追更：收藏夹新增内容自动下载 */}
+                    <button
+                      onClick={() => handleSubscribeFolder(folder)}
+                      disabled={subscribedFolder === folder.id}
+                      title="订阅追更：新增收藏自动下载"
+                      className={cn(
+                        "p-1.5 rounded-lg transition-colors shrink-0",
+                        subscribedFolder === folder.id
+                          ? "text-green-500 bg-green-50"
+                          : "text-ink-3 hover:text-blue-500 hover:bg-blue-50"
+                      )}
+                    >
+                      {subscribedFolder === folder.id ? <Check size={14} /> : <Bell size={14} />}
+                    </button>
+                  </div>
                 ))}
               </div>
             )}
@@ -381,6 +451,7 @@ export function UserProfilePage({
           <WatchLaterTab
             onParseVideo={onParseVideo}
             onSelectItem={onSelectItem}
+            onBatchDownload={onBatchDownload}
           />
         )}
 
@@ -408,6 +479,7 @@ export function UserProfilePage({
             scrollRef={scrollRef}
             onParseVideo={onParseVideo}
             onSelectItem={onSelectItem}
+            onBatchDownload={onBatchDownload}
           />
         )}
 
@@ -416,6 +488,7 @@ export function UserProfilePage({
           <SubscriptionsTab
             onParseVideo={onParseVideo}
             onSelectItem={onSelectItem}
+            onBatchDownload={onBatchDownload}
           />
         )}
 
@@ -424,12 +497,25 @@ export function UserProfilePage({
           <BangumiTab
             onParseVideo={onParseVideo}
             onSelectItem={onSelectItem}
+            onBatchDownloadSeason={onBatchDownloadSeason}
           />
         )}
 
         {/* 收藏夹视频列表视图 */}
         {selectedFolder && (
           <>
+            {onBatchDownload && medias.length > 0 && (
+              <BatchBar
+                selectMode={favSelectMode}
+                onToggleMode={() => setFavSelectMode((v) => !v)}
+                selectedCount={favSelected.size}
+                totalCount={medias.length}
+                onSelectAll={() => setFavSelected(new Set(medias.filter((m) => m.bvid).map((m) => m.bvid)))}
+                onClearSelection={() => setFavSelected(new Set())}
+                onDownloadSelected={downloadFavSelected}
+                busy={favBatchBusy}
+              />
+            )}
             {medias.length === 0 && !loadingMedias ? (
               <div className="flex flex-col items-center justify-center py-12 text-ink-3 gap-2">
                 <FolderOpen size={40} strokeWidth={1.5} />
@@ -448,20 +534,63 @@ export function UserProfilePage({
                     }
                   }}
                   renderItem={(media) => (
-                    <button
-                      onClick={() => handleSelectVideo(media)}
-                      disabled={parsingBvid === media.bvid}
-                      className="flex items-start gap-3 w-full px-4 py-3 bg-panel border border-line rounded-lg hover:bg-base hover:border-line-2 transition-colors text-left disabled:opacity-70"
+                    <div
+                      key={media.bvid}
+                      onClick={
+                        favSelectMode && media.bvid
+                          ? () =>
+                              setFavSelected((prev) => {
+                                const next = new Set(prev);
+                                if (next.has(media.bvid)) next.delete(media.bvid);
+                                else next.add(media.bvid);
+                                return next;
+                              })
+                          : undefined
+                      }
+                      className={cn(
+                        "flex items-start gap-3 w-full px-4 py-3 bg-panel border rounded-lg transition-colors text-left",
+                        favSelectMode && "cursor-pointer",
+                        favSelectMode && media.bvid && favSelected.has(media.bvid)
+                          ? "border-blue-300 bg-blue-50"
+                          : "border-line hover:bg-base hover:border-line-2"
+                      )}
                     >
                       {/* 封面 */}
-                      <img
-                        src={media.cover}
-                        alt={media.title}
-                        className="w-24 h-16 rounded object-cover shrink-0 bg-panel-2"
-                      />
+                      <div className="relative shrink-0">
+                        <img
+                          src={media.cover}
+                          alt={media.title}
+                          className="w-24 h-16 rounded object-cover bg-panel-2"
+                        />
+                        {favSelectMode && (
+                          <span
+                            className={cn(
+                              "absolute -top-1.5 -left-1.5 w-5 h-5 rounded-full flex items-center justify-center border-2",
+                              media.bvid && favSelected.has(media.bvid)
+                                ? "bg-blue-500 border-blue-500"
+                                : "bg-panel border-line-2"
+                            )}
+                          >
+                            {media.bvid && favSelected.has(media.bvid) && (
+                              <Check size={12} className="text-white" />
+                            )}
+                          </span>
+                        )}
+                      </div>
 
                       {/* 信息 */}
-                      <div className="flex-1 min-w-0">
+                      <button
+                        onClick={
+                          favSelectMode || parsingBvid === media.bvid
+                            ? undefined
+                            : () => handleSelectVideo(media)
+                        }
+                        disabled={!favSelectMode && parsingBvid === media.bvid}
+                        className={cn(
+                          "flex-1 min-w-0 text-left",
+                          !favSelectMode && "cursor-pointer"
+                        )}
+                      >
                         <p className="text-sm text-ink-2 line-clamp-2 leading-snug">
                           {media.title}
                         </p>
@@ -489,16 +618,16 @@ export function UserProfilePage({
                             </span>
                           )}
                         </div>
-                      </div>
+                      </button>
 
                       {/* 解析中指示器 */}
-                      {parsingBvid === media.bvid && (
+                      {!favSelectMode && parsingBvid === media.bvid && (
                         <Loader2
                           size={16}
                           className="animate-spin text-blue-500 shrink-0 mt-1"
                         />
                       )}
-                    </button>
+                    </div>
                   )}
                 />
 

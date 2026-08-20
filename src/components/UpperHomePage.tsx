@@ -10,13 +10,15 @@ interface Props {
   onBack: () => void;
   onParseVideo: (url: string) => Promise<ParsedVideoInfo>;
   onSelectItem: (videoInfo: ParsedVideoInfo) => void;
+  /** 批量下载（透传给 UpperView 的投稿/合集列表） */
+  onBatchDownload?: (bvids: string[], folder?: string) => Promise<void>;
 }
 
 /**
  * UP 主主页全屏视图：头部返回栏 + 滚动容器 + 投稿/合集内容（UpperView）。
  * 从「发现」搜索结果、以及「视频详情页点头像」两处复用，避免重复内联布局。
  */
-export function UpperHomePage({ mid, sourceLabel, onBack, onParseVideo, onSelectItem }: Props) {
+export function UpperHomePage({ mid, sourceLabel, onBack, onParseVideo, onSelectItem, onBatchDownload }: Props) {
   // VirtualList 需要外层滚动容器 ref 来做窗口化渲染
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -42,6 +44,7 @@ export function UpperHomePage({ mid, sourceLabel, onBack, onParseVideo, onSelect
           scrollRef={scrollRef}
           onParseVideo={onParseVideo}
           onSelectItem={onSelectItem}
+          onBatchDownload={onBatchDownload}
         />
       </div>
     </div>

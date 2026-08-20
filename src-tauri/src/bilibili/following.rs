@@ -84,3 +84,72 @@ pub async fn get_followings(page: u32, credential: &Credential) -> Result<PagedR
         page,
     })
 }
+
+/// 获取某用户的粉丝列表（分页，公开接口）
+/// API: GET https://api.bilibili.com/x/relation/followers?vmid=&pn=&ps=
+/// 与关注列表结构一致，用于 UP 主主页的「粉丝」tab。
+pub async fn get_followers(
+    mid: i64,
+    page: u32,
+    credential: &Credential,
+) -> Result<PagedResult<FollowingItem>> {
+    let client = api_client();
+
+    let resp_text = client
+        .get("https://api.bilibili.com/x/relation/followers")
+        .header("Referer", REFERER)
+        .header("Cookie", credential.cookie_header())
+        .query(&[
+            ("vmid", mid.to_string().as_str()),
+            ("pn", page.to_string().as_str()),
+            ("ps", "50"),
+        ])
+        .send()
+        .await?
+        .text()
+        .await?;
+
+    let resp: Value =
+        serde_json::from_str(&resp_text).context("粉丝列表响应解析失败")?;
+    let code = resp["code"].as_i64().unwrap_or(-1);
+    if code != 0 {
+        anyhow::bail!(
+            "获取粉丝列表失败: {}",
+            resp["message"].as_str().unwrap_or("未知错误")
+        );
+    }
+
+    let total = resp["data"]["total"].as_i64().unwrap_or(0);
+    let list = resp["data"]["list"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+
+    let items: Vec<FollowingItem> = list
+        .into_iter()
+        .map(|v| FollowingItem {
+            mid: v["mid"].as_i64().unwrap_or(0),
+            name: v["uname"].as_str().unwrap_or("未知用户").to_string(),
+            face: http_to_https(v["face"].as_str().unwrap_or("")),
+            sign: v["sign"].as_str().unwrap_or("").to_string(),
+        })
+        .collect();
+
+    let page_size = 50i64;
+    let has_more = total > (page as i64) * page_size;
+
+    log::info!(
+        "[following] mid={} 第 {} 页粉丝: {} 个, total={}",
+        mid,
+        page,
+        items.len(),
+        total
+    );
+
+    Ok(PagedResult {
+        items,
+        total,
+        has_more,
+        page,
+    })
+}

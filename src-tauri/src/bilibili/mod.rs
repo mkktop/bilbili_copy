@@ -54,7 +54,7 @@ pub struct BilibiliResponse<T> {
     pub message: Option<String>,
 }
 
-/// 通用视频列表项：稍后再看 / UP主投稿 / 合集 共用，前端可复用同一套卡片
+/// 通用视频列表项：稍后再看 / UP主投稿 / 合集 / 相关推荐 共用，前端可复用同一套卡片
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VideoListItem {
     pub bvid: String,
@@ -64,6 +64,9 @@ pub struct VideoListItem {
     pub upper_name: String,
     #[serde(default)]
     pub upper_mid: i64,
+    /// 视频 aid（0 表示未知；相关推荐/播放列表联动用）
+    #[serde(default)]
+    pub aid: i64,
     /// 时长（秒）
     #[serde(default)]
     pub duration: i64,

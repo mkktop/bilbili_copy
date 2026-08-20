@@ -42,6 +42,18 @@ pub async fn get_hot_search(limit: Option<u32>) -> Result<Vec<HotSearchItem>, St
         .map_err(|e| e.to_string())
 }
 
+/// 获取搜索联想词（公开接口；输入时下拉提示，失败返回空数组即可）
+#[tauri::command]
+pub async fn get_search_suggest(term: String) -> Result<Vec<String>, String> {
+    match search::get_suggest(term.trim()).await {
+        Ok(items) => Ok(items),
+        Err(e) => {
+            log::debug!("[search] 联想词获取失败（静默）: {}", e);
+            Ok(Vec::new())
+        }
+    }
+}
+
 /// 获取搜索历史（最近 limit 条，默认 10）
 #[tauri::command]
 pub fn get_search_history(

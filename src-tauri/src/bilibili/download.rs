@@ -114,6 +114,55 @@ pub struct DownloadProgress {
     pub downloaded: u64,
     pub total: u64,
     pub percent: f64,
+    /// 实时速度（字节/秒，按上报点增量估算；0 表示尚无足够样本）
+    pub speed: u64,
+}
+
+/// 进度速度跟踪器：在进度上报点之间用「字节增量 / 时间增量」估算速率。
+/// 并行下载的分片任务并发上报，共享同一 tracker；两次采样间隔不足
+/// SPEED_MIN_INTERVAL 时沿用上次结果，避免 512KB 粒度的高频上报让速度剧烈抖动。
+pub(crate) struct SpeedTracker {
+    last_speed: std::sync::atomic::AtomicU64,
+    /// 上次采样点 (累计字节, 时刻)
+    state: std::sync::Mutex<Option<(u64, std::time::Instant)>>,
+}
+
+const SPEED_MIN_INTERVAL: Duration = Duration::from_millis(500);
+
+impl SpeedTracker {
+    pub fn new() -> Self {
+        Self {
+            last_speed: std::sync::atomic::AtomicU64::new(0),
+            state: std::sync::Mutex::new(None),
+        }
+    }
+
+    /// 记录当前累计字节数，返回平滑后的速度（字节/秒）。
+    pub fn update(&self, current_bytes: u64) -> u64 {
+        let mut state = self.state.lock().unwrap_or_else(|p| p.into_inner());
+        let now = std::time::Instant::now();
+        match *state {
+            Some((prev_bytes, prev_time)) => {
+                let dt = now.saturating_duration_since(prev_time);
+                if dt >= SPEED_MIN_INTERVAL {
+                    let speed = current_bytes
+                        .saturating_sub(prev_bytes)
+                        .saturating_mul(1000)
+                        / dt.as_millis().max(1) as u64;
+                    self.last_speed
+                        .store(speed, std::sync::atomic::Ordering::Relaxed);
+                    *state = Some((current_bytes, now));
+                    speed
+                } else {
+                    self.last_speed.load(std::sync::atomic::Ordering::Relaxed)
+                }
+            }
+            None => {
+                *state = Some((current_bytes, now));
+                self.last_speed.load(std::sync::atomic::Ordering::Relaxed)
+            }
+        }
+    }
 }
 
 /// 下载完成事件载荷
@@ -748,6 +797,7 @@ async fn download_parallel(
     let total_for_progress = total_size;
     let downloaded_counter = Arc::new(std::sync::atomic::AtomicU64::new(initial_downloaded));
     let last_report = Arc::new(std::sync::atomic::AtomicU64::new(initial_downloaded));
+    let speed_tracker = Arc::new(SpeedTracker::new());
 
     // 续传时立即发一次初始进度事件，让前端进度条直接显示在续传位置（而非从 0 开始等首次 tick）
     if initial_downloaded > 0 {
@@ -760,6 +810,7 @@ async fn download_parallel(
                 downloaded: initial_downloaded,
                 total: total_size,
                 percent,
+                speed: 0,
             },
         );
         log::info!(
@@ -789,6 +840,7 @@ async fn download_parallel(
             let stream_label = stream_label.to_string();
             let downloaded_counter = downloaded_counter.clone();
             let last_report = last_report.clone();
+            let speed_tracker = speed_tracker.clone();
             let app = app.clone();
             let cancel = cancel.clone();
             let done_state = done_state.clone();
@@ -800,7 +852,7 @@ async fn download_parallel(
                 let bytes = download_range_segment(
                     &client, &url, &cookie, &temp_path, start, end, seg_idx,
                     &download_id, &stream_label, &downloaded_counter, &last_report,
-                    total_for_progress, &app, max_bps, &cancel,
+                    total_for_progress, &app, max_bps, &cancel, &speed_tracker,
                 )
                 .await?;
 
@@ -874,6 +926,7 @@ async fn download_range_segment(
     app: &AppHandle,
     max_bps: u64,
     cancel: &CancellationToken,
+    speed_tracker: &SpeedTracker,
 ) -> Result<u64> {
     let range_header = format!("bytes={}-{}", start, end);
     log::debug!(
@@ -929,6 +982,7 @@ async fn download_range_segment(
                 std::sync::atomic::Ordering::Relaxed,
             );
             let percent = (global_downloaded as f64 / total_size as f64) * 100.0;
+            let speed = speed_tracker.update(global_downloaded);
             let _ = app.emit(
                 "download://progress",
                 DownloadProgress {
@@ -937,6 +991,7 @@ async fn download_range_segment(
                     downloaded: global_downloaded,
                     total: total_size,
                     percent,
+                    speed,
                 },
             );
         }
@@ -1033,6 +1088,7 @@ async fn download_single(
     let mut last_report: u64 = resume_from;
     let report_interval: u64 = 512 * 1024;
     let effective_total = if total_size > 0 { total_size + resume_from } else { 0 };
+    let speed_tracker = SpeedTracker::new();
 
     // 续传时立即发一次初始进度，让前端进度条直接显示在续传位置
     if resume_from > 0 && effective_total > 0 {
@@ -1045,6 +1101,7 @@ async fn download_single(
                 downloaded,
                 total: effective_total,
                 percent,
+                speed: 0,
             },
         );
     }
@@ -1069,6 +1126,7 @@ async fn download_single(
             } else {
                 ((downloaded as f64 / (50.0 * 1024.0 * 1024.0)) % 1.0) * 100.0
             };
+            let speed = speed_tracker.update(downloaded);
 
             let _ = app.emit(
                 "download://progress",
@@ -1078,6 +1136,7 @@ async fn download_single(
                     downloaded,
                     total: effective_total,
                     percent,
+                    speed,
                 },
             );
 

@@ -3,13 +3,13 @@ use crate::bilibili::{REFERER, api_client};
 use anyhow::{Context, Result};
 use serde_json::Value;
 
-/// 发送已认证的互动 POST 请求（点赞/投币/收藏）。
+/// 发送已认证的互动 POST 请求（点赞/投币/收藏/稍后再看增删）。
 ///
 /// 统一处理：Cookie 注入、csrf 表单字段、code != 0 报错、风控 v_voucher 检测。
 ///
 /// 基础版策略：命中风控时直接 bail 并带可读提示，不自动重试（用户手动重试）。
 /// 互动类接口（like/coin/favorite）触发风控的概率远低于下载 playurl，故此策略可接受。
-async fn interaction_post(
+pub(crate) async fn interaction_post(
     url: &str,
     form: Vec<(&str, String)>,
     credential: &Credential,

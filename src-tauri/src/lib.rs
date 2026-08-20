@@ -5,8 +5,7 @@ mod download_manager;
 
 use commands::settings::{get_settings, save_settings, patch_settings, get_gpu_presets, get_resolution_presets, generate_fingerprint_cmd, generate_random_fingerprint, load_settings, store_settings};
 use tauri::Manager;
-use commands::video::parse_video;
-use commands::download::{download_video, pause_download, cancel_download, set_download_priority};
+use commands::download::{download_video, pause_download, cancel_download, set_download_priority, pause_all_downloads};
 use commands::login::{login_generate_qrcode, login_poll_qrcode, login_check, login_logout};
 use commands::risk_control::{captcha_register, captcha_validate};
 use commands::history::{
@@ -15,22 +14,25 @@ use commands::history::{
     get_play_progress, save_play_progress,
 };
 use commands::favorite::{get_favorite_folders, get_favorite_videos};
-use commands::watch_later::get_watch_later;
-use commands::search::{search_videos, get_hot_search, get_search_history, save_search_keyword, delete_search_keyword, clear_search_history};
+use commands::watch_later::{get_watch_later, add_watch_later, remove_watch_later};
+use commands::search::{search_videos, get_hot_search, get_search_suggest, get_search_history, save_search_keyword, delete_search_keyword, clear_search_history};
 use commands::submission::{get_upper_info, get_submission_videos};
 use commands::collection::{get_upper_collections, get_collection_videos, get_subscribed_collections};
-use commands::following::get_followings;
+use commands::following::{get_followings, get_followers};
 use commands::history_cmd::get_watch_history;
 use commands::ranking::get_ranking;
 use commands::pgc::{get_pgc_rank, get_bangumi_follow};
 use commands::recommend::get_recommend;
 use commands::region::get_region;
-use commands::comment::get_video_comments;
+use commands::comment::{get_video_comments, get_comment_replies};
 use commands::dynamic::get_dynamic_feed;
 use commands::article::{get_article_content, export_article_markdown};
 use commands::interaction::{like_video, coin_video, favorite_video};
+use commands::video::{parse_video, get_related_videos, get_ai_summary};
 use commands::player::{get_play_streams, get_danmaku_json, get_subtitle_list, get_subtitle_cues, log_player_error, get_seek_index};
-use commands::weekly::{get_weekly_series, get_weekly_detail};
+use commands::weekly::{get_weekly_series, get_weekly_detail, get_precious_list};
+use commands::batch::{batch_download_bvids, batch_download_season};
+use commands::subscription::{get_subscriptions, add_subscription, remove_subscription, check_subscription};
 use download_manager::manager;
 
 /// Read Windows system proxy settings and set HTTPS_PROXY env var
@@ -275,6 +277,32 @@ pub fn run() {
                 manager().run_dispatcher(app_handle).await;
             });
 
+            // ==================== 订阅自动追更调度器 ====================
+            // 每分钟醒一次，按 settings.subscription_check_interval_min 检查全部订阅。
+            // 间隔为 0（默认关闭）时静默跳过。启动后约 1 分钟做首次检查（last_run=0）。
+            let sub_app = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                let mut last_run: u64 = 0;
+                loop {
+                    tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+                    // load_settings 解析失败时自带默认值，不会失败
+                    let interval =
+                        commands::settings::load_settings().subscription_check_interval_min as u64;
+                    if interval == 0 {
+                        continue;
+                    }
+                    let now = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_secs())
+                        .unwrap_or(0);
+                    if now.saturating_sub(last_run) < interval * 60 {
+                        continue;
+                    }
+                    last_run = now;
+                    commands::subscription::check_all_subscriptions(sub_app.clone()).await;
+                }
+            });
+
             // ==================== 系统托盘 ====================
             // 关闭窗口时拦截 → 隐藏到托盘（后台下载继续）。托盘菜单提供「显示主窗口」「退出」。
             use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
@@ -393,6 +421,21 @@ pub fn run() {
             get_seek_index,
             get_weekly_series,
             get_weekly_detail,
+            get_precious_list,
+            get_related_videos,
+            get_ai_summary,
+            get_comment_replies,
+            get_search_suggest,
+            add_watch_later,
+            remove_watch_later,
+            get_followers,
+            pause_all_downloads,
+            batch_download_bvids,
+            batch_download_season,
+            get_subscriptions,
+            add_subscription,
+            remove_subscription,
+            check_subscription,
         ])
         .on_window_event(|window, event| {
             // 拦截主窗口关闭：根据设置决定是「最小化到托盘」还是「正常退出」。

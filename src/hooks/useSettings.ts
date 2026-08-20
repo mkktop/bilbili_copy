@@ -56,6 +56,8 @@ export interface AppSettings {
   nfo_include_actor: boolean;
   // NFO 详细选项 - 写入播放统计 <tag>(播放量/点赞数)
   nfo_include_stats: boolean;
+  // 订阅自动检查间隔（分钟，0 = 关闭自动追更）
+  subscription_check_interval_min: number;
 }
 
 export function useSettings() {
@@ -96,6 +98,7 @@ export function useSettings() {
     nfo_include_genre: true,
     nfo_include_actor: true,
     nfo_include_stats: true,
+    subscription_check_interval_min: 0,
   });
   const [loading, setLoading] = useState(true);
 

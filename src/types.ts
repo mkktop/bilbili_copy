@@ -130,6 +130,13 @@ export interface DownloadTask {
   subtitleOnly?: boolean;
   /** 仅音频模式（恢复/重试时透传） */
   audioOnly?: boolean;
+  // ---- 运行时进度信息（不落库，来自 download://progress 事件）----
+  /** 当前流实时速度（字节/秒；0=未知） */
+  speed?: number;
+  /** 当前流已下载字节（视频/音频分阶段计数） */
+  downloadedBytes?: number;
+  /** 当前流总字节（未知为 0） */
+  totalBytes?: number;
 }
 
 /**
@@ -255,13 +262,15 @@ export function dbToDownloadTask(entry: DownloadHistoryEntry): DownloadTask {
 
 // ==================== 通用列表类型 ====================
 
-/** 通用视频列表项：稍后再看 / 投稿 / 合集 共用 */
+/** 通用视频列表项：稍后再看 / 投稿 / 合集 / 相关推荐 共用 */
 export interface VideoListItem {
   bvid: string;
   title: string;
   cover: string;
   upper_name: string;
   upper_mid: number;
+  /** 视频 aid（0 表示未知；相关推荐/播放联动用） */
+  aid?: number;
   duration: number;
   play: number;
   danmaku: number;
@@ -621,5 +630,70 @@ export interface PlaylistItem {
   cover?: string;
   /** UP 主名（播放列表面板展示用） */
   upper_name?: string;
+}
+
+// ==================== AI 总结 / 相关推荐 ====================
+
+/** 播放器内弹幕渲染样式（从设置读取，与下载 ASS 的弹幕配置同源） */
+export interface DanmakuStyleConfig {
+  /** 字号（px） */
+  fontSize: number;
+  /** 滚动弹幕跨屏时长（秒，越大越慢） */
+  scrollDuration: number;
+  /** 透明度 0-1 */
+  opacity: number;
+  /** 屏蔽顶部弹幕 */
+  blockTop: boolean;
+  /** 屏蔽底部弹幕 */
+  blockBottom: boolean;
+}
+
+/** AI 总结大纲小节内的单个时间点条目 */
+export interface AiOutlinePart {
+  /** 时间点（秒） */
+  timestamp: number;
+  content: string;
+}
+
+/** AI 总结大纲小节 */
+export interface AiOutlineSection {
+  title: string;
+  parts: AiOutlinePart[];
+}
+
+/** 官方 AI 视频总结（get_ai_summary 返回；无总结时后端返回 null） */
+export interface AiSummary {
+  summary: string[];
+  outline: AiOutlineSection[];
+}
+
+// ==================== 批量下载 / 订阅 ====================
+
+/** 批量下载提交结果（batch_download_bvids / batch_download_season 返回） */
+export interface BatchDownloadResult {
+  total: number;
+  queued: number;
+  skipped: number;
+}
+
+/** 本地订阅条目（get_subscriptions 返回；订阅追更用） */
+export interface SubscriptionEntry {
+  id: number;
+  /** "season" | "series"（UP 合集/列表）或 "favorite"（收藏夹） */
+  kind: "season" | "series" | "favorite" | string;
+  source_id: string;
+  title: string;
+  cover: string;
+  upper_name: string;
+  upper_mid: number;
+  known_bvids?: string[];
+  last_check?: string | null;
+  created_at?: string;
+}
+
+/** 单条订阅检查结果（check_subscription 返回） */
+export interface SubscriptionCheckResult {
+  queued: number;
+  skipped: number;
 }
 

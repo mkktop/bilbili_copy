@@ -319,3 +319,39 @@ pub async fn get_hot_search(limit: u32, credential: Option<&Credential>) -> Resu
     log::info!("[search] 获取到 {} 条热搜", items.len());
     Ok(items)
 }
+
+// ==================== 搜索联想 ====================
+
+/// 获取搜索联想词（输入时下拉提示）
+/// API: GET https://s.search.bilibili.com/main/suggest?term={kw}&main_ver=v1
+/// 公开接口。返回 result.tag[].value；失败/无联想静默返回空（前端只是不显示下拉）。
+pub async fn get_suggest(term: &str) -> Result<Vec<String>> {
+    let client = api_client();
+    let resp_text = client
+        .get("https://s.search.bilibili.com/main/suggest")
+        .header("Referer", "https://search.bilibili.com/")
+        .query(&[("term", term), ("main_ver", "v1")])
+        .send()
+        .await?
+        .text()
+        .await?;
+
+    let resp: Value =
+        serde_json::from_str(&resp_text).context("联想词响应解析失败")?;
+    if resp["code"].as_i64().unwrap_or(-1) != 0 {
+        return Ok(Vec::new());
+    }
+
+    let items: Vec<String> = resp["result"]["tag"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|v| v["value"].as_str().map(|s| s.to_string()))
+        .filter(|s| !s.is_empty())
+        .take(8)
+        .collect();
+
+    log::debug!("[search] 联想词 {:?} → {} 条", term, items.len());
+    Ok(items)
+}

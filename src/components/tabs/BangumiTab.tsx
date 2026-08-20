@@ -1,16 +1,18 @@
 import { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Loader2, AlertCircle, Tv, Star, CheckCircle2 } from "lucide-react";
+import { Loader2, AlertCircle, Tv, Star, CheckCircle2, Download } from "lucide-react";
 import type { BangumiFollowItem, BangumiFollowResult, ParsedVideoInfo } from "../../types";
 import { friendlyError } from "../../lib/errors";
 
 interface Props {
   onParseVideo: (url: string) => Promise<ParsedVideoInfo>;
   onSelectItem: (videoInfo: ParsedVideoInfo) => void;
+  /** 整季批量下载（season 全部正片入队，已下载的自动跳过） */
+  onBatchDownloadSeason?: (seasonId: number, title: string) => Promise<void>;
 }
 
 /** 追番/追剧 Tab：type=1 追番（番剧/国创），type=2 追剧（电影/电视剧/纪录片/综艺） */
-export function BangumiTab({ onParseVideo, onSelectItem }: Props) {
+export function BangumiTab({ onParseVideo, onSelectItem, onBatchDownloadSeason }: Props) {
   const [followType, setFollowType] = useState<1 | 2>(1);
   const [items, setItems] = useState<BangumiFollowItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -20,6 +22,7 @@ export function BangumiTab({ onParseVideo, onSelectItem }: Props) {
   const [hasMore, setHasMore] = useState(false);
   const [total, setTotal] = useState(0);
   const [parsingId, setParsingId] = useState<number | null>(null);
+  const [downloadingSeason, setDownloadingSeason] = useState<number | null>(null);
 
   const load = useCallback(
     async (type: 1 | 2, pageNum: number, append: boolean) => {
@@ -62,6 +65,17 @@ export function BangumiTab({ onParseVideo, onSelectItem }: Props) {
       // 上层处理
     } finally {
       setParsingId(null);
+    }
+  };
+
+  // 整季下载：season 全部正片批量入队（后端去重）
+  const handleDownloadSeason = async (item: BangumiFollowItem) => {
+    if (!onBatchDownloadSeason || downloadingSeason || !item.season_id) return;
+    setDownloadingSeason(item.season_id);
+    try {
+      await onBatchDownloadSeason(item.season_id, item.title);
+    } finally {
+      setDownloadingSeason(null);
     }
   };
 
@@ -119,7 +133,10 @@ export function BangumiTab({ onParseVideo, onSelectItem }: Props) {
                 key={item.season_id}
                 item={item}
                 loading={parsingId === item.season_id}
+                seasonBusy={downloadingSeason === item.season_id}
+                showSeasonDownload={!!onBatchDownloadSeason}
                 onClick={() => handleSelect(item)}
+                onDownloadSeason={() => handleDownloadSeason(item)}
               />
             ))}
           </div>
@@ -141,22 +158,29 @@ export function BangumiTab({ onParseVideo, onSelectItem }: Props) {
   );
 }
 
-/** 追番卡片：竖版封面 + 标题 + 更新状态 + 进度/评分角标 */
+/** 追番卡片：竖版封面 + 标题 + 更新状态 + 进度/评分角标 + 整季下载按钮 */
 function BangumiCard({
   item,
   loading,
+  seasonBusy,
+  showSeasonDownload,
   onClick,
+  onDownloadSeason,
 }: {
   item: BangumiFollowItem;
   loading: boolean;
+  seasonBusy: boolean;
+  showSeasonDownload: boolean;
   onClick: () => void;
+  onDownloadSeason: () => void;
 }) {
   return (
-    <button
-      onClick={onClick}
-      disabled={loading || !item.season_id}
-      className="flex flex-col bg-panel border border-line rounded-lg overflow-hidden hover:border-line-2 transition-colors text-left disabled:opacity-70"
-    >
+    <div className="relative">
+      <button
+        onClick={onClick}
+        disabled={loading || !item.season_id}
+        className="flex flex-col w-full bg-panel border border-line rounded-lg overflow-hidden hover:border-line-2 transition-colors text-left disabled:opacity-70"
+      >
       <div className="relative aspect-[3/4] bg-panel-2">
         <img
           src={item.cover}
@@ -195,6 +219,22 @@ function BangumiCard({
           <p className="text-[10px] text-blue-500 truncate">{item.progress}</p>
         )}
       </div>
-    </button>
+      </button>
+      {/* 整季下载：悬浮在卡片右下角，不触发进详情 */}
+      {showSeasonDownload && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onDownloadSeason(); }}
+          disabled={seasonBusy}
+          title="下载整季（已下载的自动跳过）"
+          className="absolute bottom-2 right-2 p-1.5 rounded-lg bg-black/60 text-white hover:bg-blue-500 transition-colors disabled:opacity-70"
+        >
+          {seasonBusy ? (
+            <Loader2 size={13} className="animate-spin" />
+          ) : (
+            <Download size={13} />
+          )}
+        </button>
+      )}
+    </div>
   );
 }

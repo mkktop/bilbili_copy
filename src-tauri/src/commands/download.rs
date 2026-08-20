@@ -272,9 +272,44 @@ pub async fn download_video(
 }
 
 /// 暂停下载任务（中断运行中任务并保留 .tmp，或移除排队中任务）。
+/// 排队任务被移除后不会走 execute_download 收尾流程，这里补发 paused 状态事件，
+/// 否则前端列表停留在「排队中」直到手动刷新。
 #[tauri::command]
-pub fn pause_download(id: String) -> Result<bool, String> {
-    Ok(manager().pause(&id))
+pub fn pause_download(id: String, app: AppHandle) -> Result<bool, String> {
+    use tauri::Emitter;
+    match manager().pause(&id) {
+        crate::download_manager::PauseOutcome::NotFound => Ok(false),
+        crate::download_manager::PauseOutcome::Running => Ok(true),
+        crate::download_manager::PauseOutcome::Pending => {
+            let _ = app.emit(
+                "download://state",
+                crate::download_manager::DownloadStateChange {
+                    id,
+                    status: "paused".to_string(),
+                },
+            );
+            Ok(true)
+        }
+    }
+}
+
+/// 暂停全部任务（批量操作）。返回排队中被移除的任务数；
+/// 运行中任务由各自收尾流程 emit paused，不在此计数。
+#[tauri::command]
+pub fn pause_all_downloads(app: AppHandle) -> Result<usize, String> {
+    use tauri::Emitter;
+    let pending_ids = manager().pause_all();
+    // 排队中被移除的任务补发 paused 事件（运行中任务由收尾流程 emit）
+    for id in &pending_ids {
+        let _ = app.emit(
+            "download://state",
+            crate::download_manager::DownloadStateChange {
+                id: id.clone(),
+                status: "paused".to_string(),
+            },
+        );
+    }
+    Ok(pending_ids.len())
 }
 
 /// 取消下载任务（中断运行中任务并清理 .tmp，或移除排队中任务）。

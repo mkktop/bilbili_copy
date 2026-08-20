@@ -1,5 +1,6 @@
-import { User, Clock, Eye, MessageSquare, Loader2 } from "lucide-react";
+import { User, Clock, Eye, MessageSquare, Loader2, CheckCircle2 } from "lucide-react";
 import { formatDuration, formatDate } from "../types";
+import { cn } from "../lib/utils";
 
 interface VideoCardProps {
   title: string;
@@ -16,6 +17,13 @@ interface VideoCardProps {
   loading?: boolean;
   disabled?: boolean;
   onClick: () => void;
+  // ---- 批量选择模式（列表页批量下载）----
+  /** 开启后点击卡片切换选中态（不再进详情） */
+  selectMode?: boolean;
+  selected?: boolean;
+  onToggleSelect?: () => void;
+  /** 行尾追加内容（如移除按钮），不占点击区 */
+  trailing?: React.ReactNode;
 }
 
 /** 格式化播放量：万 / 亿。统一版本，供全项目复用。 */
@@ -37,12 +45,22 @@ export function VideoCard({
   loading,
   disabled,
   onClick,
+  selectMode,
+  selected,
+  onToggleSelect,
+  trailing,
 }: VideoCardProps) {
   return (
-    <button
-      onClick={onClick}
-      disabled={disabled || loading}
-      className="relative flex items-start gap-3 w-full px-4 py-3 bg-panel border border-line rounded-lg hover:bg-panel-2 hover:border-line-2 transition-colors text-left disabled:opacity-70"
+    <div
+      onClick={selectMode && onToggleSelect ? onToggleSelect : undefined}
+      className={cn(
+        "relative flex items-start gap-3 w-full px-4 py-3 bg-panel border rounded-lg transition-colors text-left",
+        selectMode ? "cursor-pointer" : "hover:bg-panel-2 hover:border-line-2",
+        selected
+          ? "border-blue-300 bg-blue-50"
+          : "border-line",
+        disabled && "opacity-70"
+      )}
     >
       {/* 封面 */}
       <div className="relative shrink-0">
@@ -56,10 +74,31 @@ export function VideoCard({
             {badge}
           </span>
         )}
+        {/* 选中标记 */}
+        {selectMode && (
+          <span
+            className={cn(
+              "absolute -top-1.5 -left-1.5 w-5 h-5 rounded-full flex items-center justify-center border-2",
+              selected ? "bg-blue-500 border-blue-500" : "bg-panel border-line-2"
+            )}
+          >
+            {selected && <CheckCircle2 size={12} className="text-white" />}
+          </span>
+        )}
       </div>
 
       {/* 信息 */}
-      <div className="flex-1 min-w-0">
+      <button
+        type="button"
+        onClick={
+          selectMode && onToggleSelect ? undefined : disabled || loading ? undefined : onClick
+        }
+        disabled={disabled || loading}
+        className={cn(
+          "flex-1 min-w-0 text-left",
+          !selectMode && !disabled && !loading && "cursor-pointer"
+        )}
+      >
         <p className="text-sm text-ink-2 line-clamp-2 leading-snug">{title}</p>
         <div className="flex items-center gap-3 mt-1.5 text-xs text-ink-3 flex-wrap">
           {upperName && (
@@ -88,12 +127,13 @@ export function VideoCard({
           )}
           {!!pubdate && <span>{formatDate(pubdate)}</span>}
         </div>
-      </div>
+      </button>
 
-      {/* 加载指示 */}
+      {/* 行尾（移除按钮等）+ 加载指示 */}
+      {trailing}
       {loading && (
         <Loader2 size={16} className="animate-spin text-blue-500 shrink-0 mt-1" />
       )}
-    </button>
+    </div>
   );
 }

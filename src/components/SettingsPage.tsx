@@ -61,6 +61,8 @@ export function SettingsPage({ settings, onSave, onPatch, onBack, onClearParse, 
   const [nfoIncludeGenre, setNfoIncludeGenre] = useState(settings.nfo_include_genre);
   const [nfoIncludeActor, setNfoIncludeActor] = useState(settings.nfo_include_actor);
   const [nfoIncludeStats, setNfoIncludeStats] = useState(settings.nfo_include_stats);
+  // 订阅追更检查间隔（分钟，0 = 关闭）
+  const [subInterval, setSubInterval] = useState(settings.subscription_check_interval_min);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
@@ -99,6 +101,7 @@ export function SettingsPage({ settings, onSave, onPatch, onBack, onClearParse, 
     setNfoIncludeGenre(settings.nfo_include_genre);
     setNfoIncludeActor(settings.nfo_include_actor);
     setNfoIncludeStats(settings.nfo_include_stats);
+    setSubInterval(settings.subscription_check_interval_min);
   }, [settings]);
 
   const handleSave = async () => {
@@ -141,6 +144,7 @@ export function SettingsPage({ settings, onSave, onPatch, onBack, onClearParse, 
         nfo_include_genre: nfoIncludeGenre,
         nfo_include_actor: nfoIncludeActor,
         nfo_include_stats: nfoIncludeStats,
+        subscription_check_interval_min: subInterval,
       });
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
@@ -254,6 +258,8 @@ export function SettingsPage({ settings, onSave, onPatch, onBack, onClearParse, 
             onNfoIncludeActorChange={(v) => { setNfoIncludeActor(v); setSaved(false); }}
             nfoIncludeStats={nfoIncludeStats}
             onNfoIncludeStatsChange={(v) => { setNfoIncludeStats(v); setSaved(false); }}
+            subscriptionIntervalMin={subInterval}
+            onSubscriptionIntervalMinChange={(v) => { setSubInterval(v); setSaved(false); }}
             saving={saving}
             saved={saved}
             onSave={handleSave}

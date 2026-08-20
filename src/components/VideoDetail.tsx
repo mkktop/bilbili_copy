@@ -1,7 +1,8 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
-import { ArrowLeft, Download, Clock, CheckCircle2, Eye, MessageSquare, ArrowUpDown, ChevronRight, Play, ChevronDown, Copy, Check } from "lucide-react";
-import type { ParsedItem, VideoPage, VideoMeta, PlayingItem } from "../types";
+import { ArrowLeft, Download, Clock, CheckCircle2, Eye, MessageSquare, ArrowUpDown, ChevronRight, Play, ChevronDown, Copy, Check, Sparkles, Tag as TagIcon, ListVideo, Loader2 } from "lucide-react";
+import type { ParsedItem, VideoPage, VideoMeta, PlayingItem, AiSummary, VideoListItem } from "../types";
 import { formatDuration } from "../types";
 import { cn } from "../lib/utils";
 import { formatCount } from "./VideoCard";
@@ -20,6 +21,8 @@ interface VideoDetailProps {
   /** 在线播放（在线强制 H.264；下载仍用用户 codec 设置，互不影响）。
    *  pages=正片分P列表，多分P时播放器顶部显示「选集」菜单可切换。 */
   onPlay?: (p: PlayingItem) => void;
+  /** 点击相关推荐卡片 → 解析该视频并替换当前详情页内容 */
+  onOpenRelated?: (bvid: string) => void;
   /** 返回提交是否成功（false=提交阶段失败如未登录，按钮保持可点） */
   onDownload: (
     id: string,
@@ -36,7 +39,7 @@ interface VideoDetailProps {
   ) => Promise<boolean>;
 }
 
-export function VideoDetail({ entry, sourceLabel, onBack, onOpenUpper, onPlay, onDownload }: VideoDetailProps) {
+export function VideoDetail({ entry, sourceLabel, onBack, onOpenUpper, onPlay, onOpenRelated, onDownload }: VideoDetailProps) {
   const info = entry.videoInfo;
   const [selectedPages, setSelectedPages] = useState<Set<number>>(new Set());
   const [downloadedIds, setDownloadedIds] = useState<Set<string>>(new Set());
@@ -47,6 +50,15 @@ export function VideoDetail({ entry, sourceLabel, onBack, onOpenUpper, onPlay, o
   // 简介：展开/收起（默认 3 行截断）与复制反馈（2s 后恢复图标）
   const [descExpanded, setDescExpanded] = useState(false);
   const [descCopied, setDescCopied] = useState(false);
+  // AI 视频总结：null=不可用（视频未生成/未登录），undefined 前的 loading 态
+  const [aiSummary, setAiSummary] = useState<AiSummary | null>(null);
+  const [aiLoading, setAiLoading] = useState(true);
+  const [aiExpanded, setAiExpanded] = useState(true);
+  // 相关推荐列表
+  const [related, setRelated] = useState<VideoListItem[]>([]);
+  const [relatedLoading, setRelatedLoading] = useState(true);
+  // 稍后再看：加入成功后的短暂反馈
+  const [watchLaterAdded, setWatchLaterAdded] = useState(false);
 
   // 复制简介全文到系统剪贴板（失败静默：剪贴板权限异常不打断浏览）
   const copyDesc = async (text: string) => {
@@ -66,6 +78,48 @@ export function VideoDetail({ entry, sourceLabel, onBack, onOpenUpper, onPlay, o
     () => sortAsc ? rawPages : [...rawPages].reverse(),
     [rawPages, sortAsc]
   );
+
+  // AI 总结：随视频/首P变化重拉（未登录或视频无总结时静默置 null）
+  useEffect(() => {
+    if (!info) return;
+    const cid = info.pages[0]?.cid ?? 0;
+    if (!info.bvid || !cid) {
+      setAiSummary(null);
+      setAiLoading(false);
+      return;
+    }
+    let active = true;
+    setAiLoading(true);
+    invoke<AiSummary | null>("get_ai_summary", { bvid: info.bvid, cid, upMid: info.owner_mid })
+      .then((res) => { if (active) setAiSummary(res); })
+      .catch(() => { if (active) setAiSummary(null); })
+      .finally(() => { if (active) setAiLoading(false); });
+    return () => { active = false; };
+  }, [info?.bvid, info?.pages, info?.owner_mid]);
+
+  // 相关推荐：随视频变化重拉
+  useEffect(() => {
+    if (!info?.bvid) return;
+    let active = true;
+    setRelatedLoading(true);
+    invoke<VideoListItem[]>("get_related_videos", { bvid: info.bvid })
+      .then((res) => { if (active) setRelated(res); })
+      .catch(() => { if (active) setRelated([]); })
+      .finally(() => { if (active) setRelatedLoading(false); });
+    return () => { active = false; };
+  }, [info?.bvid]);
+
+  // 加入稍后再看（需登录；成功后按钮短暂显示"已加入"）
+  const handleAddWatchLater = async () => {
+    if (!info?.bvid || watchLaterAdded) return;
+    try {
+      await invoke("add_watch_later", { bvid: info.bvid });
+      setWatchLaterAdded(true);
+      setTimeout(() => setWatchLaterAdded(false), 2000);
+    } catch {
+      // 失败静默（未登录等场景由后端错误信息提示不了，这里不阻塞浏览）
+    }
+  };
 
   if (!info) {
     return (
@@ -238,8 +292,8 @@ export function VideoDetail({ entry, sourceLabel, onBack, onOpenUpper, onPlay, o
             )
           )}
 
-          {/* 统计数据 + 时长 */}
-          <div className="flex items-center gap-4 text-xs text-ink-3">
+          {/* 统计数据 + 时长 + 标签 */}
+          <div className="flex items-center gap-4 text-xs text-ink-3 flex-wrap">
             {(info.view_count ?? 0) > 0 && (
               <span className="flex items-center gap-1">
                 <Eye size={13} />
@@ -259,6 +313,19 @@ export function VideoDetail({ entry, sourceLabel, onBack, onOpenUpper, onPlay, o
               </span>
             )}
           </div>
+          {(info.tags?.length ?? 0) > 0 && (
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <TagIcon size={12} className="text-ink-3 shrink-0" />
+              {info.tags!.slice(0, 10).map((t) => (
+                <span
+                  key={t}
+                  className="px-1.5 py-0.5 rounded bg-panel-2 border border-line text-[10px] text-ink-3"
+                >
+                  {t}
+                </span>
+              ))}
+            </div>
+          )}
 
           {/* 在线播放：在线走 H.264（webview 兼容）；下载仍用用户 codec 设置 */}
           {onPlay && info.pages[0] && (
@@ -282,12 +349,31 @@ export function VideoDetail({ entry, sourceLabel, onBack, onOpenUpper, onPlay, o
             </button>
           )}
 
-          {/* 互动操作栏：点赞 / 投币 / 收藏（需登录） */}
-          <InteractionBar
-            bvid={info.bvid}
-            aid={info.aid}
-            likeCount={info.like_count}
-          />
+          {/* 互动操作栏：点赞 / 投币 / 收藏（需登录）+ 加入稍后再看 */}
+          <div className="flex items-center gap-2">
+            <InteractionBar
+              bvid={info.bvid}
+              aid={info.aid}
+              likeCount={info.like_count}
+            />
+            {info.bvid && (
+              <button
+                type="button"
+                onClick={handleAddWatchLater}
+                disabled={watchLaterAdded}
+                title="加入稍后再看"
+                className={cn(
+                  "flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs border transition-colors shrink-0",
+                  watchLaterAdded
+                    ? "border-green-200 text-green-600 bg-green-50"
+                    : "border-line text-ink-3 hover:text-ink-2 hover:bg-panel-2"
+                )}
+              >
+                {watchLaterAdded ? <Check size={13} /> : <Clock size={13} />}
+                {watchLaterAdded ? "已加入" : "稍后再看"}
+              </button>
+            )}
+          </div>
 
           {/* 简介：默认 3 行截断，可展开全文；右上角一键复制 */}
           {info.desc && (
@@ -329,6 +415,60 @@ export function VideoDetail({ entry, sourceLabel, onBack, onOpenUpper, onPlay, o
               >
                 {descExpanded ? "收起" : "展开全文"}
               </button>
+            </div>
+          )}
+
+          {/* AI 视频总结（官方「视频看点」）：摘要 + 时间戳章节大纲 */}
+          {(aiLoading || aiSummary) && (
+            <div className="border border-blue-100 bg-blue-50/50 rounded-xl p-3">
+              <button
+                type="button"
+                onClick={() => setAiExpanded((v) => !v)}
+                className="flex items-center gap-1.5 w-full text-left"
+              >
+                <Sparkles size={13} className="text-blue-500 shrink-0" />
+                <span className="text-xs font-medium text-blue-600 flex-1">AI 视频总结</span>
+                {aiLoading ? (
+                  <Loader2 size={12} className="animate-spin text-blue-400" />
+                ) : (
+                  <ChevronDown size={12} className={cn("text-blue-400 transition-transform", aiExpanded && "rotate-180")} />
+                )}
+              </button>
+              {aiExpanded && !aiLoading && aiSummary && (
+                <div className="mt-2 space-y-2">
+                  {aiSummary.summary.length > 0 && (
+                    <ul className="space-y-1">
+                      {aiSummary.summary.map((s, i) => (
+                        <li key={i} className="text-[11px] text-ink-2 leading-relaxed flex gap-1.5">
+                          <span className="text-blue-400 shrink-0 mt-0.5">•</span>
+                          {s}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {aiSummary.outline.length > 0 && (
+                    <div className="space-y-1.5 pt-1 border-t border-blue-100">
+                      {aiSummary.outline.map((sec, i) => (
+                        <div key={i}>
+                          {sec.title && (
+                            <p className="text-[11px] font-medium text-ink-2">{sec.title}</p>
+                          )}
+                          <div className="mt-0.5 space-y-0.5">
+                            {sec.parts.map((p, j) => (
+                              <p key={j} className="text-[11px] text-ink-3 leading-relaxed flex gap-1.5">
+                                <span className="text-blue-500 font-mono shrink-0">
+                                  {formatDuration(p.timestamp)}
+                                </span>
+                                <span className="break-words">{p.content}</span>
+                              </p>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -434,6 +574,45 @@ export function VideoDetail({ entry, sourceLabel, onBack, onOpenUpper, onPlay, o
                     </div>
                   );
                 })}
+              </div>
+            </div>
+          )}
+
+          {/* 相关推荐：点击卡片替换当前详情页内容 */}
+          {(relatedLoading || related.length > 0) && (
+            <div>
+              <div className="flex items-center gap-1.5 mb-2">
+                <ListVideo size={13} className="text-ink-3" />
+                <h3 className="text-xs font-medium text-ink-2">相关推荐</h3>
+                {relatedLoading && (
+                  <Loader2 size={11} className="animate-spin text-ink-3" />
+                )}
+              </div>
+              <div className="space-y-1">
+                {related.slice(0, 10).map((r) => (
+                  <button
+                    key={r.bvid}
+                    type="button"
+                    disabled={!onOpenRelated || !r.bvid}
+                    onClick={() => onOpenRelated?.(r.bvid)}
+                    className="flex items-start gap-2.5 w-full px-2 py-1.5 rounded-lg hover:bg-panel-2 transition-colors text-left disabled:opacity-70"
+                  >
+                    <img
+                      src={r.cover}
+                      alt={r.title}
+                      className="w-20 h-12 rounded object-cover bg-panel-2 shrink-0"
+                      loading="lazy"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs text-ink-2 line-clamp-2 leading-snug">{r.title}</p>
+                      <div className="flex items-center gap-2 mt-0.5 text-[10px] text-ink-3">
+                        <span className="truncate max-w-[10em]">{r.upper_name}</span>
+                        {r.play > 0 && <span>{formatCount(r.play)} 播放</span>}
+                        {r.duration > 0 && <span>{formatDuration(r.duration)}</span>}
+                      </div>
+                    </div>
+                  </button>
+                ))}
               </div>
             </div>
           )}

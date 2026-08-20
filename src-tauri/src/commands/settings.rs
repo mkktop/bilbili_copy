@@ -188,6 +188,9 @@ pub struct AppSettings {
     // NFO 详细选项 - 写入播放统计 <tag>(播放量/点赞数)
     #[serde(default = "default_nfo_include_stats")]
     pub nfo_include_stats: bool,
+    // 订阅自动检查间隔（分钟，0 = 关闭自动追更）
+    #[serde(default)]
+    pub subscription_check_interval_min: u32,
 }
 
 impl Default for AppSettings {
@@ -229,6 +232,7 @@ impl Default for AppSettings {
             nfo_include_genre: default_nfo_include_genre(),
             nfo_include_actor: default_nfo_include_actor(),
             nfo_include_stats: default_nfo_include_stats(),
+            subscription_check_interval_min: 0,
         }
     }
 }
@@ -257,6 +261,7 @@ impl AppSettings {
         self.danmaku_font_size = self.danmaku_font_size.clamp(8, 72);
         self.danmaku_scroll_duration = self.danmaku_scroll_duration.clamp(0.1, 120.0);
         self.danmaku_opacity = self.danmaku_opacity.clamp(0.0, 1.0);
+        self.subscription_check_interval_min = self.subscription_check_interval_min.min(1440);
         if !matches!(self.theme.as_str(), "light" | "dark" | "system") {
             self.theme = "light".to_string();
         }

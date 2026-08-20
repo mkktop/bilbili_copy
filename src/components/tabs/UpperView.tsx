@@ -9,15 +9,20 @@ import {
   Users,
   Film,
   ArrowLeft,
+  Download,
+  Bell,
+  Check,
 } from "lucide-react";
 import type {
   UpperInfo,
   VideoListItem,
   PagedResult,
   CollectionInfo,
+  FollowingItem,
   ParsedVideoInfo,
 } from "../../types";
 import { VideoCard, formatCount } from "../VideoCard";
+import { BatchBar } from "../BatchBar";
 import { VirtualList } from "../VirtualList";
 import { useToast } from "../Toast";
 import { friendlyError } from "../../lib/errors";
@@ -28,14 +33,16 @@ interface Props {
   scrollRef: RefObject<HTMLElement | null>;
   onParseVideo: (url: string) => Promise<ParsedVideoInfo>;
   onSelectItem: (videoInfo: ParsedVideoInfo) => void;
+  /** 批量下载已选视频（投稿/合集列表多选场景） */
+  onBatchDownload?: (bvids: string[], folder?: string) => Promise<void>;
 }
 
-export function UpperView({ mid, scrollRef, onParseVideo, onSelectItem }: Props) {
+export function UpperView({ mid, scrollRef, onParseVideo, onSelectItem, onBatchDownload }: Props) {
   const [upper, setUpper] = useState<UpperInfo | null>(null);
   const [loadingUpper, setLoadingUpper] = useState(true);
   const [upperError, setUpperError] = useState<string | null>(null);
 
-  const [tab, setTab] = useState<"submission" | "collection">("submission");
+  const [tab, setTab] = useState<"submission" | "collection" | "followers">("submission");
 
   // 投稿
   const [submissions, setSubmissions] = useState<VideoListItem[]>([]);
@@ -60,7 +67,86 @@ export function UpperView({ mid, scrollRef, onParseVideo, onSelectItem }: Props)
 
   const [parsingBvid, setParsingBvid] = useState<string | null>(null);
 
+  // 粉丝列表（UP 主主页第三 tab）
+  const [followers, setFollowers] = useState<FollowingItem[]>([]);
+  const [followersTotal, setFollowersTotal] = useState(0);
+  const [followersPage, setFollowersPage] = useState(1);
+  const [followersMore, setFollowersMore] = useState(false);
+  const [loadingFollowers, setLoadingFollowers] = useState(false);
+
+  // 批量下载选择状态（投稿列表 / 合集详情共用）
+  const [selectMode, setSelectMode] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [batchBusy, setBatchBusy] = useState(false);
+  // 当前合集是否已订阅追更（本次会话内记忆，避免重复添加报错）
+  const [subscribedCol, setSubscribedCol] = useState<string | null>(null);
+
   const toast = useToast();
+
+  const toggleSelect = (bvid: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(bvid)) next.delete(bvid);
+      else next.add(bvid);
+      return next;
+    });
+  };
+
+  // 批量下载已选视频（folder 指定下载目录分组）
+  const downloadSelected = async (folder?: string) => {
+    if (!onBatchDownload || selected.size === 0) return;
+    setBatchBusy(true);
+    try {
+      await onBatchDownload([...selected], folder);
+      setSelected(new Set());
+      setSelectMode(false);
+    } finally {
+      setBatchBusy(false);
+    }
+  };
+
+  // 订阅合集追更：只追新增内容（历史内容用批量下载）
+  const handleSubscribeCol = async (c: CollectionInfo) => {
+    try {
+      await invoke("add_subscription", {
+        kind: c.collection_type,
+        sourceId: c.id,
+        title: c.name,
+        cover: c.cover,
+        upperName: upper?.name ?? "",
+        upperMid: c.mid,
+      });
+      setSubscribedCol(`${c.collection_type}-${c.id}`);
+      toast.success(`已订阅「${c.name}」追更：新内容将自动下载`);
+    } catch (e) {
+      toast.error(friendlyError(e));
+    }
+  };
+
+  // 粉丝列表分页加载
+  const loadFollowers = useCallback(
+    async (page: number, append: boolean) => {
+      setLoadingFollowers(true);
+      try {
+        const res = await invoke<PagedResult<FollowingItem>>("get_followers", { mid, page });
+        setFollowers((prev) => (append ? [...prev, ...res.items] : res.items));
+        setFollowersPage(page);
+        setFollowersTotal(res.total);
+        setFollowersMore(res.has_more);
+      } catch (e) {
+        toast.error(`加载粉丝列表失败：${friendlyError(e)}`);
+      } finally {
+        setLoadingFollowers(false);
+      }
+    },
+    [mid, toast]
+  );
+
+  useEffect(() => {
+    if (tab === "followers" && followers.length === 0 && !loadingFollowers) {
+      loadFollowers(1, false);
+    }
+  }, [tab, followers.length, loadingFollowers, loadFollowers]);
 
   // 加载 UP 主信息
   useEffect(() => {
@@ -182,11 +268,12 @@ export function UpperView({ mid, scrollRef, onParseVideo, onSelectItem }: Props)
 
   // ===== 合集视频详情层 =====
   if (selectedCol) {
+    const colKey = `${selectedCol.collection_type}-${selectedCol.id}`;
     return (
       <div>
         <div className="flex items-center gap-2 mb-3">
           <button
-            onClick={() => setSelectedCol(null)}
+            onClick={() => { setSelectedCol(null); setSelected(new Set()); setSelectMode(false); }}
             className="p-1.5 rounded-lg border border-line-2 hover:bg-panel-2 transition-colors"
           >
             <ArrowLeft size={14} />
@@ -195,7 +282,31 @@ export function UpperView({ mid, scrollRef, onParseVideo, onSelectItem }: Props)
             {selectedCol.name}
           </h2>
           <span className="text-xs text-ink-3">{colTotal} 个视频</span>
+          {/* 订阅追更：定时检查新内容并自动下载 */}
+          <button
+            onClick={() => handleSubscribeCol(selectedCol)}
+            disabled={subscribedCol === colKey}
+            className={subscribedCol === colKey
+              ? "flex items-center gap-1 px-2.5 py-1 text-xs rounded-md border border-green-200 text-green-600 bg-green-50"
+              : "flex items-center gap-1 px-2.5 py-1 text-xs rounded-md border border-line text-ink-3 hover:text-accent hover:border-accent transition-colors"}
+          >
+            {subscribedCol === colKey ? <Check size={12} /> : <Bell size={12} />}
+            {subscribedCol === colKey ? "已订阅追更" : "订阅追更"}
+          </button>
         </div>
+
+        {onBatchDownload && colVideos.length > 0 && (
+          <BatchBar
+            selectMode={selectMode}
+            onToggleMode={() => setSelectMode((v) => !v)}
+            selectedCount={selected.size}
+            totalCount={colVideos.length}
+            onSelectAll={() => setSelected(new Set(colVideos.filter((v) => v.bvid).map((v) => v.bvid)))}
+            onClearSelection={() => setSelected(new Set())}
+            onDownloadSelected={() => downloadSelected(selectedCol.name)}
+            busy={batchBusy}
+          />
+        )}
 
         {colVideoError && colVideos.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-12 text-ink-3 gap-2">
@@ -234,9 +345,12 @@ export function UpperView({ mid, scrollRef, onParseVideo, onSelectItem }: Props)
                   play={item.play}
                   danmaku={item.danmaku}
                   pubdate={item.pubdate}
-                  loading={parsingBvid === item.bvid}
+                  loading={!selectMode && parsingBvid === item.bvid}
                   disabled={!item.bvid}
                   onClick={() => handleSelectVideo(item)}
+                  selectMode={selectMode}
+                  selected={!!item.bvid && selected.has(item.bvid)}
+                  onToggleSelect={() => item.bvid && toggleSelect(item.bvid)}
                 />
               )}
             />
@@ -356,6 +470,17 @@ export function UpperView({ mid, scrollRef, onParseVideo, onSelectItem }: Props)
           <Layers size={14} />
           合集/列表
         </button>
+        <button
+          onClick={() => setTab("followers")}
+          className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border transition-colors ${
+            tab === "followers"
+              ? "bg-blue-50 border-blue-300 text-blue-600"
+              : "bg-panel border-line text-ink-3 hover:bg-panel-2"
+          }`}
+        >
+          <Users size={14} />
+          粉丝 {upper && upper.fans > 0 && `(${formatCount(upper.fans)})`}
+        </button>
       </div>
 
       {/* 投稿列表 */}
@@ -379,6 +504,18 @@ export function UpperView({ mid, scrollRef, onParseVideo, onSelectItem }: Props)
             </div>
           ) : (
             <>
+              {onBatchDownload && (
+                <BatchBar
+                  selectMode={selectMode}
+                  onToggleMode={() => setSelectMode((v) => !v)}
+                  selectedCount={selected.size}
+                  totalCount={submissions.length}
+                  onSelectAll={() => setSelected(new Set(submissions.filter((v) => v.bvid).map((v) => v.bvid)))}
+                  onClearSelection={() => setSelected(new Set())}
+                  onDownloadSelected={() => downloadSelected(upper?.name)}
+                  busy={batchBusy}
+                />
+              )}
               <VirtualList
                 items={submissions}
                 scrollRef={scrollRef}
@@ -395,9 +532,12 @@ export function UpperView({ mid, scrollRef, onParseVideo, onSelectItem }: Props)
                     play={item.play}
                     danmaku={item.danmaku}
                     pubdate={item.pubdate}
-                    loading={parsingBvid === item.bvid}
+                    loading={!selectMode && parsingBvid === item.bvid}
                     disabled={!item.bvid}
                     onClick={() => handleSelectVideo(item)}
+                    selectMode={selectMode}
+                    selected={!!item.bvid && selected.has(item.bvid)}
+                    onToggleSelect={() => item.bvid && toggleSelect(item.bvid)}
                   />
                 )}
               />
@@ -479,6 +619,65 @@ export function UpperView({ mid, scrollRef, onParseVideo, onSelectItem }: Props)
                 </button>
               ))}
             </div>
+          )}
+        </div>
+      )}
+      {/* 粉丝列表 */}
+      {tab === "followers" && (
+        <div>
+          {loadingFollowers && followers.length === 0 ? (
+            <div className="flex items-center justify-center py-12 text-ink-3 gap-2">
+              <Loader2 size={20} className="animate-spin" />
+              <span className="text-sm">加载粉丝列表...</span>
+            </div>
+          ) : followers.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-12 text-ink-3 gap-2">
+              <Users size={40} strokeWidth={1.5} />
+              <p className="text-sm">暂无粉丝数据</p>
+            </div>
+          ) : (
+            <>
+              <p className="text-xs text-ink-3 mb-2">共 {formatCount(followersTotal)} 位粉丝</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {followers.map((f) => (
+                  <div
+                    key={f.mid}
+                    className="flex items-center gap-3 px-3 py-2.5 bg-panel border border-line rounded-lg"
+                  >
+                    <img
+                      src={f.face}
+                      alt={f.name}
+                      className="w-9 h-9 rounded-full object-cover bg-panel-2 shrink-0"
+                      loading="lazy"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-ink-2 truncate">{f.name}</p>
+                      {f.sign && (
+                        <p className="text-xs text-ink-3 truncate mt-0.5">{f.sign}</p>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              {followersMore && (
+                <div className="flex justify-center pt-3">
+                  <button
+                    onClick={() => loadFollowers(followersPage + 1, true)}
+                    disabled={loadingFollowers}
+                    className="flex items-center gap-1.5 px-4 py-2 text-sm text-ink-3 border border-line rounded-lg hover:bg-panel-2 disabled:opacity-50 transition-colors"
+                  >
+                    {loadingFollowers ? (
+                      <>
+                        <Loader2 size={14} className="animate-spin" />
+                        加载中...
+                      </>
+                    ) : (
+                      "加载更多"
+                    )}
+                  </button>
+                </div>
+              )}
+            </>
           )}
         </div>
       )}
