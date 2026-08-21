@@ -513,9 +513,16 @@ export function VideoPlayer({ bvid, aid, cid, epId, duration, title, pages, play
   const [loading, setLoading] = useState(true);
 
   // 进度条悬停缩略图预览（videoshot 雪碧图）。原生控件进度条无法挂事件，
-  // 以「指针进入视频区底部 64px 条带」近似悬停进度条，按指针 X 换算时间点。
+  // 以「指针进入 video 元素底部控件条区域」近似悬停进度条，按指针 X 换算时间点。
+  // 全部以 <video> 元素自身矩形为基准（而非外层容器）：原生控件条贴着 video 元素底部，
+  // 竖屏等 letterbox 场景下 video 元素与容器不重合，用容器会错位。
   const [videoshot, setVideoshot] = useState<Videoshot | null>(null);
-  const [hoverPreview, setHoverPreview] = useState<{ x: number; ratio: number } | null>(null);
+  const [hoverPreview, setHoverPreview] = useState<{
+    x: number;           // 相对 video 左缘的像素
+    ratio: number;       // 0-1，换算时间
+    videoLeft: number;   // video 左缘相对容器左缘（预览浮层定位用）
+    bottomGap: number;   // video 底边相对容器底边（预览浮层定位用）
+  } | null>(null);
   useEffect(() => {
     setVideoshot(null);
     invoke<Videoshot>("get_videoshot", { bvid: effBvid, cid: currentCid })
@@ -523,11 +530,22 @@ export function VideoPlayer({ bvid, aid, cid, epId, duration, title, pages, play
       .catch(() => { /* 无索引的视频静默跳过 */ });
   }, [effBvid, currentCid]);
   const onAreaPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!videoshot) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    if (e.clientY < rect.bottom - 64) { setHoverPreview(null); return; }
-    const x = Math.min(Math.max(e.clientX - rect.left, 0), rect.width);
-    setHoverPreview({ x, ratio: x / rect.width });
+    const video = videoRef.current;
+    if (!video || !videoshot) return;
+    const vr = video.getBoundingClientRect();
+    const cr = e.currentTarget.getBoundingClientRect();
+    // WebView2 原生控件条高约 48px：指针在其范围内才显示
+    if (e.clientY < vr.bottom - 52 || e.clientY < cr.top || e.clientY > cr.bottom || e.clientX < cr.left || e.clientX > cr.right) {
+      setHoverPreview(null);
+      return;
+    }
+    const x = Math.min(Math.max(e.clientX - vr.left, 0), vr.width);
+    setHoverPreview({
+      x,
+      ratio: x / vr.width,
+      videoLeft: vr.left - cr.left,
+      bottomGap: cr.bottom - vr.bottom,
+    });
   };
   const onAreaPointerLeave = () => setHoverPreview(null);
   const [error, setError] = useState<string | null>(null);
@@ -1372,7 +1390,8 @@ export function VideoPlayer({ bvid, aid, cid, epId, duration, title, pages, play
       >
         <video ref={videoRef} controls autoPlay className="max-w-full max-h-full object-contain" />
         {/* 进度条悬停缩略图：雪碧图经 biliproxy 加载（补 Referer），按定位裁出单格。
-            pointer-events-none 不挡原生控件；时间标签跟在缩略图下方。 */}
+            定位以 video 元素为准：bottomGap 距容器底 + 52px 恰好悬在原生控件条上方；
+            左右钳制在 video 显示范围内。pointer-events-none 不挡原生控件。 */}
         {hoverPreview && videoshot && (() => {
           const t = hoverPreview.ratio * currentDuration;
           const loc = locateShot(videoshot, t);
@@ -1380,9 +1399,10 @@ export function VideoPlayer({ bvid, aid, cid, epId, duration, title, pages, play
           const [sprite, row, col] = loc;
           const img = videoshot.images[sprite];
           if (!img) return null;
+          const half = videoshot.img_x_size / 2;
           const style: React.CSSProperties = {
-            left: `min(max(${hoverPreview.x}px, ${videoshot.img_x_size / 2 + 8}px), calc(100% - ${videoshot.img_x_size / 2 + 8}px))`,
-            bottom: 68,
+            left: `calc(${hoverPreview.videoLeft}px + min(max(${hoverPreview.x}px, ${half}px), calc(100% - ${hoverPreview.videoLeft}px - ${half}px)))`,
+            bottom: hoverPreview.bottomGap + 52,
             width: videoshot.img_x_size,
             height: videoshot.img_y_size,
             backgroundImage: `url(${proxyUrl(img)})`,
