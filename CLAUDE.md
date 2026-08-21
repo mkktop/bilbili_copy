@@ -10,10 +10,10 @@ pnpm build            # Production build (Tauri bundle)
 pnpm typecheck        # TypeScript check (frontend only) — primary frontend gate
 pnpm build:renderer   # Vite build only (frontend bundle, no Rust)
 cd src-tauri && cargo check     # Rust compilation check — primary backend gate
-cd src-tauri && cargo test      # Rust unit tests (download_manager scheduler, db migrations)
+cd src-tauri && cargo test --lib  # Rust unit tests (~69: download engine, scheduler, db migrations, batch dedup)
 ```
 
-No separate lint step. `pnpm typecheck` + `cargo check` are the correctness gates before building. `cargo test` exists (scheduler priority/FIFO tests, db migration tests) but is **not** in CI — run it manually when touching `download_manager.rs` or `db.rs` migrations.
+No separate lint step. `pnpm typecheck` + `cargo check` are the correctness gates before building. `cargo test --lib` exists but is **not** in CI — run it manually when touching `download_manager.rs`, `bilibili/download.rs`, or `db.rs` migrations.
 
 ## Version Management
 
@@ -26,7 +26,7 @@ Only change version when explicitly asked. CI triggers on `v*` tag push.
 
 **Release flow: batch all changes, then tag once.** Code fixes + version sync must be in a single commit. Only create the tag after confirming everything is ready. Never push multiple tags for the same version — each tag push triggers CI and forces users to update.
 
-**Release notes: write `RELEASE_NOTES.md` before tagging.** CI reads this file as the GitHub Release body and the in-app update changelog. Prepend a new `## vX.X.X 更新内容` section (keep history below, separated by `---`). Commit it together with the version bump before tagging.
+**Release notes: write `RELEASE_NOTES.md` before tagging.** CI reads this file as the GitHub Release body and the in-app update changelog. Convention (since v1.0.0): the file holds the **current release's `## vX.X.X 更新内容` section + the v1.0.0 flagship announcement** below it, separated by `---`; older sections are removed from the file when a new release ships (their bodies remain on the GitHub Releases page; 0.x history is archived in `docs/CHANGELOG-0.x.md`). Commit it together with the version bump before tagging.
 
 **Tag push:** use `git push origin v0.X.X` (single tag), not `--tags`. If master has diverged from remote after pushing the tag, **merge** remote (`git merge origin/master`) rather than rebase — rebase moves the already-pushed tagged commit and would require re-pushing the tag (forbidden: re-triggers CI).
 
@@ -36,7 +36,7 @@ Tauri 2 desktop app: Rust backend + React 18 frontend (Vite + Tailwind CSS). A B
 
 ### Backend (`src-tauri/src/`) — four top-level layers
 
-1. **`lib.rs`** — app setup: logger init (`init_logger`, `app.log` next to exe), system proxy detection (`init_system_proxy()`, reads Windows registry → sets `HTTPS_PROXY` so the updater can use it), SQLite `init_db()` as managed state, system tray (close-to-tray intercept via `on_window_event`), and the single `generate_handler![]` registering **all** commands. The download scheduler dispatcher is spawned here in `setup`. Also hosts the **`biliproxy` custom URI-scheme protocol** + pooled `PROXY_CLIENT` + `proxy_fetch_bytes()` for the online player (see [Online Player](#online-player-mse-在线播放)).
+1. **`lib.rs`** — app setup: logger init (`init_logger`, `app.log` next to exe), system proxy detection (`init_system_proxy()`, reads Windows registry → sets `HTTPS_PROXY` so the updater can use it), SQLite `init_db()` as managed state, system tray (close-to-tray intercept via `on_window_event`), and the single `generate_handler![]` registering **all** commands. The download scheduler dispatcher is spawned here in `setup`, as is the **subscription scheduler** (60s tick; checks all subscriptions only when `settings.subscription_check_interval_min` > 0 — 0 = off, default). Also hosts the **`biliproxy` custom URI-scheme protocol** + pooled `PROXY_CLIENT` + `proxy_fetch_bytes()` for the online player (see [Online Player](#online-player-mse-在线播放)).
 
 2. **`download_manager.rs`** — **Download scheduler** (decouples submit from execute). `manager()` is a global singleton (`Lazy`). Flow:
    - `download_video` command only **validates + submits** a task to the priority queue, returns immediately.
@@ -45,17 +45,17 @@ Tauri 2 desktop app: Rust backend + React 18 frontend (Vite + Tailwind CSS). A B
    - **Priority adjustment** (`set_download_priority`) only affects queued (not-yet-started) tasks.
    - Lock poisoning is recovered everywhere (`unwrap_or_else(|p| p.into_inner())`) so one panic never permanently wedges scheduling.
 
-3. **`db.rs`** — SQLite persistence (`rusqlite`) via `DbState(Mutex<Connection>)`. Tables: `parse_history`, `download_history`, `download_stats` (cumulative counters), `schema_version`. **Schema is at v6** (incremental migration in `migrate_schema`, idempotent via `column_exists` guards; v5 backfills `download_stats` from existing `done` rows; v6 adds `download_history.owner_name` so the filename template's `{up}` survives resume/retry). On startup, any `downloading` rows are reset to `paused` (orphan cleanup for abnormal exits → user can resume, reusing `.tmp`). WAL + foreign_keys on.
+3. **`db.rs`** — SQLite persistence (`rusqlite`) via `DbState(Mutex<Connection>)`. Tables: `parse_history`, `download_history`, `download_stats` (cumulative counters), `play_progress`, `search_history`, `subscriptions`, `schema_version`. **Schema is at v102** — v1.0 broke from 0.x data structures (fresh DB on first 1.0 launch, no 0.x migration chain); within 1.x, migrations are incremental (101→102 adds `subscriptions`, data preserved). `download_history.owner_name` keeps the filename template's `{up}` stable across resume/retry. On startup, any `downloading`/`queued` rows are reset to `paused` (orphan cleanup for abnormal exits → user can resume, reusing `.tmp`). WAL + foreign_keys on. Also home of `build_download_dedup` — the batch-download dedup set (key `bvid_cid`; skips done/queued/downloading/paused; `error` rows are reused via their original id).
 
-4. **`commands/`** (20 submodules) — `#[tauri::command]` handlers grouped by domain. The **validation/orchestration** layer; each re-exports commands for `generate_handler![]`. `commands/download.rs` holds `execute_download` (the real download pipeline, called by the dispatcher) + the dynamic concurrency limiters; `commands/player.rs` holds the online-player stream/seek/danmaku commands (independent of the download path).
+4. **`commands/`** (26 submodules) — `#[tauri::command]` handlers grouped by domain. The **validation/orchestration** layer; each re-exports commands for `generate_handler![]`. `commands/download.rs` holds `execute_download` (the real download pipeline, called by the dispatcher) + the dynamic concurrency limiters; `commands/player.rs` holds the online-player stream/seek/danmaku commands (independent of the download path); `commands/batch.rs` and `commands/subscription.rs` are the batch-download / subscription-check orchestration (see [Batch Download & Subscriptions](#batch-download--subscriptions-批量下载与订阅追更)).
 
-5. **`bilibili/`** (28 submodules) — core business logic, organized by B站 API domain:
+5. **`bilibili/`** (32 submodules) — core business logic, organized by B站 API domain:
    - **Download pipeline:** `url.rs` (parse bvid/aid/ep/season/media + b23 short-link resolution) → `video.rs` (`get_video_info`, bangumi fallback, main/preview split via `badge_type`) → `playurl.rs` (stream resolution) → `download.rs` (engine).
    - **Online player:** `playurl.rs` (shared with downloads — exposes `all_qualities` for the quality menu), `mp4_seek.rs` (`sidx` box parser → time/byte index for precise seek; player-only, see [Online Player](#online-player-mse-在线播放)), `danmaku.rs` (`fetch_danmaku_list` returns raw JSON for the player's overlay, distinct from its protobuf→ASS path used for downloads), `interaction.rs` (like/coin/favorite POSTs; shared `interaction_post` helper injects csrf in form+cookie, detects `v_voucher` risk, **no auto-retry** on risk — unlike the download path).
    - **`download.rs`** — the engine: parallel Range-based downloading (>4MB → `parallel_threads` Range segments, else single-thread resume), **BufWriter** on all file writes, `.meta` resume bitmap (fingerprint-validated, **flush debounced** to every 8 segments + on interrupt), bad-CDN cache (10-min TTL, multi-URL fallback), `throttle.rs` global byte-rate limiter, ffmpeg merge/remux. Progress emitted every 512KB. Also home of `sanitize_filename` (Windows-safe, path-traversal-proof), reused by `filename.rs`.
-   - **`filename.rs`** — download **filename template** renderer (`settings.filename_template`, relative path under download_dir, `/` = subdirs). Placeholders `{title} {video_title} {bvid} {ep} {cid} {up}`; unknown `{ident}` → empty; per-segment `sanitize_filename` + 240-char total guard (trims last segment only). Empty template normalizes to `{video_title}/{title}`, reproducing the historical layout exactly. `{up}` = `owner_name`, a **first-class `download_video` param** (preferred from `video_meta` when present) — persisted in DB (v6) so resume/retry rebuild the same output path even with NFO off.
+   - **`filename.rs`** — download **filename template** renderer (`settings.filename_template`, relative path under download_dir, `/` = subdirs). Placeholders `{title} {video_title} {bvid} {ep} {cid} {up}`; unknown `{ident}` → empty; per-segment `sanitize_filename` + 240-char total guard (trims last segment only). Empty template normalizes to `{video_title}/{title}`, reproducing the historical layout exactly. `{up}` = `owner_name`, a **first-class `download_video` param** (preferred from `video_meta` when present) — persisted in DB so resume/retry rebuild the same output path even with NFO off.
    - **`playurl.rs`** — **single-request fast path**: one `qn=max` request (fnval=4048 returns all qualities in `dash.video`) → `parse_streams` picks best in `[min_qn,max_qn]` with codec priority; per-quality fallback loop only runs if the single request fails. The returned `Streams` also carries `all_qualities` (every resolved quality+codec, not just the picked best) — the online player surfaces all AVC entries as its quality menu. WBI-signed.
-   - **Auth/cred:** `passport.rs` (QR login: seed buvid → QR → poll → cookies → validate; `validate_credentials` runs nav + relation **in parallel**), `credential.rs` (`Credential` struct, file persistence, cookie header, **auto-refresh** via RSA→CSRF→3-step→confirm), `wbi.rs` (WBI signature, **mixin key cached with 12h TTL** + fetch-lock to prevent cold-start stampede; auto-refresh on 412/-404).
+   - **Auth/cred:** `passport.rs` (QR login: seed buvid → QR → poll → cookies → validate; `validate_credentials` runs nav + relation **in parallel**), `credential.rs` (`Credential` struct, file persistence — DPAPI-encrypted since v1.0.2, cookie header, **auto-refresh** via RSA→CSRF→3-step→confirm), `wbi.rs` (WBI signature, **mixin key cached with 2h TTL** — shortened from 12h in v1.0.2 so a key fetched just before B站's daily rotation can't go stale for half a day — + fetch-lock to prevent cold-start stampede; auto-refresh on 412/-404).
    - **Side artifacts:** `danmaku.rs` (protobuf → ASS, collision/scroll layout), `subtitle.rs` (player v2 → SRT, AI-sub detection), `nfo.rs` (.nfo + cover thumb/fanart).
    - **Browse/explore** (uniform pattern — call API, parse JSON `Value`, return typed list): `favorite.rs`, `search.rs`, `submission.rs`, `collection.rs`, `following.rs`, `history.rs`, `ranking.rs`, `pgc.rs`, `recommend.rs`, `region.rs`, `comment.rs`, `watch_later.rs`.
    - **Risk control:** `risk_control.rs` (GeeTest v3, `gaia_vtoken` in-memory 1h cache), `fingerprint.rs` (browser/GPU fingerprint generation), `throttle.rs` (download byte-rate limiter — **download-only**, no global API rate limiter).
@@ -66,8 +66,8 @@ Data files next to exe: `settings.json`, `credentials.json`, `data.db`, `app.log
 
 ### Frontend (`src/`)
 
-- **`App.tsx`** — single ~800-line component, **no router**; toggles views via `currentView` state (`"main" | "settings" | "detail" | "downloads" | "stats" | "profile" | "explore" | "ranking" | "recommend" | "region"`), rendered as an early-return ladder. Holds top-level state (downloads, parsedItems, pagination); **download-event orchestration** is delegated to the `useDownloadEvents` hook (see Conventions). `SettingsPage`/`StatsPanel`/`VideoPlayer` are `React.lazy` + `Suspense` (separate chunks, not in the first-screen bundle). The online player is a **separate** full-screen overlay, not a `currentView`: `VideoDetail.onPlay` sets a `playingItem` object → `VideoPlayer` mounts/unmounts on top of everything.
-- **Components:** `DownloadInput`, `ParseList`, `VideoDetail`, `DownloadList` (rows are `React.memo` with a custom comparator keyed on item fields), `SettingsPage` (renders `settings/` tabs: General/Quality/Download/**Subtitle (字幕弹幕)**/AntiRisk/About), `LoginDialog`, `CaptchaDialog`, `UserProfilePage` (renders `tabs/`: WatchLater/WatchHistory/Subscriptions/Followings/UpperView), explore pages (`ExplorePage`/`RankingPage`/`RecommendPage`/`RegionPage`), `CommentSection`, `StatsPanel`, `VideoPlayer` (MSE online player — see [Online Player](#online-player-mse-在线播放)).
+- **`App.tsx`** — single ~800-line component, **no router**; toggles views via `currentView` state (`"main" | "settings" | "detail" | "downloads" | "stats" | "profile" | "explore" | "ranking" | "recommend" | "region" | "dynamic" | "weekly"`), rendered as an early-return ladder. Holds top-level state (downloads, parsedItems, pagination); **download-event orchestration** is delegated to the `useDownloadEvents` hook (see Conventions). `SettingsPage`/`StatsPanel`/`VideoPlayer` are `React.lazy` + `Suspense` (separate chunks, not in the first-screen bundle). The online player is a **separate** full-screen overlay, not a `currentView`: `VideoDetail.onPlay` sets a `playingItem` object → `VideoPlayer` mounts/unmounts on top of everything.
+- **Components:** `DownloadInput`, `ParseList`, `VideoDetail` (AI summary card, related videos, tags, watch-later button), `DownloadList` (rows are `React.memo` with a custom comparator keyed on item fields; shows speed/ETA; header has 全部暂停/重试全部失败), `BatchBar` (shared select-mode toolbar for batch download: 选择 → 全选 → 下载已选), `SettingsPage` (renders `settings/` tabs: General/Quality/Download/**Subtitle (字幕弹幕)**/AntiRisk/About), `LoginDialog`, `CaptchaDialog`, `UserProfilePage` (renders `tabs/`: WatchLater/WatchHistory/Subscriptions/Followings/UpperView — UpperView has submissions/collections/**followers** panes), explore pages (`ExplorePage` with search-suggest dropdown/`RankingPage`/`RecommendPage`/`RegionPage`/`DynamicPage`/`WeeklyPage` — weekly has a 每周必看/入站必刷 segmented switch), `ArticleReaderPage` (专栏), `CommentSection` (sort toggle + lazy 楼中楼 replies), `StatsPanel`, `VideoPlayer` (MSE online player — see [Online Player](#online-player-mse-在线播放)).
 - **`VirtualList.tsx`** — reusable windowed list (`@tanstack/react-virtual`): takes a `scrollRef` to the outer `overflow-auto` container, renders only visible + overscan items, measures dynamic heights, optional `onNearEnd` for infinite scroll. Used by long append-growth lists (favorites, submissions, collection videos).
 - **Hooks:** `useLogin`, `useSettings`, `useTheme` (module-level `lastMode` global — be careful with multi-instance), `useDownloadEvents` (subscribes the 5 download events once; two-tier progress throttle + DB writes; owns the `downloadingIds` dedup set, cleaned up on terminal states), `useUrlIntake` (window-focus clipboard read + document drop → auto-fill B站 links into the controlled `DownloadInput`; dedup on extracted match).
 - **Contexts:** `UpdateContext` (auto-update lifecycle; value memoized), `Toast`.
@@ -90,32 +90,44 @@ Built-in streaming player (added v0.8.3+), fully independent of the download pat
 
 | Event | Payload | Purpose |
 |---|---|---|
-| `download://progress` | `{ id, label, downloaded, total, percent }` | Per-stream progress (`label` = "video"/"audio"); emitted every 512KB backend-side |
+| `download://progress` | `{ id, label, downloaded, total, percent, speed }` | Per-stream progress (`label` = "video"/"audio"; `speed` bytes/s from the shared `SpeedTracker`, 500ms min sampling); emitted every 512KB backend-side |
 | `download://complete` | `{ id, output_path, size }` | Download finished (size from `fs::metadata`) |
 | `download://error` | `{ id, error }` | Download failed (incl. risk control) |
-| `download://state` | `{ id, status }` | status: `downloading`/`paused`/`cancelled` (scheduler lifecycle) |
+| `download://state` | `{ id, status }` | status: `queued`/`downloading`/`paused`/`cancelled` (scheduler lifecycle). Pausing a **queued** (not-yet-started) task is detected by the command layer (`PauseOutcome::Pending`) — the dispatcher never sees it, so the `paused` event is emitted from `pause_download`/`pause_all_downloads` |
 | `download://risk_control` | `{ v_voucher }` | Captcha required |
 
-### Registered Commands (55)
+### Batch Download & Subscriptions (批量下载与订阅追更)
 
-- **Settings (6):** `get_settings`, `save_settings`, `get_gpu_presets`, `get_resolution_presets`, `generate_fingerprint_cmd`, `generate_random_fingerprint`.
-- **Video (1):** `parse_video`.
-- **Download (4):** `download_video` (submit-only; also drives danmaku ASS + subtitle SRT + NFO as side artifacts), `pause_download`, `cancel_download`, `set_download_priority`.
-- **Login (4):** `login_generate_qrcode`, `login_poll_qrcode`, `login_check`, `login_logout`.
-- **Captcha (2):** `captcha_register`, `captcha_validate`.
+`commands/batch.rs` + `commands/subscription.rs`, sharing dedup logic in `db.rs`:
+
+- **Batch download** — `batch_download_bvids(bvids, folder?)` / `batch_download_season(season_id)` resolve cids **server-side** (no per-video frontend `parse_video` round-trips), dedup against `download_history` via `build_download_dedup`, insert DB rows as `queued`, and submit to the download manager. 350ms pacing between per-video view lookups (风控). Frontend surfaces this via the shared `BatchBar` component (选择 → 全选 → 下载已选) on submissions / collections / favorites / watch-later / weekly lists.
+- **Subscriptions** (`subscriptions` table, schema 102): `kind` = `season`/`series`/`favorite`. Adding captures the current bvid list as **baseline** — only items published *after* subscribing are auto-downloaded (fetch failure at add time → no insert, fail-closed against accidental mass-download). The scheduler spawned in `lib.rs` setup ticks every 60s and checks all subscriptions when `subscription_check_interval_min` > 0. `check_subscription` also runs on-demand from the Subscriptions tab.
+
+### Registered Commands (84)
+
+Grep `generate_handler![]` in `lib.rs` for the authoritative list.
+
+- **Settings (7):** `get_settings`, `save_settings`, `patch_settings`, `get_gpu_presets`, `get_resolution_presets`, `generate_fingerprint_cmd`, `generate_random_fingerprint`.
+- **Video/detail (3):** `parse_video`, `get_related_videos`, `get_ai_summary` (official AI conclusion API, WBI-signed; returns `Ok(None)` when B站 has no summary).
+- **Download (5):** `download_video` (submit-only; also drives danmaku ASS + subtitle SRT + NFO as side artifacts), `pause_download`, `cancel_download`, `set_download_priority`, `pause_all_downloads`.
+- **Batch (2):** `batch_download_bvids`, `batch_download_season`.
+- **Login/captcha (6):** `login_generate_qrcode`, `login_poll_qrcode`, `login_check`, `login_logout`, `captcha_register`, `captcha_validate`.
 - **Parse history (6):** `get_parse_history`, `get_parse_count`, `save_parse_history`, `delete_parse_history`, `clear_parse_history`, `touch_parse_history`.
 - **Download history (7):** `get_download_history`, `get_download_count`, `get_download_stats`, `save_download_entry`, `update_download_status`, `delete_download_history`, `clear_download_history`.
-- **Favorites (2):** `get_favorite_folders`, `get_favorite_videos`.
-- **Browse/explore (13):** `get_watch_later`, `search_videos`, `get_upper_info`, `get_submission_videos`, `get_upper_collections`, `get_collection_videos`, `get_subscribed_collections`, `get_followings`, `get_watch_history`, `get_ranking`, `get_pgc_rank`, `get_recommend`, `get_region`.
-- **Comment (1):** `get_video_comments`.
-- **Interaction (3):** `like_video`, `coin_video`, `favorite_video`.
+- **Search (7):** `search_videos`, `get_hot_search`, `get_search_suggest`, `get_search_history`, `save_search_keyword`, `delete_search_keyword`, `clear_search_history`.
+- **Lists (12):** favorites (`get_favorite_folders`, `get_favorite_videos`), watch-later (`get_watch_later`, `add_watch_later`, `remove_watch_later`), relations (`get_followings`, `get_followers`), upper (`get_upper_info`, `get_submission_videos`, `get_upper_collections`, `get_collection_videos`, `get_subscribed_collections`).
+- **Discovery (10):** `get_ranking`, `get_pgc_rank`, `get_bangumi_follow`, `get_recommend`, `get_region`, `get_dynamic_feed`, `get_watch_history`, `get_weekly_series`, `get_weekly_detail`, `get_precious_list` (入站必刷).
+- **Articles (2):** `get_article_content`, `export_article_markdown`.
+- **Play progress (2):** `get_play_progress`, `save_play_progress`.
+- **Interaction/comments (5):** `like_video`, `coin_video`, `favorite_video`, `get_video_comments` (mode 2/3 sort), `get_comment_replies` (楼中楼).
 - **Player (6):** `get_play_streams` (forces AVC; returns all AVC qualities + audio URL), `get_danmaku_json` (raw JSON for player overlay), `get_subtitle_list` (all tracks incl. AI subs; needs bvid+cid+aid), `get_subtitle_cues` (subtitle JSON → `{from,to,content}` cues), `get_seek_index` (sidx time→byte index, player-only), `log_player_error` (webview error → `app.log`).
+- **Subscriptions (4):** `get_subscriptions`, `add_subscription`, `remove_subscription`, `check_subscription`.
 
 ## Key Conventions
 
 - **All B站 HTTP calls go through Rust** — no direct `fetch` from frontend.
 - **Clipboard/drop link intake:** `tauri-plugin-clipboard-manager` (registered in `lib.rs`, `clipboard-manager:allow-read-text` in capabilities) powers `useUrlIntake`: on window focus it reads the clipboard and auto-fills the controlled `DownloadInput` with the first B站 link (dedup on the extracted match). Document-level `drop` does the same from any view. `tauri.conf.json` sets **`dragDropEnabled: false`** on the main window — Tauri 2's native drag-drop otherwise swallows DOM `drop` events (nothing in the app uses native file-drop).
-- **Filename template:** `settings.filename_template` rendered by `bilibili/filename.rs` in `execute_download`; output path = `download_dir.join(format!("{rel}.{ext}"))` (never `with_extension` — it would mangle titles containing dots). All side artifacts (ASS/SRT/NFO/cover) derive from `output_path`'s stem, so they follow the template automatically. `{up}` needs `owner_name`, which flows: frontend submit → `download_video` param → DB `owner_name` column (v6) → resume/retry.
+- **Filename template:** `settings.filename_template` rendered by `bilibili/filename.rs` in `execute_download`; output path = `download_dir.join(format!("{rel}.{ext}"))` (never `with_extension` — it would mangle titles containing dots). All side artifacts (ASS/SRT/NFO/cover) derive from `output_path`'s stem, so they follow the template automatically. `{up}` needs `owner_name`, which flows: frontend submit → `download_video` param → DB `owner_name` column → resume/retry.
 - **reqwest clients are created per-call** via the shared `api_client()` / `download_client()` factories in `bilibili/mod.rs`, with `cookie_store(false)` to avoid cookie-jar contamination. This is deliberate — no long-lived shared client (the one documented exception is the pooled `PROXY_CLIENT` for `biliproxy`). `favorite.rs`/`passport.rs` still carry local duplicate `bilibili_client()` builders pending consolidation. Where one client serves a whole flow (a video's danmaku+subtitle+NFO), it's threaded through rather than rebuilt per call.
 - **Concurrency — two layers of Semaphores**, both from `AppSettings`:
   - Global `DOWNLOAD_SEMAPHORE` (`max_concurrent_downloads`) — acquired by the dispatcher via `acquire_owned`, **the permit is moved into the spawned task and held until it finishes** (rebuilt only when capacity changes).

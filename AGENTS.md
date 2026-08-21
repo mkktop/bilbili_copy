@@ -28,7 +28,7 @@ There is **no linter or formatter** configured (`eslint` / `prettier` / `vitest`
 - **Data files next to exe**: `settings.json`, `credentials.json`, `app.log`, `data.db`. Atomic writes (tmp+rename) for JSON files.
 - **System proxy**: On Windows, reads proxy from registry at startup in `init_system_proxy()`.
 
-## Tauri commands (87 total)
+## Tauri commands (84 total)
 
 Registered in `lib.rs` via `generate_handler![]` (grep it for the authoritative list):
 
