@@ -84,13 +84,25 @@ pub async fn get_play_streams(
     cid: i64,
     ep_id: Option<u64>,
     duration: u64,
+    codecs: Option<Vec<String>>,
 ) -> Result<PlayStreams, String> {
     let credential = Credential::load()
         .map_err(|e| format!("读取登录信息失败: {e}"))?
         .ok_or_else(|| "未登录，请先登录".to_string())?;
     let settings = load_settings();
-    // 在线播放强制 AVC：webview/MSE 对 H.264(avc1)+AAC 支持最完整
-    let codec_priority: Vec<String> = vec!["AVC".to_string()];
+    // 在线播放编码：前端按 MSE isTypeSupported 探测结果传入（HEVC/AV1 可解则能上 4K/8K，
+    // 探测不到回退 AVC——webview/MSE 对 H.264(avc1)+AAC 支持最完整）。
+    // 只接受白名单编码，其余值一律回退 AVC。
+    let codec_priority: Vec<String> = match codecs {
+        Some(list) => {
+            let filtered: Vec<String> = list
+                .into_iter()
+                .filter(|c| matches!(c.as_str(), "AVC" | "HEVC" | "AV1"))
+                .collect();
+            if filtered.is_empty() { vec!["AVC".to_string()] } else { filtered }
+        }
+        None => vec!["AVC".to_string()],
+    };
     let streams = playurl::get_playurl(
         &bvid,
         cid,

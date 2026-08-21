@@ -178,6 +178,25 @@ interface Videoshot {
   img_y_size: number;
 }
 
+/** 探测本机 MSE 能解的编码，决定在线播放的编码优先级。
+ *  B站的 4K/8K 流基本只有 HEVC/AV1（AVC 通常止步 1080P）：
+ *  - HEVC：需要系统装 HEVC 视频扩展（硬解），isTypeSupported 为真才可用
+ *  - AV1：WebView2（Chromium）自带软解，一般直接可解，但高画质软解 CPU 占用高
+ *  - AVC：所有环境都支持，画质上限受 B站片源限制
+ *  模块级执行一次；探测失败任何值都安全回退 AVC。 */
+function probePlayerCodecs(): string[] {
+  try {
+    const ms = window.MediaSource;
+    if (!ms || typeof ms.isTypeSupported !== "function") return ["AVC"];
+    if (ms.isTypeSupported('video/mp4; codecs="hvc1.1.6.L150.90"')) return ["HEVC", "AVC"];
+    if (ms.isTypeSupported('video/mp4; codecs="av01.0.13M.08"')) return ["AV1", "AVC"];
+    return ["AVC"];
+  } catch {
+    return ["AVC"];
+  }
+}
+const PLAYER_CODECS = probePlayerCodecs();
+
 /** 时间点 → 雪碧图定位（图序号, 行, 列）。index 中 -1 是换图分隔符；超尾钳制到最后一格。 */
 function locateShot(vs: Videoshot, t: number): [number, number, number] | null {
   if (!vs.images.length || !vs.img_x_len) return null;
@@ -218,6 +237,25 @@ function bestAvcCodec(): string {
     if (typeof MediaSource !== "undefined" && MediaSource.isTypeSupported(c)) return c;
   }
   return 'video/mp4; codecs="avc1.42E01E"';
+}
+
+/** 按流编码选 SourceBuffer MIME。Chromium 实际按 SPS/VVC 参数集解码，
+ *  声明串只需通过 isTypeSupported 校验即可（level 偏高无害）。
+ *  HEVC/AV1 探测失败回退 AVC 串——append 会失败，由上层报错。 */
+function videoMimeFor(codec: string): string {
+  const supported = (c: string) =>
+    typeof MediaSource !== "undefined" && MediaSource.isTypeSupported(c);
+  if (codec === "HEVC") {
+    for (const c of ['video/mp4; codecs="hvc1.2.4.L153.B0"', 'video/mp4; codecs="hvc1.1.6.L150.90"']) {
+      if (supported(c)) return c;
+    }
+  }
+  if (codec === "AV1") {
+    for (const c of ['video/mp4; codecs="av01.0.13M.08"', 'video/mp4; codecs="av01.0.08M.08"']) {
+      if (supported(c)) return c;
+    }
+  }
+  return bestAvcCodec();
 }
 
 /** 时刻 t 是否落在 video 已缓冲范围内（含小余量） */
@@ -938,7 +976,7 @@ export function VideoPlayer({ bvid, aid, cid, epId, duration, title, pages, play
     const video = videoRef.current;
     if (!video) return;
 
-    const videoMime = bestAvcCodec();
+    const videoMime = videoMimeFor(quality.codec);
     const audioMime = 'audio/mp4; codecs="mp4a.40.2"';
     if (typeof MediaSource === "undefined" || !MediaSource.isTypeSupported(videoMime)) {
       reportError("当前 WebView 不支持 MSE 播放");
@@ -1033,6 +1071,7 @@ export function VideoPlayer({ bvid, aid, cid, epId, duration, title, pages, play
       try {
         const streams = await invoke<PlayStreams>("get_play_streams", {
           bvid: effBvid, cid: currentCid, epId: currentEpId ?? null, duration: currentDuration,
+          codecs: PLAYER_CODECS,
         });
         if (!active) return;
         if (!streams.qualities.length) throw new Error("未取到视频流地址（可能需要登录或遇到风控）");
