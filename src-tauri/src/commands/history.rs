@@ -62,23 +62,88 @@ pub fn clear_parse_history(db: State<'_, db::DbState>) -> Result<(), String> {
     db::clear_all_parses(&conn).map_err(|e| format!("清空解析历史失败: {}", e))
 }
 
-/// 获取下载历史（分页）
+/// 获取下载历史（分页，可按状态过滤——下载库视图的状态标签页）
 #[tauri::command]
 pub fn get_download_history(
     db: State<'_, db::DbState>,
     page: Option<u32>,
+    status: Option<String>,
 ) -> Result<Vec<DownloadHistoryEntry>, String> {
     let page = page.unwrap_or(1).max(1);
     let offset = (page - 1) * PAGE_SIZE;
     let conn = db.0.lock().map_err(|e| format!("获取数据库锁失败: {}", e))?;
-    db::get_all_downloads(&conn, PAGE_SIZE, offset).map_err(|e| format!("查询下载历史失败: {}", e))
+    db::get_downloads_filtered(&conn, status.as_deref(), PAGE_SIZE, offset)
+        .map_err(|e| format!("查询下载历史失败: {}", e))
 }
 
-/// 获取下载历史总数
+/// 获取下载历史总数（可按状态过滤）
 #[tauri::command]
-pub fn get_download_count(db: State<'_, db::DbState>) -> Result<u32, String> {
+pub fn get_download_count(
+    db: State<'_, db::DbState>,
+    status: Option<String>,
+) -> Result<u32, String> {
     let conn = db.0.lock().map_err(|e| format!("获取数据库锁失败: {}", e))?;
-    db::count_downloads(&conn).map_err(|e| format!("查询下载总数失败: {}", e))
+    db::count_downloads_filtered(&conn, status.as_deref())
+        .map_err(|e| format!("查询下载总数失败: {}", e))
+}
+
+/// 删除下载记录及其本地文件（视频 + 同名附属：弹幕/字幕/NFO/封面）。
+/// 返回删除的文件数。主文件删除失败会报错；附属文件删除失败只跳过（不阻塞记录删除）。
+#[tauri::command]
+pub fn delete_download_with_file(
+    db: State<'_, db::DbState>,
+    id: String,
+) -> Result<u32, String> {
+    let output = {
+        let conn = db.0.lock().map_err(|e| format!("获取数据库锁失败: {}", e))?;
+        db::get_download_output_path(&conn, &id)
+            .map_err(|e| format!("查询下载记录失败: {}", e))?
+    };
+    let mut deleted = 0u32;
+    if let Some(path) = output {
+        deleted = delete_local_files(std::path::PathBuf::from(path))
+            .map_err(|e| format!("删除文件失败: {}", e))?;
+    }
+    let conn = db.0.lock().map_err(|e| format!("获取数据库锁失败: {}", e))?;
+    db::delete_download(&conn, &id).map_err(|e| format!("删除下载记录失败: {}", e))?;
+    Ok(deleted)
+}
+
+/// 删除 output_path 主文件 + 同目录下同 stem 的附属文件。
+/// 匹配规则：文件名以 stem 开头，且余下部分以 `.` 或 `-` 开头（如 `x.ass`、`x.zh-Hans.srt`、
+/// `x-thumb.jpg`），并限定附属扩展名——避免误删标题恰好以本 stem 为前缀的其它视频文件。
+fn delete_local_files(output: std::path::PathBuf) -> anyhow::Result<u32> {    use std::path::Path;
+
+    const SIDE_EXTS: [&str; 5] = [".ass", ".srt", ".vtt", ".nfo", ".jpg"];
+    let mut deleted = 0u32;
+
+    // 主文件（视频/音频）不存在不算错：用户可能已手动删除
+    if output.exists() {
+        std::fs::remove_file(&output)?;
+        deleted += 1;
+    }
+
+    let stem = match output.file_stem().and_then(|s| s.to_str()) {
+        Some(s) => s.to_string(),
+        None => return Ok(deleted),
+    };
+    let parent: &Path = output.parent().unwrap_or_else(|| Path::new("."));
+
+    for entry in std::fs::read_dir(parent)?.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let Some(rest) = name.strip_prefix(&stem) else { continue };
+        if !rest.starts_with('.') && !rest.starts_with('-') {
+            continue;
+        }
+        let lower = rest.to_lowercase();
+        if SIDE_EXTS.iter().any(|ext| lower.ends_with(ext)) {
+            match std::fs::remove_file(entry.path()) {
+                Ok(()) => deleted += 1,
+                Err(e) => log::warn!("[download] 删除附属文件失败 {}: {}", name, e),
+            }
+        }
+    }
+    Ok(deleted)
 }
 
 /// 获取下载统计（累计视频数 / 总大小 / 总时长，仅累加已完成项）
@@ -185,5 +250,50 @@ pub fn save_play_progress(
     } else {
         db::upsert_play_progress(&conn, cid, &bvid, position, duration)
             .map_err(|e| format!("保存播放进度失败: {}", e))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 在临时目录里铺一套下载产物（主文件 + 附属 + 一个标题前缀碰撞的其它视频）
+    fn setup_dir(tag: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("bilibili_dl_test_{tag}_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        // 主文件 + 常规附属
+        std::fs::write(dir.join("第1集.mp4"), b"v").unwrap();
+        std::fs::write(dir.join("第1集.ass"), b"d").unwrap();
+        std::fs::write(dir.join("第1集.zh-Hans.srt"), b"s").unwrap();
+        std::fs::write(dir.join("第1集.nfo"), b"n").unwrap();
+        std::fs::write(dir.join("第1集-thumb.jpg"), b"t").unwrap();
+        std::fs::write(dir.join("第1集-fanart.jpg"), b"f").unwrap();
+        // 标题以「第1集」为前缀的其它视频——不应被误删
+        std::fs::write(dir.join("第1集 加长版.mp4"), b"other").unwrap();
+        std::fs::write(dir.join("第1集 加长版.ass"), b"other").unwrap();
+        dir
+    }
+
+    #[test]
+    fn deletes_main_and_sidecars_but_not_prefix_collisions() {
+        let dir = setup_dir("main");
+        let deleted = delete_local_files(dir.join("第1集.mp4")).unwrap();
+        assert_eq!(deleted, 6, "主文件 + 5 个附属");
+        assert!(!dir.join("第1集.ass").exists());
+        assert!(!dir.join("第1集.zh-Hans.srt").exists());
+        assert!(!dir.join("第1集-fanart.jpg").exists());
+        assert!(dir.join("第1集 加长版.mp4").exists(), "前缀碰撞的其它视频不能被误删");
+        assert!(dir.join("第1集 加长版.ass").exists(), "前缀碰撞的附属不能被误删");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn missing_main_file_is_not_an_error() {
+        let dir = setup_dir("missing");
+        let deleted = delete_local_files(dir.join("不存在.mp4")).unwrap();
+        assert_eq!(deleted, 0);
+        assert!(dir.join("第1集.mp4").exists(), "stem 不匹配时不应动任何文件");
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

@@ -43,6 +43,8 @@ export interface AppSettings {
   danmaku_opacity: number;          // 0.0-1.0（低0.2 / 中0.5 / 高0.8）
   danmaku_block_top: boolean;
   danmaku_block_bottom: boolean;
+  // 历史弹幕：额外合并最近 N 天（0 = 关闭），下载 ASS 与播放器在线弹幕同时生效
+  danmaku_history_days: number;
   // 字幕导出格式 "srt" | "vtt"
   subtitle_format: string;
   // 文件名模板：download_dir 下的相对路径，/ 分隔子目录。
@@ -92,6 +94,7 @@ export function useSettings() {
     danmaku_opacity: 0.3,
     danmaku_block_top: false,
     danmaku_block_bottom: false,
+    danmaku_history_days: 0,
     subtitle_format: "srt",
     filename_template: "",
     download_nfo: false,

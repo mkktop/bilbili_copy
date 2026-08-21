@@ -169,6 +169,9 @@ pub struct AppSettings {
     pub danmaku_block_top: bool,
     #[serde(default)]
     pub danmaku_block_bottom: bool,
+    // 弹幕渲染 - 历史弹幕：下载/播放器额外合并最近 N 天（0 = 关闭）
+    #[serde(default)]
+    pub danmaku_history_days: u32,
     // 字幕导出格式 "srt" | "vtt"
     #[serde(default = "default_subtitle_format")]
     pub subtitle_format: String,
@@ -226,6 +229,7 @@ impl Default for AppSettings {
             danmaku_opacity: default_dm_opacity(),
             danmaku_block_top: false,
             danmaku_block_bottom: false,
+            danmaku_history_days: 0,
             subtitle_format: default_subtitle_format(),
             filename_template: String::new(),
             download_nfo: false,
@@ -261,6 +265,7 @@ impl AppSettings {
         self.danmaku_font_size = self.danmaku_font_size.clamp(8, 72);
         self.danmaku_scroll_duration = self.danmaku_scroll_duration.clamp(0.1, 120.0);
         self.danmaku_opacity = self.danmaku_opacity.clamp(0.0, 1.0);
+        self.danmaku_history_days = self.danmaku_history_days.min(30);
         self.subscription_check_interval_min = self.subscription_check_interval_min.min(1440);
         if !matches!(self.theme.as_str(), "light" | "dark" | "system") {
             self.theme = "light".to_string();

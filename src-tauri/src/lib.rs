@@ -1,5 +1,5 @@
 mod commands;
-mod bilibili;
+pub mod bilibili; // pub：examples/smoke_api.rs 真实登录态冒烟测试需要直接调用
 mod db;
 mod download_manager;
 
@@ -10,7 +10,7 @@ use commands::login::{login_generate_qrcode, login_poll_qrcode, login_check, log
 use commands::risk_control::{captcha_register, captcha_validate};
 use commands::history::{
     get_parse_history, save_parse_history, delete_parse_history, get_parse_count, clear_parse_history, touch_parse_history,
-    get_download_history, save_download_entry, update_download_status, delete_download_history, get_download_count, clear_download_history, get_download_stats,
+    get_download_history, save_download_entry, update_download_status, delete_download_history, get_download_count, clear_download_history, get_download_stats, delete_download_with_file,
     get_play_progress, save_play_progress,
 };
 use commands::favorite::{get_favorite_folders, get_favorite_videos};
@@ -29,7 +29,7 @@ use commands::dynamic::get_dynamic_feed;
 use commands::article::{get_article_content, export_article_markdown};
 use commands::interaction::{like_video, coin_video, favorite_video};
 use commands::video::{parse_video, get_related_videos, get_ai_summary};
-use commands::player::{get_play_streams, get_danmaku_json, get_subtitle_list, get_subtitle_cues, log_player_error, get_seek_index};
+use commands::player::{get_play_streams, get_danmaku_json, get_subtitle_list, get_subtitle_cues, log_player_error, get_seek_index, get_videoshot};
 use commands::weekly::{get_weekly_series, get_weekly_detail, get_precious_list};
 use commands::batch::{batch_download_bvids, batch_download_season};
 use commands::subscription::{get_subscriptions, add_subscription, remove_subscription, check_subscription};
@@ -378,7 +378,8 @@ pub fn run() {
             touch_parse_history,
     get_download_history,
     get_download_count,
-    get_download_stats,
+            get_download_stats,
+            delete_download_with_file,
     save_download_entry,
             update_download_status,
             delete_download_history,
@@ -419,6 +420,7 @@ pub fn run() {
             get_subtitle_cues,
             log_player_error,
             get_seek_index,
+            get_videoshot,
             get_weekly_series,
             get_weekly_detail,
             get_precious_list,

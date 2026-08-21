@@ -103,9 +103,9 @@ Built-in streaming player (added v0.8.3+), fully independent of the download pat
 - **Batch download** — `batch_download_bvids(bvids, folder?)` / `batch_download_season(season_id)` resolve cids **server-side** (no per-video frontend `parse_video` round-trips), dedup against `download_history` via `build_download_dedup`, insert DB rows as `queued`, and submit to the download manager. 350ms pacing between per-video view lookups (风控). Frontend surfaces this via the shared `BatchBar` component (选择 → 全选 → 下载已选) on submissions / collections / favorites / watch-later / weekly lists.
 - **Subscriptions** (`subscriptions` table, schema 102): `kind` = `season`/`series`/`favorite`. Adding captures the current bvid list as **baseline** — only items published *after* subscribing are auto-downloaded (fetch failure at add time → no insert, fail-closed against accidental mass-download). The scheduler spawned in `lib.rs` setup ticks every 60s and checks all subscriptions when `subscription_check_interval_min` > 0. `check_subscription` also runs on-demand from the Subscriptions tab.
 
-### Registered Commands (84)
+### Registered Commands (86)
 
-Grep `generate_handler![]` in `lib.rs` for the authoritative list.
+Grep `generate_handler![]` in `lib.rs` for the authoritative list. Real-login smoke tests for API-touching commands live in `src-tauri/examples/smoke_api.rs` (`cargo run --example smoke_api` — copy `target/debug/credentials.json` into `target/debug/examples/` first; not in CI, run manually).
 
 - **Settings (7):** `get_settings`, `save_settings`, `patch_settings`, `get_gpu_presets`, `get_resolution_presets`, `generate_fingerprint_cmd`, `generate_random_fingerprint`.
 - **Video/detail (3):** `parse_video`, `get_related_videos`, `get_ai_summary` (official AI conclusion API, WBI-signed; returns `Ok(None)` when B站 has no summary).
@@ -113,14 +113,14 @@ Grep `generate_handler![]` in `lib.rs` for the authoritative list.
 - **Batch (2):** `batch_download_bvids`, `batch_download_season`.
 - **Login/captcha (6):** `login_generate_qrcode`, `login_poll_qrcode`, `login_check`, `login_logout`, `captcha_register`, `captcha_validate`.
 - **Parse history (6):** `get_parse_history`, `get_parse_count`, `save_parse_history`, `delete_parse_history`, `clear_parse_history`, `touch_parse_history`.
-- **Download history (7):** `get_download_history`, `get_download_count`, `get_download_stats`, `save_download_entry`, `update_download_status`, `delete_download_history`, `clear_download_history`.
+- **Download history (8):** `get_download_history` (optional status filter), `get_download_count` (optional status filter), `get_download_stats`, `save_download_entry`, `update_download_status`, `delete_download_history`, `delete_download_with_file` (deletes record + video + same-stem sidecars, prefix-collision-safe), `clear_download_history`.
 - **Search (7):** `search_videos`, `get_hot_search`, `get_search_suggest`, `get_search_history`, `save_search_keyword`, `delete_search_keyword`, `clear_search_history`.
 - **Lists (12):** favorites (`get_favorite_folders`, `get_favorite_videos`), watch-later (`get_watch_later`, `add_watch_later`, `remove_watch_later`), relations (`get_followings`, `get_followers`), upper (`get_upper_info`, `get_submission_videos`, `get_upper_collections`, `get_collection_videos`, `get_subscribed_collections`).
 - **Discovery (10):** `get_ranking`, `get_pgc_rank`, `get_bangumi_follow`, `get_recommend`, `get_region`, `get_dynamic_feed`, `get_watch_history`, `get_weekly_series`, `get_weekly_detail`, `get_precious_list` (入站必刷).
 - **Articles (2):** `get_article_content`, `export_article_markdown`.
 - **Play progress (2):** `get_play_progress`, `save_play_progress`.
 - **Interaction/comments (5):** `like_video`, `coin_video`, `favorite_video`, `get_video_comments` (mode 2/3 sort), `get_comment_replies` (楼中楼).
-- **Player (6):** `get_play_streams` (forces AVC; returns all AVC qualities + audio URL), `get_danmaku_json` (raw JSON for player overlay), `get_subtitle_list` (all tracks incl. AI subs; needs bvid+cid+aid), `get_subtitle_cues` (subtitle JSON → `{from,to,content}` cues), `get_seek_index` (sidx time→byte index, player-only), `log_player_error` (webview error → `app.log`).
+- **Player (7):** `get_play_streams` (forces AVC; returns all AVC qualities + audio URL), `get_danmaku_json` (raw JSON for player overlay; merges history danmaku per `danmaku_history_days`), `get_subtitle_list` (all tracks incl. AI subs; needs bvid+cid+aid), `get_subtitle_cues` (subtitle JSON → `{from,to,content}` cues), `get_seek_index` (sidx time→byte index, player-only), `get_videoshot` (sprite-sheet thumbnail index for progress-bar hover preview), `log_player_error` (webview error → `app.log`).
 - **Subscriptions (4):** `get_subscriptions`, `add_subscription`, `remove_subscription`, `check_subscription`.
 
 ## Key Conventions

@@ -168,6 +168,39 @@ function proxyUrl(biliUrl: string): string {
   return `http://biliproxy.localhost/b/${b64}`;
 }
 
+/** videoshot 索引（与后端 bilibili/videoshot.rs::Videoshot 对应，snake_case 序列化） */
+interface Videoshot {
+  images: string[];
+  index: number[];
+  img_x_len: number;
+  img_y_len: number;
+  img_x_size: number;
+  img_y_size: number;
+}
+
+/** 时间点 → 雪碧图定位（图序号, 行, 列）。index 中 -1 是换图分隔符；超尾钳制到最后一格。 */
+function locateShot(vs: Videoshot, t: number): [number, number, number] | null {
+  if (!vs.images.length || !vs.img_x_len) return null;
+  const stamps = vs.index.filter((v) => v >= 0);
+  if (!stamps.length) return null;
+  const tc = Math.min(Math.max(t, 0), Math.max(...stamps));
+  let sprite = 0;
+  let cell = 0;
+  for (let i = 0; i < vs.index.length; i++) {
+    const ts = vs.index[i];
+    if (ts < 0) { sprite++; cell = 0; continue; }
+    let end = Infinity;
+    for (let j = i + 1; j < vs.index.length; j++) {
+      if (vs.index[j] >= 0) { end = vs.index[j]; break; }
+    }
+    if (ts <= tc && tc < end) {
+      return [sprite, Math.floor(cell / vs.img_x_len), cell % vs.img_x_len];
+    }
+    cell++;
+  }
+  return null;
+}
+
 /** 等待 SourceBuffer 完成上一次 append/remove（期间不能再操作同一个 buffer） */
 function waitUpdate(sb: SourceBuffer): Promise<void> {
   return new Promise((res) => sb.addEventListener("updateend", () => res(), { once: true }));
@@ -478,6 +511,25 @@ export function VideoPlayer({ bvid, aid, cid, epId, duration, title, pages, play
   const [qualities, setQualities] = useState<PlayQuality[]>([]);
   const [selectedQn, setSelectedQn] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
+
+  // 进度条悬停缩略图预览（videoshot 雪碧图）。原生控件进度条无法挂事件，
+  // 以「指针进入视频区底部 64px 条带」近似悬停进度条，按指针 X 换算时间点。
+  const [videoshot, setVideoshot] = useState<Videoshot | null>(null);
+  const [hoverPreview, setHoverPreview] = useState<{ x: number; ratio: number } | null>(null);
+  useEffect(() => {
+    setVideoshot(null);
+    invoke<Videoshot>("get_videoshot", { bvid: effBvid, cid: currentCid })
+      .then((vs) => { if (vs.images.length) setVideoshot(vs); })
+      .catch(() => { /* 无索引的视频静默跳过 */ });
+  }, [effBvid, currentCid]);
+  const onAreaPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!videoshot) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    if (e.clientY < rect.bottom - 64) { setHoverPreview(null); return; }
+    const x = Math.min(Math.max(e.clientX - rect.left, 0), rect.width);
+    setHoverPreview({ x, ratio: x / rect.width });
+  };
+  const onAreaPointerLeave = () => setHoverPreview(null);
   const [error, setError] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [episodeMenuOpen, setEpisodeMenuOpen] = useState(false); // 分P选集菜单
@@ -1311,10 +1363,40 @@ export function VideoPlayer({ bvid, aid, cid, epId, duration, title, pages, play
       {/* 视频区。min-h-0 关键：flex 子项默认 min-height:auto 不允许收缩，
           竖屏视频原生很高会把本区撑到视口外，导致下半部分被裁掉看不到。
           迷你模式改为固定 16:9 高度。 */}
-      <div className={miniMode
-        ? "h-[270px] flex items-center justify-center relative overflow-hidden"
-        : "flex-1 min-h-0 flex items-center justify-center relative overflow-hidden"}>
+      <div
+        className={miniMode
+          ? "h-[270px] flex items-center justify-center relative overflow-hidden"
+          : "flex-1 min-h-0 flex items-center justify-center relative overflow-hidden"}
+        onPointerMove={onAreaPointerMove}
+        onPointerLeave={onAreaPointerLeave}
+      >
         <video ref={videoRef} controls autoPlay className="max-w-full max-h-full object-contain" />
+        {/* 进度条悬停缩略图：雪碧图经 biliproxy 加载（补 Referer），按定位裁出单格。
+            pointer-events-none 不挡原生控件；时间标签跟在缩略图下方。 */}
+        {hoverPreview && videoshot && (() => {
+          const t = hoverPreview.ratio * currentDuration;
+          const loc = locateShot(videoshot, t);
+          if (!loc) return null;
+          const [sprite, row, col] = loc;
+          const img = videoshot.images[sprite];
+          if (!img) return null;
+          const style: React.CSSProperties = {
+            left: `min(max(${hoverPreview.x}px, ${videoshot.img_x_size / 2 + 8}px), calc(100% - ${videoshot.img_x_size / 2 + 8}px))`,
+            bottom: 68,
+            width: videoshot.img_x_size,
+            height: videoshot.img_y_size,
+            backgroundImage: `url(${proxyUrl(img)})`,
+            backgroundSize: `${videoshot.img_x_len * videoshot.img_x_size}px ${videoshot.img_y_len * videoshot.img_y_size}px`,
+            backgroundPosition: `-${col * videoshot.img_x_size}px -${row * videoshot.img_y_size}px`,
+          };
+          return (
+            <div className="absolute -translate-x-1/2 z-20 pointer-events-none rounded-md overflow-hidden shadow-lg border border-white/20" style={style}>
+              <span className="absolute bottom-0 right-0 px-1 text-[10px] text-white bg-black/70 rounded-tl">
+                {formatDuration(Math.floor(t))}
+              </span>
+            </div>
+          );
+        })()}
         {/* 冻结帧 overlay：canvas 默认透明（不可见）；seek 时 drawImage 画出帧并 display:block。
             不能在 JSX 里写 style.display —— play() 的 setLoading 会触发 re-render 把它重置回默认，导致 overlay 被 React 抹掉、黑屏复发。显示态完全由 ref 控制。 */}
         <canvas

@@ -306,11 +306,13 @@ pub fn get_download_row_status(
     }
 }
 
-pub fn get_all_downloads(conn: &Connection, limit: u32, offset: u32) -> anyhow::Result<Vec<DownloadHistoryEntry>> {
+/// 按状态过滤的下载历史查询（status=None 为全部；下载库视图的状态标签页）
+pub fn get_downloads_filtered(conn: &Connection, status: Option<&str>, limit: u32, offset: u32) -> anyhow::Result<Vec<DownloadHistoryEntry>> {
     let mut stmt = conn.prepare(
-        "SELECT id, title, bvid, cid, ep_id, status, progress, phase, error_msg, output_path, pic, created_at, quality, video_title, size, duration, owner_name, subtitle_only, audio_only FROM download_history ORDER BY created_at DESC LIMIT ?1 OFFSET ?2",
+        "SELECT id, title, bvid, cid, ep_id, status, progress, phase, error_msg, output_path, pic, created_at, quality, video_title, size, duration, owner_name, subtitle_only, audio_only FROM download_history \
+         WHERE (?1 IS NULL OR status = ?1) ORDER BY created_at DESC LIMIT ?2 OFFSET ?3",
     )?;
-    let rows = stmt.query_map(params![limit, offset], |row| {
+    let rows = stmt.query_map(params![status, limit, offset], |row| {
         Ok(DownloadHistoryEntry {
             id: row.get(0)?,
             title: row.get(1)?,
@@ -336,8 +338,13 @@ pub fn get_all_downloads(conn: &Connection, limit: u32, offset: u32) -> anyhow::
     Ok(rows.filter_map(|r| r.ok()).collect())
 }
 
-pub fn count_downloads(conn: &Connection) -> anyhow::Result<u32> {
-    let count: u32 = conn.query_row("SELECT COUNT(*) FROM download_history", [], |r| r.get(0))?;
+/// 按状态过滤的下载总数（status=None 为全部）
+pub fn count_downloads_filtered(conn: &Connection, status: Option<&str>) -> anyhow::Result<u32> {
+    let count: u32 = conn.query_row(
+        "SELECT COUNT(*) FROM download_history WHERE (?1 IS NULL OR status = ?1)",
+        params![status],
+        |r| r.get(0),
+    )?;
     Ok(count)
 }
 
@@ -393,6 +400,19 @@ pub fn increment_download_stats(
         params![size, duration],
     )?;
     Ok(())
+}
+
+/// 查询单条下载记录的 output_path（删除文件用）；记录不存在返回 None
+pub fn get_download_output_path(conn: &Connection, id: &str) -> anyhow::Result<Option<String>> {
+    use rusqlite::OptionalExtension;
+    let path: Option<String> = conn
+        .query_row(
+            "SELECT output_path FROM download_history WHERE id = ?1",
+            params![id],
+            |r| r.get(0),
+        )
+        .optional()?;
+    Ok(path)
 }
 
 pub fn delete_download(conn: &Connection, id: &str) -> anyhow::Result<()> {
@@ -713,7 +733,7 @@ mod tests {
         // 版本不匹配 → 重建
         rebuild_db(&conn).unwrap();
         assert_eq!(current_schema_version(&conn), SCHEMA_VERSION);
-        let rows = get_all_downloads(&conn, 10, 0).unwrap();
+        let rows = get_downloads_filtered(&conn, None, 10, 0).unwrap();
         assert!(rows.is_empty(), "断代重建后旧数据必须被丢弃");
     }
 
@@ -733,7 +753,7 @@ mod tests {
         let entry = sample_entry();
         insert_download(&conn, &entry).unwrap();
 
-        let rows = get_all_downloads(&conn, 10, 0).unwrap();
+        let rows = get_downloads_filtered(&conn, None, 10, 0).unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].pic.as_deref(), Some("https://example.com/cover.jpg"));
         assert_eq!(rows[0].title, "测试视频");
@@ -751,6 +771,40 @@ mod tests {
         upsert_search_keyword(&conn, "鬼畜").unwrap();
         let list = get_search_keywords(&conn, 10).unwrap();
         assert_eq!(list.len(), 2, "同词 upsert 不应产生重复记录");
+    }
+
+    #[test]
+    fn downloads_filtered_by_status() {
+        // 下载库状态标签页：按 status 过滤查询与计数，None 返回全部
+        let conn = fresh_db();
+        let mut done = sample_entry();
+        done.status = "done".into();
+        insert_download(&conn, &done).unwrap();
+        let mut running = sample_entry();
+        running.id = "test-2".into(); // 同 id 会被 INSERT OR REPLACE 覆盖
+        insert_download(&conn, &running).unwrap();
+
+        let all = get_downloads_filtered(&conn, None, 10, 0).unwrap();
+        assert_eq!(all.len(), 2);
+        let only_done = get_downloads_filtered(&conn, Some("done"), 10, 0).unwrap();
+        assert_eq!(only_done.len(), 1);
+        assert_eq!(only_done[0].status, "done");
+        assert_eq!(count_downloads_filtered(&conn, Some("done")).unwrap(), 1);
+        assert_eq!(count_downloads_filtered(&conn, None).unwrap(), 2);
+        assert_eq!(count_downloads_filtered(&conn, Some("paused")).unwrap(), 0);
+    }
+
+    #[test]
+    fn download_output_path_lookup() {
+        let conn = fresh_db();
+        assert!(get_download_output_path(&conn, "nope").unwrap().is_none());
+        let mut e = sample_entry();
+        e.output_path = Some("D:\\v\\a.mp4".into());
+        insert_download(&conn, &e).unwrap();
+        assert_eq!(
+            get_download_output_path(&conn, "test-1").unwrap().as_deref(),
+            Some("D:\\v\\a.mp4")
+        );
     }
 
     /// 辅助：构造一个带全部字段的下载记录
@@ -802,7 +856,7 @@ mod tests {
 
         migrate_100_to_101(&conn).unwrap();
         assert_eq!(current_schema_version(&conn), SCHEMA_VERSION);
-        let rows = get_all_downloads(&conn, 10, 0).unwrap();
+        let rows = get_downloads_filtered(&conn, None, 10, 0).unwrap();
         assert_eq!(rows.len(), 1, "迁移必须保留用户数据");
         assert_eq!(rows[0].id, "keep-1");
         assert!(!rows[0].subtitle_only && !rows[0].audio_only, "旧行默认 false");
@@ -810,7 +864,7 @@ mod tests {
         let mut e = rows.into_iter().next().unwrap();
         e.subtitle_only = true;
         insert_download(&conn, &e).unwrap();
-        let rows = get_all_downloads(&conn, 10, 0).unwrap();
+        let rows = get_downloads_filtered(&conn, None, 10, 0).unwrap();
         assert!(rows[0].subtitle_only, "subtitle_only 必须能往返落库");
 
         migrate_100_to_101(&conn).unwrap();

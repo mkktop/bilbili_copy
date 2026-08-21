@@ -52,6 +52,7 @@ export function SettingsPage({ settings, onSave, onPatch, onBack, onClearParse, 
   const [dmOpacity, setDmOpacity] = useState(settings.danmaku_opacity);
   const [dmBlockTop, setDmBlockTop] = useState(settings.danmaku_block_top);
   const [dmBlockBottom, setDmBlockBottom] = useState(settings.danmaku_block_bottom);
+  const [dmHistoryDays, setDmHistoryDays] = useState(settings.danmaku_history_days);
   // 字幕格式
   const [subtitleFormat, setSubtitleFormat] = useState(settings.subtitle_format);
   // 文件名模板
@@ -95,6 +96,7 @@ export function SettingsPage({ settings, onSave, onPatch, onBack, onClearParse, 
     setDmOpacity(settings.danmaku_opacity);
     setDmBlockTop(settings.danmaku_block_top);
     setDmBlockBottom(settings.danmaku_block_bottom);
+    setDmHistoryDays(settings.danmaku_history_days);
     setSubtitleFormat(settings.subtitle_format);
     setFilenameTemplate(settings.filename_template);
     setDownloadNfo(settings.download_nfo);
@@ -138,6 +140,7 @@ export function SettingsPage({ settings, onSave, onPatch, onBack, onClearParse, 
         danmaku_opacity: dmOpacity,
         danmaku_block_top: dmBlockTop,
         danmaku_block_bottom: dmBlockBottom,
+        danmaku_history_days: dmHistoryDays,
         subtitle_format: subtitleFormat,
         filename_template: filenameTemplate,
         download_nfo: downloadNfo,
@@ -279,6 +282,8 @@ export function SettingsPage({ settings, onSave, onPatch, onBack, onClearParse, 
             onDmBlockTopChange={(v) => { setDmBlockTop(v); setSaved(false); }}
             dmBlockBottom={dmBlockBottom}
             onDmBlockBottomChange={(v) => { setDmBlockBottom(v); setSaved(false); }}
+            dmHistoryDays={dmHistoryDays}
+            onDmHistoryDaysChange={(v) => { setDmHistoryDays(v); setSaved(false); }}
             downloadSubtitle={downloadSubtitle}
             onDownloadSubtitleChange={(v) => { setDownloadSubtitle(v); setSaved(false); }}
             subtitleFormat={subtitleFormat}

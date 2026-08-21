@@ -11,6 +11,7 @@ import {
   RotateCw,
   Clock,
   FolderOpen,
+  Trash2,
 } from "lucide-react";
 import type { DownloadTask } from "../types";
 import { cn } from "../lib/utils";
@@ -19,7 +20,10 @@ import { Pagination } from "./Pagination";
 
 interface DownloadListProps {
   downloads: DownloadTask[];
+  /** 状态过滤（下载库标签页）；"done" 时按合集名分组展示 */
+  filter?: string | null;
   onRemove: (id: string) => void;
+  onRemoveWithFile: (item: DownloadTask) => void;
   onPause: (id: string) => void;
   onCancel: (id: string) => void;
   onResume: (item: DownloadTask) => void;
@@ -35,6 +39,7 @@ interface DownloadListProps {
 interface DownloadRowProps {
   item: DownloadTask;
   onRemove: (id: string) => void;
+  onRemoveWithFile: (item: DownloadTask) => void;
   onPause: (id: string) => void;
   onCancel: (id: string) => void;
   onResume: (item: DownloadTask) => void;
@@ -145,6 +150,7 @@ const DownloadRow = memo(
   function DownloadRow({
     item,
     onRemove,
+    onRemoveWithFile,
     onPause,
     onCancel,
     onResume,
@@ -299,7 +305,12 @@ const DownloadRow = memo(
                   <FolderOpen size={14} />
                 </IconButton>
               )}
-              <IconButton onClick={() => onRemove(item.id)} title="删除" danger>
+              {item.outputPath && (
+                <IconButton onClick={() => onRemoveWithFile(item)} title="删除记录和文件" danger>
+                  <Trash2 size={14} />
+                </IconButton>
+              )}
+              <IconButton onClick={() => onRemove(item.id)} title="仅删除记录" danger>
                 <X size={14} />
               </IconButton>
             </>
@@ -340,7 +351,9 @@ const DownloadRow = memo(
 
 export function DownloadList({
   downloads,
+  filter,
   onRemove,
+  onRemoveWithFile,
   onPause,
   onCancel,
   onResume,
@@ -361,22 +374,61 @@ export function DownloadList({
     );
   }
 
+  const renderRow = (item: DownloadTask) => (
+    <DownloadRow
+      key={item.id}
+      item={item}
+      onRemove={onRemove}
+      onRemoveWithFile={onRemoveWithFile}
+      onPause={onPause}
+      onCancel={onCancel}
+      onResume={onResume}
+      onRetry={onRetry}
+      onSetPriority={onSetPriority}
+      onOpenFolder={onOpenFolder}
+      onOpenDetail={onOpenDetail}
+    />
+  );
+
+  // 已完成视图：按合集名（video_title）分组，散件（无合集名）归「单集」组
+  if (filter === "done") {
+    const groups: { name: string | null; items: DownloadTask[] }[] = [];
+    for (const item of downloads) {
+      const name = item.videoTitle?.trim() || null;
+      const last = groups[groups.length - 1];
+      if (last && last.name === name) {
+        last.items.push(item);
+      } else {
+        groups.push({ name, items: [item] });
+      }
+    }
+    return (
+      <div className="space-y-4">
+        {groups.map((g, i) => (
+          <div key={i} className="space-y-2">
+            {g.name && (
+              <div className="flex items-center gap-2 px-1">
+                <span className="text-xs font-medium text-ink-2 truncate">{g.name}</span>
+                <span className="text-[10px] text-ink-3 shrink-0">{g.items.length} 集</span>
+                <div className="flex-1 h-px bg-line" />
+              </div>
+            )}
+            {g.items.map(renderRow)}
+          </div>
+        ))}
+        <Pagination
+          currentPage={currentPage}
+          totalCount={totalCount}
+          pageSize={HISTORY_PAGE_SIZE}
+          onPageChange={onPageChange}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-2">
-      {downloads.map((item) => (
-        <DownloadRow
-          key={item.id}
-          item={item}
-          onRemove={onRemove}
-          onPause={onPause}
-          onCancel={onCancel}
-          onResume={onResume}
-          onRetry={onRetry}
-          onSetPriority={onSetPriority}
-          onOpenFolder={onOpenFolder}
-          onOpenDetail={onOpenDetail}
-        />
-      ))}
+      {downloads.map(renderRow)}
 
       {/* 分页控件 */}
       <Pagination

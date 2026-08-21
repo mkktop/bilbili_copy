@@ -160,17 +160,35 @@ pub struct DanmakuItem {
     pub color: String,
 }
 
-/// 获取视频弹幕列表（原始 JSON，供播放器弹幕层渲染）
+/// 获取视频弹幕列表（原始 JSON，供播放器弹幕层渲染）。
+/// 历史弹幕天数跟设置 `danmaku_history_days` 走（与下载路径行为一致）。
 #[command]
 pub async fn get_danmaku_json(cid: i64, aid: u64, duration: u64) -> Result<Vec<DanmakuItem>, String> {
     let credential = Credential::load()
         .map_err(|e| format!("读取登录信息失败: {e}"))?
         .ok_or_else(|| "未登录，请先登录".to_string())?;
+    let settings = crate::commands::settings::load_settings();
     let client = api_client();
-    let list = danmaku::fetch_danmaku_list(&client, &credential, cid, aid, duration)
-        .await
-        .map_err(|e| format!("获取弹幕失败: {e}"))?;
+    let list = danmaku::fetch_danmaku_list(
+        &client,
+        &credential,
+        cid,
+        aid,
+        duration,
+        settings.danmaku_history_days,
+    )
+    .await
+    .map_err(|e| format!("获取弹幕失败: {e}"))?;
     Ok(list.into_iter().map(danmu_to_item).collect())
+}
+
+/// 获取视频预览缩略图索引（进度条悬停预览）。部分视频无索引（images 为空），前端隐藏预览即可。
+#[command]
+pub async fn get_videoshot(bvid: String, cid: i64) -> Result<crate::bilibili::videoshot::Videoshot, String> {
+    let credential = Credential::load().map_err(|e| format!("读取登录信息失败: {e}"))?;
+    crate::bilibili::videoshot::get_videoshot(&bvid, cid, credential.as_ref())
+        .await
+        .map_err(|e| format!("获取缩略图索引失败: {e}"))
 }
 
 /// 字幕轨道（供播放器字幕菜单）

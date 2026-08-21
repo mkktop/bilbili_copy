@@ -780,7 +780,7 @@ async fn download_extras(
         }
         let opt = settings.to_danmaku_option();
         match crate::bilibili::danmaku::fetch_danmaku_ass(
-            &client, credential, cid, aid, duration_secs, title, &opt,
+            &client, credential, cid, aid, duration_secs, title, &opt, settings.danmaku_history_days,
         )
         .await
         {
@@ -942,7 +942,7 @@ async fn download_subtitle_only(
     if want_danmaku {
         let opt = settings.to_danmaku_option();
         match crate::bilibili::danmaku::fetch_danmaku_ass(
-            &client, credential, cid, aid, duration_secs, "", &opt,
+            &client, credential, cid, aid, duration_secs, "", &opt, settings.danmaku_history_days,
         )
         .await
         {

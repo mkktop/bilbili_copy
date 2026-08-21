@@ -1,5 +1,5 @@
 use crate::bilibili::credential::Credential;
-use crate::bilibili::{REFERER, api_client};
+use crate::bilibili::{ORIGIN, REFERER, api_client};
 use anyhow::{Context, Result};
 use serde_json::Value;
 
@@ -23,6 +23,9 @@ pub(crate) async fn interaction_post(
     let resp_text = client
         .post(url)
         .header("Referer", REFERER)
+        // 实测（2026-08，v1.1.1 冒烟测试发现）：缺 Origin 时 B站对 toview/add 等
+        // 互动 POST 返回 code=0 但静默不生效——点赞/投币/收藏/稍后再看全部受影响。
+        .header("Origin", ORIGIN)
         .header("Cookie", credential.cookie_header())
         .form(&form)
         .send()

@@ -88,6 +88,8 @@ export default function App() {
   const [parseTotal, setParseTotal] = useState(0);
   const [downloadPage, setDownloadPage] = useState(1);
   const [downloadTotal, setDownloadTotal] = useState(0);
+  // 下载库状态过滤（null=全部）：下载中/已完成/已暂停/失败
+  const [downloadFilter, setDownloadFilter] = useState<string | null>(null);
 
   const { phase, updateInfo } = useUpdate();
   const { settings, save, patch } = useSettings();
@@ -121,11 +123,11 @@ export default function App() {
     }
   }, [toast]);
 
-  const loadDownloadPage = useCallback(async (page: number) => {
+  const loadDownloadPage = useCallback(async (page: number, filter: string | null = null) => {
     try {
       const [history, total] = await Promise.all([
-        invoke<DownloadHistoryEntry[]>("get_download_history", { page }),
-        invoke<number>("get_download_count"),
+        invoke<DownloadHistoryEntry[]>("get_download_history", { page, status: filter }),
+        invoke<number>("get_download_count", { status: filter }),
       ]);
       setDownloads(history.map(dbToDownloadTask));
       setDownloadTotal(total);
@@ -343,8 +345,25 @@ export default function App() {
     const willBeEmpty = downloads.length === 1 && downloadPage > 1;
     setDownloads((prev) => prev.filter((d) => d.id !== id));
     invoke("delete_download_history", { id })
-      .then(() => loadDownloadPage(willBeEmpty ? downloadPage - 1 : downloadPage))
+      .then(() => loadDownloadPage(willBeEmpty ? downloadPage - 1 : downloadPage, downloadFilter))
       .catch(() => {});
+  };
+
+  // 删除记录同时删除本地文件（视频 + 弹幕/字幕/NFO/封面附属文件）
+  const handleRemoveWithFile = async (item: DownloadTask) => {
+    if (!window.confirm(`确定删除「${item.title}」吗？\n将同时删除本地视频文件与弹幕/字幕/NFO 等附属文件，不可恢复。`)) {
+      return;
+    }
+    const willBeEmpty = downloads.length === 1 && downloadPage > 1;
+    setDownloads((prev) => prev.filter((d) => d.id !== item.id));
+    try {
+      const n = await invoke<number>("delete_download_with_file", { id: item.id });
+      toast.success(n > 0 ? `已删除记录与 ${n} 个文件` : "已删除记录（未找到本地文件）");
+      loadDownloadPage(willBeEmpty ? downloadPage - 1 : downloadPage, downloadFilter);
+    } catch (e) {
+      toast.error(`删除失败：${friendlyError(e)}`);
+      loadDownloadPage(downloadPage, downloadFilter);
+    }
   };
 
   // 暂停运行中任务（保留 .tmp 供恢复续传），或移除排队中任务
@@ -715,6 +734,32 @@ export default function App() {
                 {activeDownloads} 个任务进行中
               </span>
             )}
+            {/* 下载库状态过滤 */}
+            <div className="flex items-center gap-1 ml-2">
+              {([
+                [null, "全部"],
+                ["downloading", "下载中"],
+                ["done", "已完成"],
+                ["paused", "已暂停"],
+                ["error", "失败"],
+              ] as [string | null, string][]).map(([value, label]) => (
+                <button
+                  key={label}
+                  onClick={() => {
+                    setDownloadFilter(value);
+                    loadDownloadPage(1, value);
+                  }}
+                  className={
+                    "px-2.5 py-1 text-xs rounded-full transition-colors " +
+                    (downloadFilter === value
+                      ? "bg-blue-500 text-white"
+                      : "text-ink-3 hover:bg-panel-2")
+                  }
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
             {/* 批量操作：全部暂停（保留续传）/ 重试当前页全部失败 */}
             <div className="ml-auto flex items-center gap-2">
               {activeDownloads > 0 && (
@@ -740,7 +785,9 @@ export default function App() {
           <div className="flex-1 overflow-auto px-6 py-4">
             <DownloadList
               downloads={downloads}
+              filter={downloadFilter}
               onRemove={handleRemoveDownload}
+              onRemoveWithFile={handleRemoveWithFile}
               onPause={handlePause}
               onCancel={handleCancel}
               onResume={handleResume}
@@ -750,7 +797,7 @@ export default function App() {
               onOpenDetail={handleOpenDetail}
               currentPage={downloadPage}
               totalCount={downloadTotal}
-              onPageChange={loadDownloadPage}
+              onPageChange={(p) => loadDownloadPage(p, downloadFilter)}
             />
           </div>
         </div>

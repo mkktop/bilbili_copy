@@ -1,4 +1,4 @@
-import { MessageSquare, FileText, Sliders, Ban } from "lucide-react";
+import { MessageSquare, FileText, Sliders, Ban, History } from "lucide-react";
 import { SettingCard, SegmentedControl, ToggleRow, ToggleSwitch } from "./shared";
 
 interface SubtitleTabProps {
@@ -17,6 +17,9 @@ interface SubtitleTabProps {
   onDmBlockTopChange: (v: boolean) => void;
   dmBlockBottom: boolean;
   onDmBlockBottomChange: (v: boolean) => void;
+  // 历史弹幕
+  dmHistoryDays: number;
+  onDmHistoryDaysChange: (v: number) => void;
   // 字幕总开关
   downloadSubtitle: boolean;
   onDownloadSubtitleChange: (v: boolean) => void;
@@ -51,6 +54,14 @@ const SUBTITLE_FORMAT_OPTIONS = [
   { value: "srt", label: "SRT" },
   { value: "vtt", label: "VTT" },
 ];
+// 历史弹幕天数（0 = 关闭）。当前分段接口只返回最近一批，想看/保存更早的弹幕需按日合并。
+const HISTORY_DAYS_OPTIONS = [
+  { value: 0, label: "关闭" },
+  { value: 3, label: "3 天" },
+  { value: 7, label: "7 天" },
+  { value: 14, label: "14 天" },
+  { value: 30, label: "30 天" },
+];
 
 export function SubtitleTab({
   downloadDanmaku,
@@ -65,6 +76,8 @@ export function SubtitleTab({
   onDmBlockTopChange,
   dmBlockBottom,
   onDmBlockBottomChange,
+  dmHistoryDays,
+  onDmHistoryDaysChange,
   downloadSubtitle,
   onDownloadSubtitleChange,
   subtitleFormat,
@@ -147,6 +160,19 @@ export function SubtitleTab({
           </div>
         </SettingCard>
       )}
+
+      {/* 历史弹幕：不依赖弹幕下载开关（播放器在线弹幕同样生效） */}
+      <SettingCard
+        icon={History}
+        title="历史弹幕"
+        description="合并最近 N 天的历史弹幕（按北京时间自然日）。下载 ASS 与播放器在线弹幕同时生效；天数越多请求数越多，热门视频弹幕量也会显著增大。"
+      >
+        <SegmentedControl
+          options={HISTORY_DAYS_OPTIONS}
+          value={HISTORY_DAYS_OPTIONS.find((o) => o.value === dmHistoryDays)?.value ?? 0}
+          onChange={onDmHistoryDaysChange}
+        />
+      </SettingCard>
 
       {/* 字幕区块标题 */}
       <div className="pt-3">

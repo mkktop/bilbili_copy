@@ -216,6 +216,9 @@ async fn fetch_segment(
 // ==================== 公开 API ====================
 
 /// 获取弹幕并转换为 ASS 格式文件（使用指定渲染配置）
+///
+/// `history_days`：额外合并的历史弹幕天数（0 = 仅当前分段）。
+/// 历史弹幕按「北京时间自然日」逐日拉取（昨天往前数），与当前分段按弹幕 id 去重。
 pub async fn fetch_danmaku_ass(
     client: &reqwest::Client,
     credential: &Credential,
@@ -224,8 +227,11 @@ pub async fn fetch_danmaku_ass(
     duration_secs: u64,
     title: &str,
     opt: &DanmakuOption,
+    history_days: u32,
 ) -> anyhow::Result<String> {
     let elems = fetch_danmaku_elems(client, credential, cid, aid, duration_secs).await?;
+    let mut elems = merge_history_elems(client, credential, cid, elems, history_days).await;
+    elems.sort_by_key(|e| e.progress);
     let danmus: Vec<Danmu> = elems.into_iter().map(Danmu::from).collect();
     Ok(to_ass(&danmus, title, opt))
 }
@@ -237,9 +243,108 @@ pub async fn fetch_danmaku_list(
     cid: i64,
     aid: u64,
     duration_secs: u64,
+    history_days: u32,
 ) -> anyhow::Result<Vec<Danmu>> {
     let elems = fetch_danmaku_elems(client, credential, cid, aid, duration_secs).await?;
+    let mut elems = merge_history_elems(client, credential, cid, elems, history_days).await;
+    elems.sort_by_key(|e| e.progress);
     Ok(elems.into_iter().map(Danmu::from).collect())
+}
+
+// ==================== 历史弹幕 ====================
+
+/// 拉取并合并最近 `history_days` 天的历史弹幕（按北京时间自然日，从昨天往前数）。
+/// 单日失败只记 warn 不中断（与分段失败策略一致）；返回去重后的全量列表。
+async fn merge_history_elems(
+    client: &reqwest::Client,
+    credential: &Credential,
+    cid: i64,
+    mut elems: Vec<DanmakuElem>,
+    history_days: u32,
+) -> Vec<DanmakuElem> {
+    if history_days == 0 {
+        return elems;
+    }
+    let mut seen: std::collections::HashSet<i64> = elems.iter().map(|e| e.id).collect();
+    let before = elems.len();
+    for date in beijing_dates_back(history_days) {
+        match fetch_history_segment(client, credential, cid, &date).await {
+            Ok(seg) => {
+                let mut added = 0;
+                for e in seg {
+                    if seen.insert(e.id) {
+                        elems.push(e);
+                        added += 1;
+                    }
+                }
+                log::info!("[danmaku] 历史弹幕 {} 新增 {} 条", date, added);
+            }
+            Err(e) => log::warn!("[danmaku] 历史弹幕 {} 获取失败: {}", date, e),
+        }
+        // 历史弹幕逐日串行 + 间隔 350ms，避免短时间大量请求触发风控
+        tokio::time::sleep(std::time::Duration::from_millis(350)).await;
+    }
+    log::info!(
+        "[danmaku] 历史弹幕合并完成：{} → {} 条（近 {} 天）",
+        before,
+        elems.len(),
+        history_days
+    );
+    elems
+}
+
+/// 北京时间（UTC+8）今天的自然日往前数 `days` 天的日期列表（不含今天），
+/// 格式 YYYY-MM-DD。历史弹幕接口以自然日为单位，且今天的数据由当前分段接口返回。
+fn beijing_dates_back(days: u32) -> Vec<String> {
+    let bj = chrono::FixedOffset::east_opt(8 * 3600).unwrap();
+    let today = chrono::Utc::now().with_timezone(&bj).date_naive();
+    (1..=days)
+        .map(|i| {
+            (today - chrono::Duration::days(i as i64))
+                .format("%Y-%m-%d")
+                .to_string()
+        })
+        .collect()
+}
+
+/// 获取某一天的历史弹幕分段（需登录）
+/// API: GET https://api.bilibili.com/x/v2/dm/web/history/seg.so?type=1&oid={cid}&date=YYYY-MM-DD
+async fn fetch_history_segment(
+    client: &reqwest::Client,
+    credential: &Credential,
+    cid: i64,
+    date: &str,
+) -> anyhow::Result<Vec<DanmakuElem>> {
+    let url = format!(
+        "https://api.bilibili.com/x/v2/dm/web/history/seg.so?type=1&oid={}&date={}",
+        cid, date
+    );
+    let resp = client
+        .get(&url)
+        .header("User-Agent", USER_AGENT)
+        .header("Referer", REFERER)
+        .header("Cookie", credential.cookie_header())
+        .send()
+        .await?;
+    if !resp.status().is_success() {
+        anyhow::bail!("历史弹幕请求失败，状态码: {}", resp.status());
+    }
+    let content_type = resp.headers().get("content-type").cloned();
+    if !content_type
+        .as_ref()
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v.starts_with("application/octet-stream"))
+    {
+        let body = resp.text().await.unwrap_or_default();
+        anyhow::bail!(
+            "历史弹幕响应异常: {:?}, body: {:?}",
+            content_type,
+            body.chars().take(200).collect::<String>()
+        );
+    }
+    let bytes = resp.bytes().await?;
+    let seg = DmSegMobileReply::decode(bytes.as_ref())?;
+    Ok(seg.elems)
 }
 
 // ==================== ASS 格式输出 ====================
