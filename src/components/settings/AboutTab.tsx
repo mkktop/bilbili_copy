@@ -11,7 +11,9 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { useUpdate } from "../../contexts/UpdateContext";
+import { channelLabel } from "../../lib/updater";
 import type { AppSettings } from "../../hooks/useSettings";
+import type { UpdateChannel } from "../../lib/updater";
 import { cn } from "../../lib/utils";
 
 const GITHUB_URL = "https://github.com/mkk/bilbili_copy";
@@ -25,7 +27,7 @@ interface AboutTabProps {
 
 export function AboutTab({ settings, onSave, onPatch }: AboutTabProps) {
   const [version, setVersion] = useState("");
-  const { phase, updateInfo, error, checkUpdate, installUpdate } = useUpdate();
+  const { phase, updateInfo, progress, error, checkUpdate, installUpdate } = useUpdate();
 
   useEffect(() => {
     getVersion().then((v) => setVersion(v));
@@ -37,20 +39,30 @@ export function AboutTab({ settings, onSave, onPatch }: AboutTabProps) {
   const hasUpdate = phase === "available" && updateInfo;
   const hasError = phase === "error";
 
-  const handleAutoUpdateToggle = async () => {
-    const next = !settings.auto_update;
+  const patchSetting = async (partial: Partial<AppSettings>) => {
     // 局部保存：整份覆盖会把设置页其它未保存修改一起落盘；失败弹窗而非静默
     try {
       if (onPatch) {
-        await onPatch({ auto_update: next });
+        await onPatch(partial);
       } else {
-        await onSave({ ...settings, auto_update: next });
+        await onSave({ ...settings, ...partial });
       }
     } catch (e) {
       console.error(e);
       window.alert(`保存失败：${e instanceof Error ? e.message : String(e)}`);
     }
   };
+
+  const handleAutoUpdateToggle = () => patchSetting({ auto_update: !settings.auto_update });
+  const handleChannelChange = (channel: UpdateChannel) => {
+    if (channel !== settings.update_channel) patchSetting({ update_channel: channel });
+  };
+
+  // 下载进度百分比（total 未知时只显示已下载量与速度）
+  const progressPct =
+    progress && progress.total ? Math.min(100, Math.round((progress.downloaded / progress.total) * 100)) : null;
+  const fmtMB = (n: number) => `${(n / 1024 / 1024).toFixed(1)} MB`;
+  const fmtSpeed = (n: number) => (n >= 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)} MB/s` : `${Math.max(1, Math.round(n / 1024))} KB/s`);
 
   return (
     <div className="space-y-6">
@@ -120,6 +132,9 @@ export function AboutTab({ settings, onSave, onPatch }: AboutTabProps) {
               <span className="text-sm font-medium text-green-700">
                 发现新版本 v{updateInfo!.version}
               </span>
+              <span className="px-2 py-0.5 rounded-full bg-white/70 text-[11px] text-green-600 border border-green-200">
+                渠道：{channelLabel(updateInfo!.channel)}
+              </span>
             </div>
             <div className="flex items-center gap-2">
               <button
@@ -154,13 +169,33 @@ export function AboutTab({ settings, onSave, onPatch }: AboutTabProps) {
         </div>
       )}
 
-      {/* 下载中状态 */}
+      {/* 下载中状态：进度条 + 实际下载渠道 */}
       {isDownloading && (
-        <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
+        <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 space-y-2">
           <div className="flex items-center gap-2 text-sm text-blue-700">
             <Loader2 size={16} className="animate-spin" />
             正在下载更新，请稍候...
+            <span className="ml-auto text-xs text-blue-500">
+              下载渠道：{channelLabel(progress?.channel)}
+            </span>
           </div>
+          {progress && (
+            <>
+              <div className="h-2 w-full rounded-full bg-blue-100 overflow-hidden">
+                <div
+                  className="h-full rounded-full bg-blue-500 transition-all duration-200"
+                  style={{ width: `${progressPct ?? 8}%` }}
+                />
+              </div>
+              <div className="flex items-center justify-between text-xs text-blue-500">
+                <span>
+                  {fmtMB(progress.downloaded)}
+                  {progress.total ? ` / ${fmtMB(progress.total)}` : ""}
+                </span>
+                <span>{fmtSpeed(progress.speed)}</span>
+              </div>
+            </>
+          )}
         </div>
       )}
 
@@ -174,11 +209,11 @@ export function AboutTab({ settings, onSave, onPatch }: AboutTabProps) {
         </div>
       )}
 
-      {/* 自动更新开关 */}
+      {/* 自动更新开关 + 更新渠道 */}
       <section className="space-y-2">
         <header className="space-y-1">
           <h3 className="text-sm font-medium text-ink-2">更新偏好</h3>
-          <p className="text-xs text-ink-3">控制应用是否在启动时自动检查更新</p>
+          <p className="text-xs text-ink-3">控制应用是否在启动时自动检查更新，以及从哪个渠道下载更新包</p>
         </header>
 
         <div className="flex items-center justify-between rounded-xl border border-line bg-panel p-4">
@@ -202,6 +237,32 @@ export function AboutTab({ settings, onSave, onPatch }: AboutTabProps) {
               )}
             />
           </button>
+        </div>
+
+        <div className="flex items-center justify-between rounded-xl border border-line bg-panel p-4">
+          <div className="space-y-1">
+            <p className="text-sm font-medium text-ink-2">更新下载渠道</p>
+            <p className="text-xs text-ink-3">R2 国内直连更快；渠道不可用时会自动回退</p>
+          </div>
+          <div className="flex rounded-lg border border-line-2 overflow-hidden shrink-0">
+            {([
+              ["r2", "R2"],
+              ["github", "GitHub"],
+            ] as Array<[UpdateChannel, string]>).map(([value, label]) => (
+              <button
+                key={value}
+                onClick={() => handleChannelChange(value)}
+                className={cn(
+                  "px-3 py-1.5 text-xs transition-colors",
+                  (settings.update_channel ?? "r2") === value
+                    ? "bg-blue-500 text-white font-medium"
+                    : "bg-panel hover:bg-panel-2 text-ink-2"
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
       </section>
 

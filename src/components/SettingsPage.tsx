@@ -112,6 +112,7 @@ export function SettingsPage({ settings, onSave, onPatch, onBack, onClearParse, 
       await onSave({
         default_download_dir: dir,
         auto_update: settings.auto_update,
+        update_channel: settings.update_channel,
         theme: settings.theme,
         close_to_tray: closeToTray,
         notify_on_complete: notifyOnComplete,

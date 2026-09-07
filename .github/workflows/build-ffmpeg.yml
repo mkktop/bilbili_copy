@@ -25,7 +25,7 @@ jobs:
             --cross-prefix=x86_64-w64-mingw32- \
             --disable-everything \
             --enable-demuxer=flv,mov,mpegts,matroska \
-            --enable-muxer=mp4 \
+            --enable-muxer=mp4,ipod \
             --enable-protocol=file,pipe \
             --enable-parser=h264,hevc,aac,aac_latm \
             --enable-bsf=aac_adtstoasc,h264_mp4toannexb \

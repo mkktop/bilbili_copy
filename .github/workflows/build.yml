@@ -113,6 +113,9 @@ jobs:
           out-file-path: "assets"
 
       - name: Generate latest.json
+        env:
+          # R2 公开域名（可在仓库 Variables 里覆盖，如需换绑定域名时不用改代码）
+          R2_BASE: ${{ vars.R2_PUBLIC_BASE || 'https://copy.kaikun.top' }}
         run: |
           VERSION="${{ steps.version.outputs.VERSION }}"
           TAG="${{ github.ref_name }}"
@@ -120,6 +123,7 @@ jobs:
 
           MSI_SIG=""
           MSI_URL=""
+          MSI_BASENAME=""
 
           cd assets
 
@@ -130,6 +134,7 @@ jobs:
             if [[ "$BASENAME" == *.msi ]]; then
               MSI_SIG="$SIG"
               MSI_URL="https://github.com/mkktop/bilbili_copy/releases/download/${TAG}/${BASENAME}"
+              MSI_BASENAME="$BASENAME"
             fi
           done
 
@@ -154,7 +159,22 @@ jobs:
           }
           EOF
 
-          cat latest.json
+          # R2 渠道版 latest.json：安装包 URL 指向 R2 公开域名，签名与 GitHub 版一致
+          cat > latest-r2.json << EOF
+          {
+            "version": "${VERSION}",
+            "notes": ${RELEASE_BODY_ESCAPED},
+            "pub_date": "${PUB_DATE}",
+            "platforms": {
+              "windows-x86_64": {
+                "signature": "${MSI_SIG}",
+                "url": "${R2_BASE}/releases/v${VERSION}/${MSI_BASENAME}"
+              }
+            }
+          }
+          EOF
+
+          cat latest.json latest-r2.json
 
       - name: Upload latest.json to release
         uses: softprops/action-gh-release@v2
@@ -163,3 +183,19 @@ jobs:
           files: latest.json
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload to R2
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          BUCKET="copy"
+          MSI_FILE=$(ls assets/*.msi | head -1)
+
+          npx --yes wrangler@latest r2 object put "${BUCKET}/releases/v${VERSION}/$(basename "$MSI_FILE")" \
+            --file "$MSI_FILE" --remote --content-type application/octet-stream
+          npx --yes wrangler@latest r2 object put "${BUCKET}/releases/v${VERSION}/$(basename "$MSI_FILE").sig" \
+            --file "${MSI_FILE}.sig" --remote --content-type text/plain
+          npx --yes wrangler@latest r2 object put "${BUCKET}/latest.json" \
+            --file latest-r2.json --remote --content-type application/json

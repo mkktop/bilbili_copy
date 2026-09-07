@@ -28,7 +28,7 @@ There is **no linter or formatter** configured (`eslint` / `prettier` / `vitest`
 - **Data files next to exe**: `settings.json`, `credentials.json`, `app.log`, `data.db`. Atomic writes (tmp+rename) for JSON files.
 - **System proxy**: On Windows, reads proxy from registry at startup in `init_system_proxy()`.
 
-## Tauri commands (86 total)
+## Tauri commands (88 total)
 
 Registered in `lib.rs` via `generate_handler![]` (grep it for the authoritative list):
 
@@ -44,6 +44,12 @@ Registered in `lib.rs` via `generate_handler![]` (grep it for the authoritative 
 - Player: `get_play_streams`, `get_danmaku_json`, `get_subtitle_list`, `get_subtitle_cues`, `get_seek_index`, `log_player_error`
 - Articles: `get_article_content`, `export_article_markdown`
 - Subscriptions (追更): `get_subscriptions`, `add_subscription`, `remove_subscription`, `check_subscription`
+- App update: `check_app_update`, `install_app_update`（自定义命令，见下节）
+
+## App self-update (commands/app_update.rs)
+
+- 设置字段 `update_channel`（`"r2"` 默认 | `"github"`）。不走 updater 插件的 JS API（它不能运行时换 endpoint），走自定义命令：按渠道选 latest.json 端点列表，R2 渠道依次 `copy.kaikun.top` → 桶自身 r2.dev 域 → GitHub 自动回退；`"github"` 只用 GitHub。下载进度经 `update://progress` 事件推送（downloaded/total/speed + 实际命中渠道，由安装包 URL host 推断）。
+- CI（build.yml `assemble-latest-json` job）发版时用 wrangler 把 MSI/.sig/latest.json 上传到 R2 桶 `copy`（secrets：`CLOUDFLARE_API_TOKEN`、`CLOUDFLARE_ACCOUNT_ID`；安装包 URL 前缀可用仓库 Variable `R2_PUBLIC_BASE` 覆盖，默认 `https://copy.kaikun.top`）。桶根 `latest.json` 即 R2 渠道清单。
 
 ## Batch download & subscriptions (commands/batch.rs, commands/subscription.rs)
 

@@ -1,3 +1,4 @@
+pub mod app_update;
 pub mod settings;
 pub mod article;
 pub mod video;

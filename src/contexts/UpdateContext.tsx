@@ -9,17 +9,25 @@ import {
   type ReactNode,
 } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { friendlyError } from "../lib/errors";
 import {
   checkForUpdate,
+  installUpdate,
   justUpdated,
+  UPDATE_DOWNLOADED_EVENT,
+  UPDATE_PROGRESS_EVENT,
+  type UpdateChannel,
   type UpdaterPhase,
   type UpdateInfo,
+  type UpdateProgress,
 } from "../lib/updater";
 
 interface UpdateContextValue {
   phase: UpdaterPhase;
   updateInfo: UpdateInfo | null;
+  /** 下载进度（downloading 阶段有效；channel 为实际命中渠道） */
+  progress: UpdateProgress | null;
   error: string | null;
   checkUpdate: () => Promise<void>;
   installUpdate: () => Promise<void>;
@@ -31,12 +39,35 @@ const UpdateContext = createContext<UpdateContextValue | null>(null);
 
 const DISMISSED_KEY = "bilibili_dl:update:dismissedVersion";
 
+/** 读取更新渠道设置，异常时回退默认 R2 */
+async function readUpdateChannel(): Promise<UpdateChannel> {
+  try {
+    const s = await invoke<{ update_channel?: string }>("get_settings");
+    return s.update_channel === "github" ? "github" : "r2";
+  } catch {
+    return "r2";
+  }
+}
+
 export function UpdateProvider({ children }: { children: ReactNode }) {
   const [phase, setPhase] = useState<UpdaterPhase>("idle");
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
+  const [progress, setProgress] = useState<UpdateProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isDismissed, setIsDismissed] = useState(false);
-  const installerRef = useRef<(() => Promise<void>) | null>(null);
+  const channelRef = useRef<UpdateChannel>("r2");
+
+  // 下载进度 / 下载完成事件（后端 install_app_update 推送）
+  useEffect(() => {
+    const unlisteners: Array<() => void> = [];
+    listen<UpdateProgress>(UPDATE_PROGRESS_EVENT, (e) => {
+      setProgress(e.payload);
+    }).then((un) => unlisteners.push(un));
+    listen<string>(UPDATE_DOWNLOADED_EVENT, () => {
+      setPhase("installing");
+    }).then((un) => unlisteners.push(un));
+    return () => unlisteners.forEach((un) => un());
+  }, []);
 
   // Auto-check on mount, gated by auto_update setting
   useEffect(() => {
@@ -62,16 +93,15 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
   const checkUpdate = useCallback(async () => {
     setPhase("checking");
     setError(null);
+    channelRef.current = await readUpdateChannel();
     try {
-      const result = await checkForUpdate();
+      const result = await checkForUpdate(channelRef.current);
       if (result.available && result.info) {
         setUpdateInfo(result.info);
         setPhase("available");
         // Check if this version was dismissed
         const dismissed = localStorage.getItem(DISMISSED_KEY);
         setIsDismissed(dismissed === result.info.version);
-        // Store downloadAndInstall for later use
-        installerRef.current = result.downloadAndInstall ?? null;
       } else {
         setPhase("upToDate");
       }
@@ -81,13 +111,12 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const installUpdate = useCallback(async () => {
-    const installer = installerRef.current;
-    if (!installer) return;
-
+  const install = useCallback(async () => {
+    setProgress(null);
     setPhase("downloading");
     try {
-      await installer();
+      await installUpdate(channelRef.current);
+      // install_app_update 成功后应用自行重启；走到 relaunch 说明后端未重启（防御）
       setPhase("installing");
     } catch (err) {
       setError(friendlyError(err));
@@ -111,13 +140,14 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
     () => ({
       phase,
       updateInfo,
+      progress,
       error,
       checkUpdate,
-      installUpdate,
+      installUpdate: install,
       dismiss,
       isDismissed,
     }),
-    [phase, updateInfo, error, isDismissed, checkUpdate, installUpdate, dismiss]
+    [phase, updateInfo, progress, error, isDismissed, checkUpdate, install, dismiss]
   );
 
   return (

@@ -56,6 +56,11 @@ fn default_close_to_tray() -> bool {
     true
 }
 
+/// 应用更新渠道："r2"（默认，国内直连加速）| "github"
+fn default_update_channel() -> String {
+    "r2".to_string()
+}
+
 /// 下载完成时是否发送桌面通知（默认开启）
 fn default_notify_on_complete() -> bool {
     true
@@ -136,6 +141,9 @@ pub struct AppSettings {
     // 下载完成时发送桌面通知
     #[serde(default = "default_notify_on_complete")]
     pub notify_on_complete: bool,
+    // 应用更新渠道 "r2" | "github"（决定检查更新用的 latest.json 端点）
+    #[serde(default = "default_update_channel")]
+    pub update_channel: String,
     // 防风控 - 设备指纹
     #[serde(default)]
     pub fingerprint_gpu_preset: String,
@@ -215,6 +223,7 @@ impl Default for AppSettings {
             close_to_tray: default_close_to_tray(),
             tray_hint_shown: false,
             notify_on_complete: default_notify_on_complete(),
+            update_channel: default_update_channel(),
             fingerprint_gpu_preset: String::new(),
             fingerprint_resolution_preset: String::new(),
             dm_img_str: String::new(),
@@ -269,6 +278,9 @@ impl AppSettings {
         self.subscription_check_interval_min = self.subscription_check_interval_min.min(1440);
         if !matches!(self.theme.as_str(), "light" | "dark" | "system") {
             self.theme = "light".to_string();
+        }
+        if !matches!(self.update_channel.as_str(), "r2" | "github") {
+            self.update_channel = "r2".to_string();
         }
         self
     }

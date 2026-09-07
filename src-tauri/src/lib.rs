@@ -33,6 +33,7 @@ use commands::player::{get_play_streams, get_danmaku_json, get_subtitle_list, ge
 use commands::weekly::{get_weekly_series, get_weekly_detail, get_precious_list};
 use commands::batch::{batch_download_bvids, batch_download_season};
 use commands::subscription::{get_subscriptions, add_subscription, remove_subscription, check_subscription};
+use commands::app_update::{check_app_update, install_app_update};
 use download_manager::manager;
 
 /// Read Windows system proxy settings and set HTTPS_PROXY env var
@@ -355,6 +356,8 @@ pub fn run() {
             get_settings,
             save_settings,
             patch_settings,
+            check_app_update,
+            install_app_update,
             get_gpu_presets,
             get_resolution_presets,
             generate_fingerprint_cmd,

@@ -1302,12 +1302,15 @@ pub async fn remux_audio(
             .output()
             .await
     } else {
-        // M4A 无损封装：fMP4 音频段直接封装为 .m4a（-c copy，零转码）
+        // M4A 无损封装：fMP4 音频段直接封装为 .m4a（-c copy，零转码）。
+        // 内置精简版 ffmpeg 只编了 mp4 muxer，.m4a 扩展名会映射到未启用的 ipod
+        // muxer 导致 "Unable to choose an output format"，故显式指定 -f mp4。
         create_ffmpeg_command(&ffmpeg)
             .args([
                 "-i", input_path.to_str().unwrap_or(""),
                 "-vn",
                 "-c", "copy",
+                "-f", "mp4",
                 "-metadata", &format!("title={}", metadata_title),
                 "-y",
                 tmp_output.to_str().unwrap_or(""),

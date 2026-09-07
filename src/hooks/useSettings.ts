@@ -4,6 +4,8 @@ import { invoke } from "@tauri-apps/api/core";
 export interface AppSettings {
   default_download_dir: string;
   auto_update: boolean;
+  // 应用更新渠道 "r2" | "github"
+  update_channel: string;           // 默认 "r2"
   video_max_quality: number;    // 默认 127 (8K)
   video_min_quality: number;    // 默认 0 (不限制)
   audio_max_quality: number;    // 默认 30251 (Hi-Res 无损)
@@ -66,6 +68,7 @@ export function useSettings() {
   const [settings, setSettings] = useState<AppSettings>({
     default_download_dir: "",
     auto_update: false,
+    update_channel: "r2",
     video_max_quality: 127,
     video_min_quality: 0,
     audio_max_quality: 30251,
