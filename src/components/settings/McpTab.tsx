@@ -17,6 +17,7 @@ export function McpTab({ settings, onSave, onPatch }: McpTabProps) {
   const toast = useToast();
   const [exePath, setExePath] = useState("");
   const [copied, setCopied] = useState(false);
+  const [copiedPrompt, setCopiedPrompt] = useState(false);
 
   useEffect(() => {
     invoke<{ exe_path: string }>("get_app_info")
@@ -58,14 +59,43 @@ export function McpTab({ settings, onSave, onPatch }: McpTabProps) {
     2
   );
 
-  const handleCopy = async () => {
+  // 一句话口令：粘给任意支持 MCP 的 AI 客户端，由它自行完成注册与验证。
+  // 必须自带 exe 路径与 --mcp 参数（客户端配置文件位置各家不同，交给 AI 找）。
+  const installPrompt =
+    `请把我本机的 BilbliCopy（B站视频下载器）注册为你的 MCP 服务器：` +
+    `名称 bilbli-copy，传输方式 stdio，启动命令 "${exePath || "<BilbliCopy 安装目录下的 bilbli-copy.exe>"}"，参数 ["--mcp"]。` +
+    `写入你的 MCP 配置并重新加载后，调用它的 get_login_status 工具验证连通性，然后告诉我结果。` +
+    `如果连接失败且提示 MCP 服务未开启，请提醒我打开 BilbliCopy 的 设置 → MCP 服务 开关后再重试。`;
+
+  const copyToClipboard = async (text: string, markCopied: () => void, failLabel: string) => {
     try {
-      await writeText(configSnippet);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      await writeText(text);
+      markCopied();
     } catch (e) {
-      toast.error(`复制失败：${e instanceof Error ? e.message : String(e)}`);
+      toast.error(`${failLabel}：${e instanceof Error ? e.message : String(e)}`);
     }
+  };
+
+  const handleCopy = async () => {
+    await copyToClipboard(
+      configSnippet,
+      () => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      },
+      "复制失败"
+    );
+  };
+
+  const handleCopyPrompt = async () => {
+    await copyToClipboard(
+      installPrompt,
+      () => {
+        setCopiedPrompt(true);
+        setTimeout(() => setCopiedPrompt(false), 2000);
+      },
+      "复制失败"
+    );
   };
 
   return (
@@ -138,6 +168,32 @@ export function McpTab({ settings, onSave, onPatch }: McpTabProps) {
               当前开关处于关闭状态：客户端连接会被拒绝并提示到此处开启。
             </p>
           )}
+        </div>
+      </section>
+
+      {/* AI 自动安装口令 */}
+      <section className="space-y-2">
+        <header className="space-y-1">
+          <h3 className="text-sm font-medium text-ink-2">懒得手动配置？让 AI 自己装</h3>
+          <p className="text-xs text-ink-3">
+            复制下面这句话，直接发给任意支持 MCP 的 AI 客户端（Claude Desktop / ZCode / Cursor
+            等），它会自动完成注册、重载和连通性验证
+          </p>
+        </header>
+
+        <div className="rounded-xl border border-line bg-panel p-4 space-y-3">
+          <div className="relative">
+            <p className="rounded-lg bg-panel-2 border border-line p-3 pr-12 text-xs leading-5 text-ink-2">
+              {installPrompt}
+            </p>
+            <button
+              onClick={handleCopyPrompt}
+              title="复制口令"
+              className="absolute top-2 right-2 p-1.5 rounded-md border border-line bg-panel hover:bg-panel-2 transition-colors text-ink-3 hover:text-ink-2"
+            >
+              {copiedPrompt ? <Check size={14} className="text-green-600" /> : <Copy size={14} />}
+            </button>
+          </div>
         </div>
       </section>
 
