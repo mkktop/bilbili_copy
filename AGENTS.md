@@ -56,6 +56,16 @@ Registered in `lib.rs` via `generate_handler![]` (grep it for the authoritative 
 - `batch_download_bvids(bvids, folder?)` / `batch_download_season(season_id)` resolve cids server-side, dedup against `download_history` (done/queued/downloading/paused skipped; error rows reuse their id via INSERT OR REPLACE), insert DB rows as `queued`, and submit to the download manager. 350ms pacing between per-video view lookups.
 - Subscriptions (`subscriptions` table, schema 102): `kind` = `season`/`series`/`favorite`. Adding captures the current bvid list as baseline (only NEW items are auto-downloaded). A scheduler spawned in `lib.rs` setup ticks every 60s and checks all subscriptions when `settings.subscription_check_interval_min` > 0 (0 = off, default).
 
+## MCP 服务（src/mcp/，`--mcp` 无头模式）
+
+- 入口：`bilbli_copy.exe --mcp`（`main.rs` 分支 → `lib.rs::run_mcp`）。AI 客户端（Claude Desktop / ZCode / Cursor）以管道 stdio 拉起**无头实例**，经 rmcp 3.x（`server` + `transport-io` features）跑 MCP 协议。设置字段 `mcp_enabled` 默认 **false**：关闭时 `--mcp` 打印 stderr 提示并 exit(1)；UI 在 `settings/McpTab.tsx`（开关 + 客户端配置片段复制，exe 路径来自 `get_app_info` 命令）。
+- 无头实例与桌面 App 的差异：无窗口/托盘/biliproxy，**不启动订阅调度器**（归 GUI，避免双份自动下载）；DB 用 `db::init_db_without_recover()` —— 绝不能跑「在途任务改 paused」的 GUI 崩溃恢复，否则每次被拉起会误停 GUI 正在下载的任务。两者并发读写同一 `data.db`（WAL + `busy_timeout=5000`），共享 `credentials.json`（DPAPI 同用户）。
+- **stdout 纪律**：MCP JSON-RPC 走 stdout；`run_mcp` 用 `init_mcp_logger`（仅文件），任何新模式下的 `println!` 都会破坏协议。
+- 工具层 `mcp/tools.rs`：**54 个工具**，**薄封装直接调用 `commands::*` 命令函数**（Tauri 命令即普通函数，`State<DbState>` 用 `app.state::<DbState>()` 构造后传入）；返回裁剪版 JSON 省 token；`RISK_CONTROL:` 前缀错误翻译为「回桌面应用完成验证」指引。单视频提交复用 `batch.rs::submit_video`（带 `SubmitOptions{qn, subtitle_only, audio_only}`，返回 `Option<task_id>`，None=去重跳过）。
+- 覆盖范围：发现（搜索/热搜/榜单/推荐/分区/每周必看/入站必刷/动态/观看历史）、解析、视频信息、**评论区+楼中楼**、**官方 AI 总结**、弹幕（限量）、字幕轨道+正文、专栏正文、UP 资料/投稿/粉丝关注、收藏夹/稍后再看/追番、下载控制（单/批量/整季/暂停/取消/优先级/删除/统计）、订阅追更、互动（点赞/投币/收藏/稍后再看）、登录状态、应用设置只读。
+- **刻意不暴露**（GUI 专属，勿"补全"）：登录扫码/登出流程与验证码（captcha_*，需 GUI 交互）、设置写入与指纹生成（save/patch_settings、fingerprint_*，配置归用户）、下载历史簿记写命令（save_download_entry/update_download_status/clear_*，会破坏任务状态一致性）、播放器内部（get_play_streams/get_seek_index/get_videoshot——流地址与字节索引对 AI 无意义）、专栏 markdown 导出、应用更新安装。
+- 冒烟测试：`node examples/mcp_smoke.mjs src-tauri/target/debug/bilbli-copy.exe`（最小 stdio 客户端：initialize → tools/list → 真实工具调用，含评论区/AI总结/弹幕/字幕）。
+
 ## Version management
 
 Version must be synced in **three files** before release:

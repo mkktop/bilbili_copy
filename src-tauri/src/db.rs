@@ -24,8 +24,24 @@ const SCHEMA_VERSION: i64 = 102;
 
 /// 初始化数据库：建表 + WAL + 版本校验（不匹配则重建）+ 清理残留
 pub fn init_db() -> anyhow::Result<DbState> {
+    init_db_inner(true)
+}
+
+/// MCP 无头模式（--mcp）专用：跳过「残留任务改 paused」的崩溃恢复。
+/// AI 客户端会在桌面 App 运行期间随时拉起无头进程，若它执行恢复逻辑，
+/// 会把 GUI 正在进行的下载任务全部误标为 paused。真崩溃的残留任务由
+/// 下一次 GUI 启动兜底恢复（GUI 路径不受影响）。
+pub fn init_db_without_recover() -> anyhow::Result<DbState> {
+    init_db_inner(false)
+}
+
+fn init_db_inner(recover_stale: bool) -> anyhow::Result<DbState> {
     let conn = Connection::open(db_path())?;
-    conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;")?;
+    // busy_timeout：桌面 App 与 MCP 无头实例可能并发读写同一个库（WAL 支持多进程），
+    // 没有超时的话写冲突会立刻返回 SQLITE_BUSY。5s 内自动重试。
+    conn.execute_batch(
+        "PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;",
+    )?;
     conn.execute_batch(SCHEMA_SQL)?;
 
     // 1.0 断代：schema_version 不匹配（0.x 旧库 / 全新库 / 未来降级）时整库重建。
@@ -51,10 +67,13 @@ pub fn init_db() -> anyhow::Result<DbState> {
     // 应用异常退出后残留的 downloading 任务改为 paused（而非 error），
     // 让用户可在「下载列表」手动恢复（复用 .tmp 续传）。临时文件由指纹机制保护，
     // 不匹配时 download_stream 会自动丢弃重下，不会损坏。
-    conn.execute(
-        "UPDATE download_history SET status='paused' WHERE status IN ('downloading', 'queued')",
-        [],
-    )?;
+    // MCP 无头实例跳过（见 init_db_without_recover：不能动 GUI 进程的在途任务）。
+    if recover_stale {
+        conn.execute(
+            "UPDATE download_history SET status='paused' WHERE status IN ('downloading', 'queued')",
+            [],
+        )?;
+    }
 
     log::info!("[db] 数据库初始化完成: {:?}", db_path());
     Ok(DbState(Mutex::new(conn)))

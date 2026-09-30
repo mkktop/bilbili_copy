@@ -6,10 +6,11 @@ import { DownloadTab } from "./settings/DownloadTab";
 import { SubtitleTab } from "./settings/SubtitleTab";
 import { AboutTab } from "./settings/AboutTab";
 import { AntiRiskTab } from "./settings/AntiRiskTab";
+import { McpTab } from "./settings/McpTab";
 import type { AppSettings } from "../hooks/useSettings";
 import { cn } from "../lib/utils";
 
-type Tab = "general" | "quality" | "download" | "subtitle" | "antirisk" | "about";
+type Tab = "general" | "quality" | "download" | "subtitle" | "antirisk" | "mcp" | "about";
 
 interface SettingsPageProps {
   settings: AppSettings;
@@ -149,6 +150,7 @@ export function SettingsPage({ settings, onSave, onPatch, onBack, onClearParse, 
         nfo_include_actor: nfoIncludeActor,
         nfo_include_stats: nfoIncludeStats,
         subscription_check_interval_min: subInterval,
+        mcp_enabled: settings.mcp_enabled,
       });
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
@@ -167,6 +169,7 @@ export function SettingsPage({ settings, onSave, onPatch, onBack, onClearParse, 
     download: "下载",
     subtitle: "字幕弹幕",
     antirisk: "防风控",
+    mcp: "MCP 服务",
     about: "关于",
   };
 
@@ -185,7 +188,7 @@ export function SettingsPage({ settings, onSave, onPatch, onBack, onClearParse, 
 
       {/* Tab bar */}
       <div className="flex border-b border-line px-4">
-        {(["general", "quality", "download", "subtitle", "antirisk", "about"] as Tab[]).map((tab) => (
+        {(["general", "quality", "download", "subtitle", "antirisk", "mcp", "about"] as Tab[]).map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -310,6 +313,13 @@ export function SettingsPage({ settings, onSave, onPatch, onBack, onClearParse, 
             saving={saving}
             saved={saved}
             onSave={handleSave}
+          />
+        )}
+        {activeTab === "mcp" && (
+          <McpTab
+            settings={settings}
+            onSave={onSave}
+            onPatch={onPatch}
           />
         )}
         {activeTab === "about" && (

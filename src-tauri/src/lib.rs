@@ -1,5 +1,6 @@
 mod commands;
 pub mod bilibili; // pub：examples/smoke_api.rs 真实登录态冒烟测试需要直接调用
+pub mod mcp; // pub：run_mcp 入口在 lib 暴露给 main.rs 的 --mcp 分支
 mod db;
 mod download_manager;
 
@@ -34,6 +35,7 @@ use commands::weekly::{get_weekly_series, get_weekly_detail, get_precious_list};
 use commands::batch::{batch_download_bvids, batch_download_season};
 use commands::subscription::{get_subscriptions, add_subscription, remove_subscription, check_subscription};
 use commands::app_update::{check_app_update, install_app_update};
+use commands::settings::get_app_info;
 use download_manager::manager;
 
 /// Read Windows system proxy settings and set HTTPS_PROXY env var
@@ -76,6 +78,80 @@ fn init_system_proxy() {
 
 #[cfg(not(target_os = "windows"))]
 fn init_system_proxy() {}
+
+/// MCP 模式日志：只写文件，绝不碰 stdout——
+/// MCP JSON-RPC 协议走 stdout，混入日志会直接破坏协议帧。
+fn init_mcp_logger() {
+    use simplelog::*;
+
+    let exe_dir = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+        .unwrap_or_else(|| std::path::PathBuf::from("."));
+    let log_path = exe_dir.join("app.log");
+
+    let file = match std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path)
+    {
+        Ok(f) => f,
+        Err(_) => return, // 日志失败不阻塞服务（桌面 App 的日志同样会记录 MCP 活动）
+    };
+
+    let config = ConfigBuilder::new().set_thread_mode(ThreadLogMode::Both).build();
+    let _ = CombinedLogger::init(vec![WriteLogger::new(
+        LevelFilter::Info,
+        config,
+        std::io::LineWriter::new(file),
+    )]);
+    log::info!("========== MCP 无头实例启动 ==========");
+}
+
+/// MCP 无头模式入口（`bilbli_copy.exe --mcp`）。
+/// AI 客户端以管道 stdio 拉起本进程，经 MCP 协议驱动搜索/下载/互动等能力。
+/// 与桌面 App 的差异：
+/// - 无窗口、无托盘、无 biliproxy，不启动订阅调度器（订阅归桌面 App，避免双份自动下载）
+/// - DB 走 init_db_without_recover：不把在途任务改 paused（那是 GUI 崩溃恢复逻辑，
+///   无头实例每次被拉起都执行会误停桌面 App 正在进行的下载）
+/// - stdout 被 MCP 协议独占（见 init_mcp_logger）
+pub fn run_mcp() {
+    init_mcp_logger();
+    init_system_proxy();
+
+    // 设置里未开启 MCP 时拒绝启动：exit(1) 让客户端显示连接失败，
+    // stderr 提示会展示给用户（不影响 stdout 的协议通道——此时尚未开始通信）
+    if !load_settings().mcp_enabled {
+        eprintln!("MCP 服务未开启：请打开 BilbliCopy 桌面应用，在 设置 → MCP 服务 中开启后重试。");
+        std::process::exit(1);
+    }
+
+    let db_state = db::init_db_without_recover().expect("数据库初始化失败");
+
+    tauri::Builder::default()
+        // 下载完成通知依赖 notification 插件（download_manager 收尾时调用）
+        .plugin(tauri_plugin_notification::init())
+        .manage(db_state)
+        .setup(|app| {
+            // 下载调度器：与桌面 App 同一套 manager()/execute_download 链路
+            let app_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                manager().run_dispatcher(app_handle).await;
+            });
+
+            // MCP stdio 服务：客户端断开 = 会话结束，无头进程随之退出
+            let mcp_app = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(e) = mcp::serve(mcp_app.clone()).await {
+                    log::error!("[mcp] 服务异常退出: {e}");
+                }
+                mcp_app.exit(0);
+            });
+            Ok(())
+        })
+        .run(tauri::generate_context!())
+        .expect("MCP 无头实例运行失败");
+}
 
 /// 初始化日志系统，日志文件写到 exe 同目录下
 fn init_logger() {
@@ -356,6 +432,7 @@ pub fn run() {
             get_settings,
             save_settings,
             patch_settings,
+            get_app_info,
             check_app_update,
             install_app_update,
             get_gpu_presets,

@@ -25,7 +25,17 @@ pub struct BatchDownloadResult {
 /// 相邻两个视频 view 解析之间的间隔（防风控）
 const BATCH_PARSE_DELAY_MS: u64 = 350;
 
-/// 把单个视频入队（manager.submit + 下载历史落库）。返回 false = 去重跳过。
+/// 单视频提交选项：MCP 直连下载可指定画质/仅音频/仅字幕；
+/// 批量下载与订阅追更走设置里的全局画质，用默认值。
+#[derive(Clone, Copy, Default)]
+pub struct SubmitOptions {
+    pub qn: Option<i64>,
+    pub subtitle_only: bool,
+    pub audio_only: bool,
+}
+
+/// 把单个视频入队（manager.submit + 下载历史落库）。
+/// 返回 Some(task_id) = 已入队；None = 去重跳过。
 /// 提交成功后把 key 记入 skip，防止同批次内重复提交。
 pub(crate) fn submit_video(
     conn: &rusqlite::Connection,
@@ -39,10 +49,11 @@ pub(crate) fn submit_video(
     pic: &str,
     owner_name: &str,
     video_meta: Option<VideoMeta>,
-) -> bool {
+    opts: SubmitOptions,
+) -> Option<String> {
     let key = format!("{}_{}", bvid, cid);
     if dedup.skip.contains(&key) {
-        return false;
+        return None;
     }
     // error 记录复用原 id（覆盖旧失败行，恢复/重试语义一致）；否则用 bvid_cid 作新 id
     let id = dedup
@@ -70,8 +81,8 @@ pub(crate) fn submit_video(
         size: None,
         duration: duration.map(|d| d as i64),
         owner_name: if owner_name.is_empty() { None } else { Some(owner_name.to_string()) },
-        subtitle_only: false,
-        audio_only: false,
+        subtitle_only: opts.subtitle_only,
+        audio_only: opts.audio_only,
     };
     if let Err(e) = db::insert_download(conn, &entry) {
         log::warn!("[batch] 下载记录落库失败 ({}): {}", id, e);
@@ -83,23 +94,25 @@ pub(crate) fn submit_video(
         cid,
         title: title.to_string(),
         video_title: video_title.to_string(),
-        qn: None,
+        qn: opts.qn,
         ep_id,
         duration,
-        subtitle_only: false,
-        audio_only: false,
+        subtitle_only: opts.subtitle_only,
+        audio_only: opts.audio_only,
         video_meta,
         owner_name: if owner_name.is_empty() { None } else { Some(owner_name.to_string()) },
     };
     let queued = matches!(manager().submit(params, 0), SubmitOutcome::Queued);
     if queued {
         dedup.skip.insert(key);
+        Some(id)
+    } else {
+        None
     }
-    queued
 }
 
 /// 从 VideoInfo 构建 NFO 元数据快照（仅当设置开启 NFO 时由调用方传入）
-fn build_video_meta(info: &crate::bilibili::video::VideoInfo, title: &str, page: &PageInfo) -> VideoMeta {
+pub(crate) fn build_video_meta(info: &crate::bilibili::video::VideoInfo, title: &str, page: &PageInfo) -> VideoMeta {
     VideoMeta {
         bvid: info.bvid.clone(),
         title: title.to_string(),
@@ -127,6 +140,16 @@ pub async fn batch_download_bvids(
     bvids: Vec<String>,
     folder: Option<String>,
     db: State<'_, DbState>,
+) -> Result<BatchDownloadResult, String> {
+    batch_download_bvids_core(bvids, folder, &db).await
+}
+
+/// 批量下载核心实现（命令与 MCP 共用）：db 参数放宽为借用，
+/// MCP 侧传 `app.state::<DbState>()` 的解引用即可复用同一段逻辑。
+pub(crate) async fn batch_download_bvids_core(
+    bvids: Vec<String>,
+    folder: Option<String>,
+    db: &DbState,
 ) -> Result<BatchDownloadResult, String> {
     let credential = Credential::load()
         .map_err(|e| format!("读取登录信息失败: {}", e))?
@@ -181,7 +204,9 @@ pub async fn batch_download_bvids(
             submit_video(
                 &conn, &mut dedup, bvid, page.cid, &title, &video_title, None,
                 Some(page.duration), &info.pic, &info.owner_name, video_meta,
+                SubmitOptions::default(),
             )
+            .is_some()
         };
         if submitted {
             queued += 1;
@@ -239,7 +264,9 @@ pub async fn batch_download_season(
             submit_video(
                 &conn, &mut dedup, &ep_bvid, page.cid, &title, &folder, page.ep_id,
                 Some(page.duration), &info.pic, &info.owner_name, video_meta,
+                SubmitOptions::default(),
             )
+            .is_some()
         };
         if submitted {
             queued += 1;

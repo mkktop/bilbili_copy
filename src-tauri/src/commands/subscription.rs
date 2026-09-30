@@ -236,7 +236,9 @@ async fn run_subscription_check(
             submit_video(
                 &conn, &mut dedup, bvid, page.cid, &title, &video_title, None,
                 Some(page.duration), &info.pic, &info.owner_name, video_meta,
+                crate::commands::batch::SubmitOptions::default(),
             )
+            .is_some()
         };
         if submitted {
             queued += 1;

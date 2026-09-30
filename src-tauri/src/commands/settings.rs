@@ -202,6 +202,9 @@ pub struct AppSettings {
     // 订阅自动检查间隔（分钟，0 = 关闭自动追更）
     #[serde(default)]
     pub subscription_check_interval_min: u32,
+    // MCP 服务开关：开启后 AI 客户端可用 --mcp 拉起无头实例（默认关闭）
+    #[serde(default)]
+    pub mcp_enabled: bool,
 }
 
 impl Default for AppSettings {
@@ -246,6 +249,7 @@ impl Default for AppSettings {
             nfo_include_actor: default_nfo_include_actor(),
             nfo_include_stats: default_nfo_include_stats(),
             subscription_check_interval_min: 0,
+            mcp_enabled: false,
         }
     }
 }
@@ -339,6 +343,15 @@ pub fn store_settings(settings: &AppSettings) -> Result<(), String> {
 #[tauri::command]
 pub fn get_settings() -> Result<AppSettings, String> {
     Ok(load_settings())
+}
+
+/// 应用信息（exe 完整路径）：前端「MCP 服务」设置页拼客户端配置片段用
+#[tauri::command]
+pub fn get_app_info() -> Result<serde_json::Value, String> {
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({
+        "exe_path": exe.to_string_lossy(),
+    }))
 }
 
 #[tauri::command]
