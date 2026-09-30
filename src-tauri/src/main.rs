@@ -4,8 +4,8 @@
 fn main() {
     // --mcp：无头 MCP 服务模式（AI 客户端经 stdio 拉起），不进入 GUI
     if std::env::args().skip(1).any(|a| a == "--mcp") {
-        bilbli_copy_lib::run_mcp();
+        weiyu_lib::run_mcp();
         return;
     }
-    bilbli_copy_lib::run()
+    weiyu_lib::run()
 }

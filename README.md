@@ -1,10 +1,10 @@
 <p align="center">
   <a href="https://github.com/mkktop/bilbili_copy">
-    <img src="src-tauri/icons/128x128@2x.png" width="120" height="120" alt="BilbliCopy" />
+    <img src="src-tauri/icons/128x128@2x.png" width="120" height="120" alt="未雨" />
   </a>
 </p>
 
-<h1 align="center">BilbliCopy</h1>
+<h1 align="center">未雨 (Weiyu)</h1>
 
 <p align="center">
   A modern, lightweight desktop client for downloading videos from Bilibili. Built with Tauri 2 (Rust + React).
@@ -114,7 +114,7 @@
 
 1. Go to the [latest release](https://github.com/mkktop/bilbili_copy/releases/latest).
 2. Download the `.msi` installer.
-3. Run the installer and launch **BilbliCopy**.
+3. Run the installer and launch **Weiyu**.
 
 The bundled `ffmpeg.exe` is included automatically — no extra setup needed.
 
@@ -152,7 +152,7 @@ The installer will be generated under `src-tauri/target/release/bundle/`.
 
 ## 🏗️ Architecture
 
-BilbliCopy is a **Tauri 2** application: a Rust backend handling all network and file I/O, with a React 18 (Vite + Tailwind CSS) frontend.
+Weiyu is a **Tauri 2** application: a Rust backend handling all network and file I/O, with a React 18 (Vite + Tailwind CSS) frontend.
 
 ```
 ┌──────────────────────────────────────────────────────────┐
@@ -214,7 +214,7 @@ This project is released under the **MIT License**. See [LICENSE](./LICENSE) for
 
 ## ⚠️ Disclaimer
 
-BilbliCopy is an **unofficial, open-source project for personal study and technical exchange only**.
+Weiyu is an **unofficial, open-source project for personal study and technical exchange only**.
 
 - It is **not affiliated with, endorsed by, or sponsored by Bilibili** or any of its affiliates.
 - All video content, trademarks, and copyrights belong to Bilibili and the respective content creators.

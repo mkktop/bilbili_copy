@@ -230,7 +230,7 @@ export function UserProfilePage({
   };
 
   return (
-    <div className="flex flex-col h-screen bg-base text-ink">
+    <div className="flex flex-col h-full bg-base text-ink">
       {/* 顶部标题栏 */}
       <header className="flex items-center gap-3 px-6 py-4 bg-panel border-b border-line">
         <button

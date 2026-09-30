@@ -272,7 +272,7 @@ export function ExplorePage({ onBack, onParseVideo, onSelectItem, onBatchDownloa
 
   // ===== 搜索视图 =====
   return (
-    <div className="flex flex-col h-screen bg-base text-ink">
+    <div className="flex flex-col h-full bg-base text-ink">
       <header className="flex items-center gap-3 px-6 py-4 bg-panel border-b border-line">
         <button
           onClick={onBack}

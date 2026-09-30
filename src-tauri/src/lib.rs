@@ -108,7 +108,7 @@ fn init_mcp_logger() {
     log::info!("========== MCP 无头实例启动 ==========");
 }
 
-/// MCP 无头模式入口（`bilbli_copy.exe --mcp`）。
+/// MCP 无头模式入口（`Weiyu.exe --mcp`）。
 /// AI 客户端以管道 stdio 拉起本进程，经 MCP 协议驱动搜索/下载/互动等能力。
 /// 与桌面 App 的差异：
 /// - 无窗口、无托盘、无 biliproxy，不启动订阅调度器（订阅归桌面 App，避免双份自动下载）
@@ -118,11 +118,12 @@ fn init_mcp_logger() {
 pub fn run_mcp() {
     init_mcp_logger();
     init_system_proxy();
+    migrate_legacy_data();
 
     // 设置里未开启 MCP 时拒绝启动：exit(1) 让客户端显示连接失败，
     // stderr 提示会展示给用户（不影响 stdout 的协议通道——此时尚未开始通信）
     if !load_settings().mcp_enabled {
-        eprintln!("MCP 服务未开启：请打开 BilbliCopy 桌面应用，在 设置 → MCP 服务 中开启后重试。");
+        eprintln!("MCP 服务未开启：请打开未雨桌面应用，在 设置 → MCP 服务 中开启后重试。");
         std::process::exit(1);
     }
 
@@ -151,6 +152,54 @@ pub fn run_mcp() {
         })
         .run(tauri::generate_context!())
         .expect("MCP 无头实例运行失败");
+}
+
+/// 改名迁移（BilbliCopy → 未雨）：productName 变化使 MSI 换了安装目录，
+/// 老用户升级后数据仍在旧目录（exe 同目录的 settings.json / credentials.json / data.db）。
+/// 新目录首次运行且自身没有数据时，把旧目录的数据搬过来，避免「升级完像重装了一样」。
+/// 找不到旧目录（自定义安装路径 / dev 目录）时静默跳过。
+fn migrate_legacy_data() {
+    let exe_dir = match std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+    {
+        Some(d) => d,
+        None => return,
+    };
+    // 新目录已有自己的数据（二次启动）就不动
+    if exe_dir.join("settings.json").exists() || exe_dir.join("data.db").exists() {
+        return;
+    }
+    // 旧目录 = exe 目录的同级 BilbliCopy（默认安装布局 C:\Program Files\<产品名>）
+    let Some(parent) = exe_dir.parent() else {
+        return;
+    };
+    let legacy = parent.join("BilbliCopy");
+    if !legacy.is_dir() {
+        return;
+    }
+
+    let mut migrated: Vec<&str> = Vec::new();
+    for name in ["settings.json", "credentials.json"] {
+        if legacy.join(name).is_file() && !exe_dir.join(name).exists() {
+            if std::fs::copy(legacy.join(name), exe_dir.join(name)).is_ok() {
+                migrated.push(name);
+            }
+        }
+    }
+    // data.db 与 wal/shm 三件套整体迁移，避免拷到主库没拷到日志文件造成错配
+    if legacy.join("data.db").is_file() && !exe_dir.join("data.db").exists() {
+        for name in ["data.db", "data.db-wal", "data.db-shm"] {
+            let src = legacy.join(name);
+            if src.is_file() {
+                let _ = std::fs::copy(&src, exe_dir.join(name));
+            }
+        }
+        migrated.push("data.db");
+    }
+    if !migrated.is_empty() {
+        log::info!("已从旧版安装目录 {:?} 迁移数据: {:?}", legacy, migrated);
+    }
 }
 
 /// 初始化日志系统，日志文件写到 exe 同目录下
@@ -321,6 +370,7 @@ pub(crate) async fn proxy_fetch_bytes(url: &str, start: u64, end_inclusive: u64)
 pub fn run() {
     init_logger();
     init_system_proxy();
+    migrate_legacy_data();
 
     let db_state = db::init_db().expect("数据库初始化失败");
 
@@ -392,7 +442,7 @@ pub fn run() {
 
             let _tray = TrayIconBuilder::with_id("main-tray")
                 .icon(app.default_window_icon().cloned().expect("缺少窗口图标"))
-                .tooltip("BilbliCopy")
+                .tooltip("未雨")
                 .menu(&menu)
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| match event.id.as_ref() {
@@ -537,7 +587,7 @@ pub fn run() {
                         use tauri_plugin_notification::NotificationExt;
                         let _ = window.app_handle().notification()
                             .builder()
-                            .title("BilbliCopy 已最小化到托盘")
+                            .title("未雨已最小化到托盘")
                             .body("程序在后台继续运行，下载任务不会中断。点击托盘图标可恢复窗口。")
                             .show();
                         let mut s = settings;

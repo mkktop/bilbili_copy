@@ -1196,7 +1196,7 @@ pub async fn merge_streams(
             .context("创建输出目录失败")?;
     }
 
-    let metadata_title = format!("BilbliCopy {}", chrono::Local::now().format("%Y-%m-%d %H:%M:%S"));
+    let metadata_title = format!("未雨 {}", chrono::Local::now().format("%Y-%m-%d %H:%M:%S"));
     let tmp_output = with_tmp_suffix(output_path);
     let output = create_ffmpeg_command(&ffmpeg)
         .args([
@@ -1239,7 +1239,7 @@ pub async fn remux_to_mp4(
             .context("创建输出目录失败")?;
     }
 
-    let metadata_title = format!("BilbliCopy {}", chrono::Local::now().format("%Y-%m-%d %H:%M:%S"));
+    let metadata_title = format!("未雨 {}", chrono::Local::now().format("%Y-%m-%d %H:%M:%S"));
     let tmp_output = with_tmp_suffix(output_path);
     let output = create_ffmpeg_command(&ffmpeg)
         .args([
@@ -1284,7 +1284,7 @@ pub async fn remux_audio(
             .context("创建输出目录失败")?;
     }
 
-    let metadata_title = format!("BilbliCopy {}", chrono::Local::now().format("%Y-%m-%d %H:%M:%S"));
+    let metadata_title = format!("未雨 {}", chrono::Local::now().format("%Y-%m-%d %H:%M:%S"));
     let tmp_output = with_tmp_suffix(output_path);
 
     let output = if format == "mp3" {

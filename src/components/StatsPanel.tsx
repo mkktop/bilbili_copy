@@ -33,7 +33,7 @@ export function StatsPanel({ onBack }: Props) {
   }, []);
 
   return (
-    <div className="flex flex-col h-screen bg-base text-ink">
+    <div className="flex flex-col h-full bg-base text-ink">
       {/* Header */}
       <div className="flex items-center gap-3 px-6 py-4 border-b border-line bg-panel">
         <button

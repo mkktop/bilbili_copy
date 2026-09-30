@@ -1,10 +1,10 @@
 <p align="center">
   <a href="https://github.com/mkktop/bilbili_copy">
-    <img src="src-tauri/icons/128x128@2x.png" width="120" height="120" alt="BilbliCopy" />
+    <img src="src-tauri/icons/128x128@2x.png" width="120" height="120" alt="未雨" />
   </a>
 </p>
 
-<h1 align="center">BilbliCopy</h1>
+<h1 align="center">未雨 (Weiyu)</h1>
 
 <p align="center">
   一个现代化的轻量级 B 站视频下载桌面客户端，基于 Tauri 2（Rust + React）打造。
@@ -114,7 +114,7 @@
 
 1. 前往 [最新发布版本](https://github.com/mkktop/bilbili_copy/releases/latest)。
 2. 下载 `.msi` 安装包。
-3. 运行安装程序并启动 **BilbliCopy**。
+3. 运行安装程序并启动 **未雨**。
 
 程序已自动内置 `ffmpeg.exe`，无需额外配置。
 
@@ -152,7 +152,7 @@ pnpm build
 
 ## 🏗️ 架构
 
-BilbliCopy 是一个 **Tauri 2** 应用：Rust 后端处理全部网络与文件 I/O，搭配 React 18（Vite + Tailwind CSS）前端。
+未雨 是一个 **Tauri 2** 应用：Rust 后端处理全部网络与文件 I/O，搭配 React 18（Vite + Tailwind CSS）前端。
 
 ```
 ┌──────────────────────────────────────────────────────────┐
@@ -214,7 +214,7 @@ BilbliCopy 是一个 **Tauri 2** 应用：Rust 后端处理全部网络与文件
 
 ## ⚠️ 免责声明
 
-BilbliCopy 是一个**仅用于个人学习与技术交流的非官方开源项目**。
+未雨 是一个**仅用于个人学习与技术交流的非官方开源项目**。
 
 - 本项目**与哔哩哔哩官方无任何关联，也未被其认可或赞助**。
 - 所有视频内容、商标及版权均归哔哩哔哩及相应内容创作者所有。

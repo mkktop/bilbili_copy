@@ -1,12 +1,12 @@
 [package]
-name = "bilbli-copy"
+name = "weiyu"
 version = "1.4.0"
-description = "Download videos from Bilibili"
+description = "未雨 (Weiyu) - Download videos from Bilibili"
 authors = ["you"]
 edition = "2021"
 
 [lib]
-name = "bilbli_copy_lib"
+name = "weiyu_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

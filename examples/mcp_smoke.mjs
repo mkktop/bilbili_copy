@@ -1,4 +1,4 @@
-// MCP stdio 冒烟测试：对 `bilbli-copy.exe --mcp` 跑 initialize → tools/list → 工具调用。
+// MCP stdio 冒烟测试：对 `Weiyu.exe --mcp` 跑 initialize → tools/list → 工具调用。
 // 用法：node examples/mcp_smoke.mjs <exe路径>
 // 前置：目标 exe 同目录的 settings.json 里 mcp_enabled=true（或在应用设置页开启）。
 // 说明：MCP stdio 传输为换行分隔的 JSON-RPC；此脚本即一个最小 MCP 客户端。
@@ -7,7 +7,7 @@ import { spawn } from "node:child_process";
 
 const exe = process.argv[2];
 if (!exe) {
-  console.error("用法: node examples/mcp_smoke.mjs <bilbli-copy.exe 路径>");
+  console.error("用法: node examples/mcp_smoke.mjs <Weiyu.exe 路径>");
   process.exit(2);
 }
 
@@ -87,6 +87,16 @@ try {
   log(`tools/list（${names.length} 个）`, names);
 
   log("get_login_status", await callTool("get_login_status", {}));
+
+  // 限速验证：默认 2 次/秒，连发 5 次网络类工具应耗时 >=2s（本地工具不计入）
+  const burst = 5;
+  const t0 = Date.now();
+  const results = await Promise.all(
+    Array.from({ length: burst }, () => callTool("get_hot_search", { limit: 1 }))
+  );
+  const elapsed = Date.now() - t0;
+  console.log(`\n===== 限速验证 =====\n并发 ${burst} 次 get_hot_search 耗时 ${elapsed}ms（2次/秒预期 >=2000ms）${results.some((r) => r.isError) ? " | 存在错误!" : " | 全部成功"}`);
+
   log("get_hot_search", await callTool("get_hot_search", { limit: 5 }));
   log("parse_video(BV1GJ411x7h7)", await callTool("parse_video", { url: "BV1GJ411x7h7" }));
   log("get_video_comments", await callTool("get_video_comments", { bvid: "BV1GJ411x7h7", page: 1, sort: "hot" }));

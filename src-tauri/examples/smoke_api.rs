@@ -4,7 +4,7 @@
 //!   cargo run --example smoke_api
 //! 涉及写操作的只有稍后再看（加 → 查 → 删，结束态为已移除）。
 
-use bilbli_copy_lib::bilibili::{
+use weiyu_lib::bilibili::{
     comment, credential::Credential, following, search, video, watch_later, weekly,
 };
 
@@ -48,7 +48,7 @@ async fn main() {
         Ok(None) => {
             // 本视频无总结：从排行榜找有总结的热门视频验证正向解析
             let mut verified = false;
-            if let Ok(rank) = bilbli_copy_lib::bilibili::ranking::get_ranking(0, Some(&cred)).await {
+            if let Ok(rank) = weiyu_lib::bilibili::ranking::get_ranking(0, Some(&cred)).await {
                 for v in rank.iter().take(10) {
                     let Ok(vi) = video::get_video_info(Some(&v.bvid), None, None, None, None, Some(&cred)).await else { continue };
                     let Some(c) = vi.pages.first().map(|p| p.cid) else { continue };
@@ -142,12 +142,12 @@ async fn main() {
 
     // 9. 历史弹幕：当前分段 + 近 2 天合并（cid 已知，直接调用内部 API 层）
     {
-        use bilbli_copy_lib::bilibili::api_client;
+        use weiyu_lib::bilibili::api_client;
         let client = api_client();
-        match bilbli_copy_lib::bilibili::danmaku::fetch_danmaku_list(&client, &cred, cid, info.aid, 300, 0).await {
+        match weiyu_lib::bilibili::danmaku::fetch_danmaku_list(&client, &cred, cid, info.aid, 300, 0).await {
             Ok(cur) => {
                 let cur_n = cur.len();
-                match bilbli_copy_lib::bilibili::danmaku::fetch_danmaku_list(&client, &cred, cid, info.aid, 300, 2).await {
+                match weiyu_lib::bilibili::danmaku::fetch_danmaku_list(&client, &cred, cid, info.aid, 300, 2).await {
                     Ok(merged) => ok("history_danmaku", format!("当前 {} 条 + 近 2 天合并后 {} 条", cur_n, merged.len())),
                     Err(e) => fail("history_danmaku", e),
                 }
@@ -158,7 +158,7 @@ async fn main() {
 
     // 10. videoshot 缩略图索引 + 雪碧图可下载性
     {
-        use bilbli_copy_lib::bilibili::videoshot;
+        use weiyu_lib::bilibili::videoshot;
         match videoshot::get_videoshot(BVID, cid, Some(&cred)).await {
             Ok(vs) => {
                 let detail = format!(
@@ -170,7 +170,7 @@ async fn main() {
                 } else {
                     let mid = vs.locate(10.0).map(|(s, y, x)| format!("t=10s → 图{} 行{} 列{}", s, y, x)).unwrap_or_else(|| "定位失败".into());
                     // 抓第一张雪碧图头部字节验证 CDN 可达
-                    let client = bilbli_copy_lib::bilibili::api_client();
+                    let client = weiyu_lib::bilibili::api_client();
                     let head = match client.get(&vs.images[0]).header("Referer", "https://www.bilibili.com/").send().await {
                         Ok(r) => format!("HTTP {}", r.status()),
                         Err(e) => format!("请求失败: {e}"),

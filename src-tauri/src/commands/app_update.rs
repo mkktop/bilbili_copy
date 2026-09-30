@@ -157,7 +157,27 @@ pub async fn install_app_update(app: AppHandle, channel: String) -> Result<(), S
     let _ = app.emit("update://downloaded", channel);
     update.install(&bytes).map_err(|e| e.to_string())?;
     // MSI 安装可能直接接管/结束进程；能走到这里就主动重启进入新版本
-    let _ = app.restart();
+    launch_rebranded_or_restart(&app);
     #[allow(unreachable_code)]
     Ok(())
+}
+
+/// 改名（BilbliCopy → 未雨）后 productName 变化导致 MSI UpgradeCode 变化，
+/// 首次升级会装进同级的新目录（C:\Program Files\Weiyu）而非原地覆盖。
+/// 安装完成后优先拉起新目录的 exe，避免用户「更新完重启又回到旧版」；
+/// 自定义安装路径等找不到时，回退为重启当前 exe（数据迁移在新版首次启动时做）。
+fn launch_rebranded_or_restart(app: &AppHandle) {
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(parent) = exe.parent().and_then(|p| p.parent()) {
+            let candidate = parent.join("Weiyu").join("Weiyu.exe");
+            if candidate.is_file() {
+                if std::process::Command::new(&candidate).spawn().is_ok() {
+                    log::info!("更新安装完成，已启动新版本: {:?}", candidate);
+                    std::process::exit(0);
+                }
+                log::warn!("新版本 {:?} 拉起失败，回退为重启当前应用", candidate);
+            }
+        }
+    }
+    app.restart();
 }

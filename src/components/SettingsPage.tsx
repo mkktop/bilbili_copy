@@ -151,6 +151,7 @@ export function SettingsPage({ settings, onSave, onPatch, onBack, onClearParse, 
         nfo_include_stats: nfoIncludeStats,
         subscription_check_interval_min: subInterval,
         mcp_enabled: settings.mcp_enabled,
+        mcp_rate_limit_per_sec: settings.mcp_rate_limit_per_sec,
       });
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);

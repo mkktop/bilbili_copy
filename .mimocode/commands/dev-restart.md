@@ -10,7 +10,7 @@ Restart the Tauri dev server. This handles stale processes, port conflicts, and 
 
 1. **Kill existing processes** — try these in order until one succeeds:
    ```bash
-   taskkill //F //IM bilbli-copy.exe 2>$null
+   taskkill //F //IM Weiyu.exe 2>$null
    ```
    Then also free the Vite dev port:
    ```bash

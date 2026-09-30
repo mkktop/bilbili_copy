@@ -37,7 +37,7 @@ fn param_err(msg: impl Into<String>) -> ErrorData {
 /// `RISK_CONTROL:<voucher>` 前缀：无头实例没有验证码 UI，指引用户去桌面应用完成验证。
 fn friendly(err: String) -> String {
     if err.starts_with("RISK_CONTROL:") {
-        "触发B站风控验证。MCP 无头实例无法弹出验证码，请在 BilbliCopy 桌面应用中操作一次以完成验证后重试。"
+        "触发B站风控验证。MCP 无头实例无法弹出验证码，请在 未雨 桌面应用中操作一次以完成验证后重试。"
             .to_string()
     } else {
         err
@@ -543,6 +543,7 @@ impl BiliMcpServer {
         &self,
         Parameters(p): Parameters<SearchVideosParams>,
     ) -> Result<CallToolResult, ErrorData> {
+        crate::mcp::rate_limit::acquire_bili().await;
         let res = map_cmd(
             commands::search::search_videos(p.keyword, p.search_type, p.page, p.order, None, None)
                 .await,
@@ -575,6 +576,7 @@ impl BiliMcpServer {
         &self,
         Parameters(p): Parameters<GetHotSearchParams>,
     ) -> Result<CallToolResult, ErrorData> {
+        crate::mcp::rate_limit::acquire_bili().await;
         let items = map_cmd(commands::search::get_hot_search(p.limit.or(Some(20))).await)?;
         json_ok(json!(items
             .iter()
@@ -588,6 +590,7 @@ impl BiliMcpServer {
         &self,
         Parameters(p): Parameters<BvidParams>,
     ) -> Result<CallToolResult, ErrorData> {
+        crate::mcp::rate_limit::acquire_bili().await;
         let items = map_cmd(commands::video::get_related_videos(p.bvid).await)?;
         json_ok(json!(trim_video_list(&items)))
     }
@@ -598,6 +601,7 @@ impl BiliMcpServer {
         &self,
         Parameters(p): Parameters<UpperMidParams>,
     ) -> Result<CallToolResult, ErrorData> {
+        crate::mcp::rate_limit::acquire_bili().await;
         let items = map_cmd(commands::collection::get_upper_collections(p.mid).await)?;
         json_ok(json!(items
             .iter()
@@ -617,6 +621,7 @@ impl BiliMcpServer {
         &self,
         Parameters(p): Parameters<GetCollectionVideosParams>,
     ) -> Result<CallToolResult, ErrorData> {
+        crate::mcp::rate_limit::acquire_bili().await;
         let res = map_cmd(
             commands::collection::get_collection_videos(
                 p.mid, p.sid, p.collection_type, p.page,
@@ -637,6 +642,7 @@ impl BiliMcpServer {
         &self,
         Parameters(p): Parameters<ParseVideoParams>,
     ) -> Result<CallToolResult, ErrorData> {
+        crate::mcp::rate_limit::acquire_bili().await;
         let info = map_cmd(commands::video::parse_video(p.url.clone()).await)?;
         let summary = summarize_video(&info);
 
@@ -670,6 +676,7 @@ impl BiliMcpServer {
         &self,
         Parameters(p): Parameters<DownloadVideoParams>,
     ) -> Result<CallToolResult, ErrorData> {
+        crate::mcp::rate_limit::acquire_bili().await;
         let info = map_cmd(commands::video::parse_video(p.url_or_bvid.clone()).await)?;
         if info.pages.is_empty() {
             return Err(param_err("解析成功但该视频没有可下载的分P"));
@@ -747,6 +754,7 @@ impl BiliMcpServer {
         &self,
         Parameters(p): Parameters<BatchDownloadParams>,
     ) -> Result<CallToolResult, ErrorData> {
+        crate::mcp::rate_limit::acquire_bili().await;
         let state = self.app.state::<DbState>();
         let res = map_cmd(
             commands::batch::batch_download_bvids_core(p.bvids, p.folder, &state).await,
@@ -894,6 +902,7 @@ impl BiliMcpServer {
         &self,
         Parameters(p): Parameters<AddSubscriptionParams>,
     ) -> Result<CallToolResult, ErrorData> {
+        crate::mcp::rate_limit::acquire_bili().await;
         let state = self.app.state::<DbState>();
         let sub = map_cmd(
             commands::subscription::add_subscription(
@@ -933,6 +942,7 @@ impl BiliMcpServer {
         &self,
         Parameters(p): Parameters<SubscriptionIdParams>,
     ) -> Result<CallToolResult, ErrorData> {
+        crate::mcp::rate_limit::acquire_bili().await;
         let res = map_cmd(commands::subscription::check_subscription(p.subscription_id, self.app.clone()).await)?;
         json_ok(serde_json::to_value(&res).map_err(internal_err)?)
     }
@@ -945,6 +955,7 @@ impl BiliMcpServer {
         &self,
         Parameters(p): Parameters<LikeVideoParams>,
     ) -> Result<CallToolResult, ErrorData> {
+        crate::mcp::rate_limit::acquire_bili().await;
         let like_flag = if p.like.unwrap_or(true) { 1u8 } else { 2u8 };
         map_cmd(commands::interaction::like_video(p.bvid.clone(), Some(like_flag)).await)?;
         json_ok(json!({ "bvid": p.bvid, "liked": p.like.unwrap_or(true) }))
@@ -956,6 +967,7 @@ impl BiliMcpServer {
         &self,
         Parameters(p): Parameters<CoinVideoParams>,
     ) -> Result<CallToolResult, ErrorData> {
+        crate::mcp::rate_limit::acquire_bili().await;
         let multiply = p.multiply.unwrap_or(1);
         if !(1..=2).contains(&multiply) {
             return Err(param_err("multiply 只能是 1 或 2"));
@@ -976,6 +988,7 @@ impl BiliMcpServer {
         &self,
         Parameters(p): Parameters<FavoriteVideoParams>,
     ) -> Result<CallToolResult, ErrorData> {
+        crate::mcp::rate_limit::acquire_bili().await;
         let aid = url::bvid_to_aid(&p.bvid);
         map_cmd(commands::interaction::favorite_video(aid as i64, p.folder_id).await)?;
         json_ok(json!({ "bvid": p.bvid, "folder_id": p.folder_id, "favorited": true }))
@@ -984,6 +997,7 @@ impl BiliMcpServer {
     /// 列出用户创建的收藏夹（favorite_video 的 folder_id 来源）。
     #[tool(description = "列出用户创建的收藏夹（id/title/media_count）。favorite_video 需要这里的 id。")]
     async fn get_favorite_folders(&self) -> Result<CallToolResult, ErrorData> {
+        crate::mcp::rate_limit::acquire_bili().await;
         let folders = map_cmd(commands::favorite::get_favorite_folders().await)?;
         json_ok(json!(folders
             .iter()
@@ -997,6 +1011,7 @@ impl BiliMcpServer {
         &self,
         Parameters(p): Parameters<BvidParams>,
     ) -> Result<CallToolResult, ErrorData> {
+        crate::mcp::rate_limit::acquire_bili().await;
         map_cmd(commands::watch_later::add_watch_later(p.bvid.clone()).await)?;
         json_ok(json!({ "bvid": p.bvid, "added": true }))
     }
@@ -1007,6 +1022,7 @@ impl BiliMcpServer {
         &self,
         Parameters(p): Parameters<BvidParams>,
     ) -> Result<CallToolResult, ErrorData> {
+        crate::mcp::rate_limit::acquire_bili().await;
         map_cmd(commands::watch_later::remove_watch_later(p.bvid.clone()).await)?;
         json_ok(json!({ "bvid": p.bvid, "removed": true }))
     }
@@ -1019,6 +1035,7 @@ impl BiliMcpServer {
         &self,
         Parameters(p): Parameters<GetVideoCommentsParams>,
     ) -> Result<CallToolResult, ErrorData> {
+        crate::mcp::rate_limit::acquire_bili().await;
         let aid = url::bvid_to_aid(&p.bvid) as i64;
         let mode = match p.sort.as_deref() {
             Some("time") => 2u32,
@@ -1056,6 +1073,7 @@ impl BiliMcpServer {
         &self,
         Parameters(p): Parameters<GetCommentRepliesParams>,
     ) -> Result<CallToolResult, ErrorData> {
+        crate::mcp::rate_limit::acquire_bili().await;
         let aid = url::bvid_to_aid(&p.bvid) as i64;
         let res = map_cmd(
             commands::comment::get_comment_replies(aid, p.root_rpid, p.page).await,
@@ -1087,6 +1105,7 @@ impl BiliMcpServer {
         &self,
         Parameters(p): Parameters<GetAiSummaryParams>,
     ) -> Result<CallToolResult, ErrorData> {
+        crate::mcp::rate_limit::acquire_bili().await;
         match map_cmd(commands::video::get_ai_summary(p.bvid.clone(), p.cid, p.up_mid as u64).await)? {
             Some(s) => json_ok(json!({
                 "bvid": p.bvid,
@@ -1107,6 +1126,7 @@ impl BiliMcpServer {
         &self,
         Parameters(p): Parameters<GetDanmakuParams>,
     ) -> Result<CallToolResult, ErrorData> {
+        crate::mcp::rate_limit::acquire_bili().await;
         let aid = url::bvid_to_aid(&p.bvid);
         let mut list = map_cmd(
             commands::player::get_danmaku_json(p.cid, aid, p.duration_seconds.unwrap_or(0)).await,
@@ -1127,6 +1147,7 @@ impl BiliMcpServer {
         &self,
         Parameters(p): Parameters<GetSubtitlesParams>,
     ) -> Result<CallToolResult, ErrorData> {
+        crate::mcp::rate_limit::acquire_bili().await;
         let aid = url::bvid_to_aid(&p.bvid);
         let tracks = map_cmd(
             commands::player::get_subtitle_list(p.bvid.clone(), p.cid, aid).await,
@@ -1154,6 +1175,7 @@ impl BiliMcpServer {
         &self,
         Parameters(p): Parameters<GetSubtitleContentParams>,
     ) -> Result<CallToolResult, ErrorData> {
+        crate::mcp::rate_limit::acquire_bili().await;
         let cues = map_cmd(commands::player::get_subtitle_cues(p.subtitle_url.clone()).await)?;
         let items: Vec<serde_json::Value> = cues
             .iter()
@@ -1170,6 +1192,7 @@ impl BiliMcpServer {
         &self,
         Parameters(p): Parameters<GetRankingParams>,
     ) -> Result<CallToolResult, ErrorData> {
+        crate::mcp::rate_limit::acquire_bili().await;
         let items = map_cmd(commands::ranking::get_ranking(p.rid).await)?;
         json_ok(json!(items
             .iter()
@@ -1192,6 +1215,7 @@ impl BiliMcpServer {
         &self,
         Parameters(p): Parameters<GetRecommendParams>,
     ) -> Result<CallToolResult, ErrorData> {
+        crate::mcp::rate_limit::acquire_bili().await;
         let items = map_cmd(commands::recommend::get_recommend(p.fresh_idx).await)?;
         json_ok(json!(items
             .iter()
@@ -1213,6 +1237,7 @@ impl BiliMcpServer {
         &self,
         Parameters(p): Parameters<GetRegionParams>,
     ) -> Result<CallToolResult, ErrorData> {
+        crate::mcp::rate_limit::acquire_bili().await;
         let items = map_cmd(commands::region::get_region(p.rid, p.ps).await)?;
         json_ok(json!(items
             .iter()
@@ -1233,6 +1258,7 @@ impl BiliMcpServer {
         &self,
         Parameters(p): Parameters<GetPgcRankParams>,
     ) -> Result<CallToolResult, ErrorData> {
+        crate::mcp::rate_limit::acquire_bili().await;
         let items = map_cmd(commands::pgc::get_pgc_rank(p.season_type).await)?;
         json_ok(json!(items
             .iter()
@@ -1252,6 +1278,7 @@ impl BiliMcpServer {
         &self,
         Parameters(p): Parameters<GetBangumiFollowParams>,
     ) -> Result<CallToolResult, ErrorData> {
+        crate::mcp::rate_limit::acquire_bili().await;
         let res = map_cmd(commands::pgc::get_bangumi_follow(p.follow_type, p.page).await)?;
         json_ok(json!({
             "page": res.page,
@@ -1271,6 +1298,7 @@ impl BiliMcpServer {
     /// 获取每周必看各期列表。
     #[tool(description = "获取B站每周必看的期数列表（公开），number 传给 get_weekly_detail 看某期内容。")]
     async fn get_weekly_series(&self) -> Result<CallToolResult, ErrorData> {
+        crate::mcp::rate_limit::acquire_bili().await;
         let items = map_cmd(commands::weekly::get_weekly_series().await)?;
         json_ok(json!(items
             .iter()
@@ -1284,6 +1312,7 @@ impl BiliMcpServer {
         &self,
         Parameters(p): Parameters<GetWeeklyDetailParams>,
     ) -> Result<CallToolResult, ErrorData> {
+        crate::mcp::rate_limit::acquire_bili().await;
         let detail = map_cmd(commands::weekly::get_weekly_detail(p.number).await)?;
         json_ok(json!({
             "number": detail.config.number,
@@ -1304,6 +1333,7 @@ impl BiliMcpServer {
     /// 获取入站必刷榜单。
     #[tool(description = "获取B站入站必刷榜（官方编辑精选，公开）。条目含 bvid/cid 可直接下载。")]
     async fn get_precious_list(&self) -> Result<CallToolResult, ErrorData> {
+        crate::mcp::rate_limit::acquire_bili().await;
         let items = map_cmd(commands::weekly::get_precious_list().await)?;
         json_ok(json!(items
             .iter()
@@ -1325,6 +1355,7 @@ impl BiliMcpServer {
         &self,
         Parameters(p): Parameters<GetDynamicFeedParams>,
     ) -> Result<CallToolResult, ErrorData> {
+        crate::mcp::rate_limit::acquire_bili().await;
         let res = map_cmd(commands::dynamic::get_dynamic_feed(p.offset).await)?;
         json_ok(json!({
             "offset": res.offset,
@@ -1347,6 +1378,7 @@ impl BiliMcpServer {
         &self,
         Parameters(p): Parameters<GetWatchHistoryParams>,
     ) -> Result<CallToolResult, ErrorData> {
+        crate::mcp::rate_limit::acquire_bili().await;
         let cursor = p.view_at.map(|view_at| {
             crate::bilibili::history::HistoryCursor {
                 view_at,
@@ -1373,6 +1405,7 @@ impl BiliMcpServer {
         &self,
         Parameters(p): Parameters<GetArticleParams>,
     ) -> Result<CallToolResult, ErrorData> {
+        crate::mcp::rate_limit::acquire_bili().await;
         if p.cvid.is_none() && p.opus_id.as_deref().unwrap_or("").is_empty() {
             return Err(param_err("cvid 与 opus_id 至少提供一个"));
         }
@@ -1398,6 +1431,7 @@ impl BiliMcpServer {
         &self,
         Parameters(p): Parameters<UpperMidParams>,
     ) -> Result<CallToolResult, ErrorData> {
+        crate::mcp::rate_limit::acquire_bili().await;
         let info = map_cmd(commands::submission::get_upper_info(p.mid).await)?;
         json_ok(json!({
             "mid": info.mid,
@@ -1416,6 +1450,7 @@ impl BiliMcpServer {
         &self,
         Parameters(p): Parameters<GetUpperVideosParams>,
     ) -> Result<CallToolResult, ErrorData> {
+        crate::mcp::rate_limit::acquire_bili().await;
         let res = map_cmd(
             commands::submission::get_submission_videos(p.mid, p.page, p.keyword).await,
         )?;
@@ -1433,6 +1468,7 @@ impl BiliMcpServer {
         &self,
         Parameters(p): Parameters<PageParams>,
     ) -> Result<CallToolResult, ErrorData> {
+        crate::mcp::rate_limit::acquire_bili().await;
         let res = map_cmd(commands::following::get_followings(p.page).await)?;
         json_ok(json!({
             "page": res.page,
@@ -1452,6 +1488,7 @@ impl BiliMcpServer {
         &self,
         Parameters(p): Parameters<GetFollowersParams>,
     ) -> Result<CallToolResult, ErrorData> {
+        crate::mcp::rate_limit::acquire_bili().await;
         let res = map_cmd(commands::following::get_followers(p.mid, p.page).await)?;
         json_ok(json!({
             "page": res.page,
@@ -1468,6 +1505,7 @@ impl BiliMcpServer {
     /// 获取我收藏的合集列表。
     #[tool(description = "获取当前用户收藏的合集列表（需登录）。条目的 id/collection_type/mid 可用于 add_subscription 订阅追更。")]
     async fn get_subscribed_collections(&self) -> Result<CallToolResult, ErrorData> {
+        crate::mcp::rate_limit::acquire_bili().await;
         let items = map_cmd(commands::collection::get_subscribed_collections().await)?;
         json_ok(json!(items
             .iter()
@@ -1488,6 +1526,7 @@ impl BiliMcpServer {
         &self,
         Parameters(p): Parameters<GetFavoriteVideosParams>,
     ) -> Result<CallToolResult, ErrorData> {
+        crate::mcp::rate_limit::acquire_bili().await;
         let res = map_cmd(commands::favorite::get_favorite_videos(p.media_id.clone(), p.page).await)?;
         json_ok(json!(res
             .medias
@@ -1500,6 +1539,7 @@ impl BiliMcpServer {
     /// 获取我的稍后再看列表。
     #[tool(description = "获取当前用户的稍后再看列表（需登录）。条目含 bvid 可直接下载。")]
     async fn get_watch_later(&self) -> Result<CallToolResult, ErrorData> {
+        crate::mcp::rate_limit::acquire_bili().await;
         let items = map_cmd(commands::watch_later::get_watch_later().await)?;
         json_ok(json!(trim_video_list(&items)))
     }
@@ -1510,6 +1550,7 @@ impl BiliMcpServer {
         &self,
         Parameters(p): Parameters<SearchSuggestParams>,
     ) -> Result<CallToolResult, ErrorData> {
+        crate::mcp::rate_limit::acquire_bili().await;
         let items = commands::search::get_search_suggest(p.term).await.map_err(internal_err)?;
         json_ok(json!(items))
     }
@@ -1529,13 +1570,14 @@ impl BiliMcpServer {
         &self,
         Parameters(p): Parameters<SeasonIdParams>,
     ) -> Result<CallToolResult, ErrorData> {
+        crate::mcp::rate_limit::acquire_bili().await;
         let state = self.app.state::<DbState>();
         let res = map_cmd(commands::batch::batch_download_season(p.season_id, state).await)?;
         json_ok(serde_json::to_value(&res).map_err(internal_err)?)
     }
 
     /// 读取应用当前设置（只读）。
-    #[tool(description = "读取 BilbliCopy 当前应用设置（只读）：默认画质、编码偏好、下载目录、并发数、附加下载开关（弹幕/字幕/NFO）等。download_video 不传 qn 时按这里的 video_max_quality 执行。修改设置请到桌面应用。")]
+    #[tool(description = "读取 未雨 当前应用设置（只读）：默认画质、编码偏好、下载目录、并发数、附加下载开关（弹幕/字幕/NFO）等。download_video 不传 qn 时按这里的 video_max_quality 执行。修改设置请到桌面应用。")]
     async fn get_app_settings(&self) -> Result<CallToolResult, ErrorData> {
         let s = commands::settings::load_settings();
         json_ok(json!({
@@ -1556,7 +1598,7 @@ impl BiliMcpServer {
     // ---------- 状态 ----------
 
     /// 查询登录状态（下载与互动都需要登录；登录在桌面应用完成，凭证共享）。
-    #[tool(description = "查询B站登录状态。下载和互动操作需要登录；未登录时提示用户在 BilbliCopy 桌面应用中扫码登录（凭证自动共享给 MCP 实例）。")]
+    #[tool(description = "查询B站登录状态。下载和互动操作需要登录；未登录时提示用户在 未雨 桌面应用中扫码登录（凭证自动共享给 MCP 实例）。")]
     async fn get_login_status(&self) -> Result<CallToolResult, ErrorData> {
         match Credential::load() {
             Ok(Some(cred)) => json_ok(json!({
@@ -1566,7 +1608,7 @@ impl BiliMcpServer {
             })),
             Ok(None) => json_ok(json!({
                 "logged_in": false,
-                "hint": "未登录。请在 BilbliCopy 桌面应用中扫码登录，登录后 MCP 实例立即可用（凭证文件共享，无需重启本服务）。",
+                "hint": "未登录。请在 未雨 桌面应用中扫码登录，登录后 MCP 实例立即可用（凭证文件共享，无需重启本服务）。",
             })),
             Err(e) => json_ok(json!({
                 "logged_in": false,
@@ -1582,10 +1624,10 @@ impl ServerHandler for BiliMcpServer {
         // 服务器在 initialize 响应里应回握手版本（LATEST 已无 initialize 握手，见 ProtocolVersion 文档）
         let mut info = ServerConfig::new(ServerCapabilities::builder().enable_tools().build());
         info.protocol_version = ProtocolVersion::LATEST_WITH_INITIALIZE;
-        info.server_info = Implementation::new("bilbli-copy", env!("CARGO_PKG_VERSION"));
-        info.server_info.title = Some("BilbliCopy".to_string());
+        info.server_info = Implementation::new("weiyu", env!("CARGO_PKG_VERSION"));
+        info.server_info.title = Some("未雨".to_string());
         info.instructions = Some(
-            "BilbliCopy 是B站视频下载器。典型流程：search_videos 找视频 → download_video 提交下载（立即返回 task_id）→ list_downloads 轮询进度。\
+            "未雨 是B站视频下载器。典型流程：search_videos 找视频 → download_video 提交下载（立即返回 task_id）→ list_downloads 轮询进度。\
              内容理解：parse_video 拿视频信息 → get_video_comments 看评论区、get_ai_summary 拿官方AI总结、get_video_danmaku/get_video_subtitles 取弹幕字幕、get_article_content 读专栏。\
              榜单发现：get_ranking/get_recommend/get_hot_search/get_weekly_detail/get_precious_list 等；UP主维度：get_upper_info/get_upper_videos。\
              整季下载：get_pgc_rank/batch_download_season。下载与互动需要用户已在桌面应用登录（凭证共享，可用 get_login_status 确认）。\

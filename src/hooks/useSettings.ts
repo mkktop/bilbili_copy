@@ -64,6 +64,8 @@ export interface AppSettings {
   subscription_check_interval_min: number;
   // MCP 服务开关：开启后 AI 客户端可用 --mcp 拉起无头实例（默认 false）
   mcp_enabled: boolean;
+  // MCP 工具全局限速（B站网络类接口共享，次/秒；0 = 不限速）
+  mcp_rate_limit_per_sec: number;
 }
 
 export function useSettings() {
@@ -108,6 +110,7 @@ export function useSettings() {
     nfo_include_stats: true,
     subscription_check_interval_min: 0,
     mcp_enabled: false,
+    mcp_rate_limit_per_sec: 2,
   });
   const [loading, setLoading] = useState(true);
 

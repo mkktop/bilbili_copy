@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "BilbliCopy",
+  "productName": "Weiyu",
   "version": "1.4.0",
-  "identifier": "com.bilbli-copy.app",
+  "identifier": "com.weiyu.app",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:3000",
@@ -13,7 +13,8 @@
     "windows": [
       {
         "label": "main",
-        "title": "BilbliCopy",
+        "title": "未雨",
+        "decorations": false,
         "width": 1080,
         "height": 720,
         "minWidth": 800,

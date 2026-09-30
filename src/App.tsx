@@ -22,7 +22,8 @@ import { useSettings } from "./hooks/useSettings";
 import { useLogin } from "./hooks/useLogin";
 import { useDownloadEvents } from "./hooks/useDownloadEvents";
 import { useUrlIntake } from "./hooks/useUrlIntake";
-import { Settings, Download, Search, Trophy, Sparkles, LayoutGrid, Sun, Moon, BarChart3, Rss, CalendarDays } from "lucide-react";
+import { Download, Search, Trophy, Sparkles, LayoutGrid, BarChart3, Rss, CalendarDays } from "lucide-react";
+import { TitleBar } from "./components/TitleBar";
 import type { AppSettings } from "./hooks/useSettings";
 import { useThemeApplier, type ThemeMode } from "./hooks/useTheme";
 import type { ParsedItem, DownloadTask, ParsedVideoInfo, ParseHistoryEntry, DownloadHistoryEntry, VideoMeta, VideoPage, PlayingItem, PlaylistItem, BatchDownloadResult } from "./types";
@@ -692,11 +693,13 @@ export default function App() {
     </>
   );
 
-  // Settings view
+  // 所有视图分支包进 IIFE，外层统一挂全局自绘标题栏（无边框窗口）
+  const view = (() => {
+    // Settings view
   if (currentView === "settings") {
     return (
       <>
-        <div className="flex flex-col h-screen bg-base text-ink">
+        <div className="flex flex-col flex-1 min-h-0 bg-base text-ink">
           <Suspense fallback={null}>
             <SettingsPage
               settings={settings}
@@ -719,7 +722,7 @@ export default function App() {
   if (currentView === "downloads" || (currentView === "detail" && previousView === "downloads")) {
     return (
       <>
-        <div className="flex flex-col h-screen bg-base text-ink">
+        <div className="flex flex-col flex-1 min-h-0 bg-base text-ink">
           {/* Header */}
           <div className="flex items-center gap-3 px-6 py-4 border-b border-line bg-panel">
             <button
@@ -949,38 +952,10 @@ export default function App() {
 
   // Main view
   return (
-    <div className="flex flex-col h-screen bg-base text-ink">
+    <div className="flex flex-col flex-1 min-h-0 bg-base text-ink">
       {/* 顶部标题栏 */}
-      <header className="flex items-center justify-between px-6 py-4 bg-panel border-b border-line">
+      <header className="flex items-center justify-end gap-2 px-6 py-3 bg-panel border-b border-line">
         <div className="flex items-center gap-2">
-          <h1 className="text-lg font-bold text-ink">BilbliCopy</h1>
-          <span className="text-xs text-ink-3">v{version}</span>
-          {/* 设置按钮（紧跟版本号） */}
-          <div className="relative">
-            <button
-              onClick={() => setCurrentView("settings")}
-              title="设置"
-              className="p-1 rounded-md text-ink-3 hover:text-ink-2 hover:bg-panel-2 transition-colors"
-            >
-              <Settings size={16} />
-            </button>
-            {/* 更新红点提示 */}
-            {hasUpdate && (
-              <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-green-500" />
-            )}
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2">
-          {/* 主题切换：浅色显月亮（点击转深色），深色显太阳（点击转浅色） */}
-          <button
-            onClick={toggleTheme}
-            title={resolvedTheme === "dark" ? "切换到浅色" : "切换到深色"}
-            className="p-1 rounded-md text-ink-3 hover:text-ink-2 hover:bg-panel-2 transition-colors"
-          >
-            {resolvedTheme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
-          </button>
-
           {/* 发现入口 */}
           <button
             onClick={() => setCurrentView("explore")}
@@ -1124,6 +1099,20 @@ export default function App() {
       )}
 
       {detailOverlay}
+    </div>
+  );
+  })();
+
+  return (
+    <div className="flex flex-col flex-1 min-h-0 bg-base text-ink">
+      <TitleBar
+        version={version}
+        hasUpdate={!!hasUpdate}
+        resolvedTheme={resolvedTheme}
+        toggleTheme={toggleTheme}
+        onSettings={() => setCurrentView("settings")}
+      />
+      <div className="flex-1 min-h-0 flex flex-col">{view}</div>
     </div>
   );
 }

@@ -100,6 +100,10 @@ fn default_nfo_include_stats() -> bool {
 
 // ==================== AppSettings ====================
 
+fn default_mcp_rate_limit_per_sec() -> u32 {
+    2
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppSettings {
     #[serde(default)]
@@ -205,6 +209,9 @@ pub struct AppSettings {
     // MCP 服务开关：开启后 AI 客户端可用 --mcp 拉起无头实例（默认关闭）
     #[serde(default)]
     pub mcp_enabled: bool,
+    // MCP 工具全局限速（B站网络类接口共享，次/秒；0 = 不限制）
+    #[serde(default = "default_mcp_rate_limit_per_sec")]
+    pub mcp_rate_limit_per_sec: u32,
 }
 
 impl Default for AppSettings {
@@ -250,6 +257,7 @@ impl Default for AppSettings {
             nfo_include_stats: default_nfo_include_stats(),
             subscription_check_interval_min: 0,
             mcp_enabled: false,
+            mcp_rate_limit_per_sec: default_mcp_rate_limit_per_sec(),
         }
     }
 }
@@ -280,6 +288,7 @@ impl AppSettings {
         self.danmaku_opacity = self.danmaku_opacity.clamp(0.0, 1.0);
         self.danmaku_history_days = self.danmaku_history_days.min(30);
         self.subscription_check_interval_min = self.subscription_check_interval_min.min(1440);
+        self.mcp_rate_limit_per_sec = self.mcp_rate_limit_per_sec.min(100);
         if !matches!(self.theme.as_str(), "light" | "dark" | "system") {
             self.theme = "light".to_string();
         }

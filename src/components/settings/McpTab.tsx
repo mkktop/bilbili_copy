@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
-import { Bot, Copy, Check, ShieldCheck } from "lucide-react";
+import { Bot, Copy, Check, ShieldCheck, Gauge } from "lucide-react";
 import { useToast } from "../Toast";
+import { NumberInput } from "./shared";
 import type { AppSettings } from "../../hooks/useSettings";
 import { cn } from "../../lib/utils";
 
@@ -49,8 +50,8 @@ export function McpTab({ settings, onSave, onPatch }: McpTabProps) {
   const configSnippet = JSON.stringify(
     {
       mcpServers: {
-        "bilbli-copy": {
-          command: exePath || "<BilbliCopy 安装目录下的 bilbli-copy.exe>",
+        weiyu: {
+          command: exePath || "<未雨安装目录下的 Weiyu.exe>",
           args: ["--mcp"],
         },
       },
@@ -62,10 +63,10 @@ export function McpTab({ settings, onSave, onPatch }: McpTabProps) {
   // 一句话口令：粘给任意支持 MCP 的 AI 客户端，由它自行完成注册与验证。
   // 必须自带 exe 路径与 --mcp 参数（客户端配置文件位置各家不同，交给 AI 找）。
   const installPrompt =
-    `请把我本机的 BilbliCopy（B站视频下载器）注册为你的 MCP 服务器：` +
-    `名称 bilbli-copy，传输方式 stdio，启动命令 "${exePath || "<BilbliCopy 安装目录下的 bilbli-copy.exe>"}"，参数 ["--mcp"]。` +
+    `请把我本机的未雨 Weiyu（B站视频下载器）注册为你的 MCP 服务器：` +
+    `名称 weiyu，传输方式 stdio，启动命令 "${exePath || "<未雨安装目录下的 Weiyu.exe>"}"，参数 ["--mcp"]。` +
     `写入你的 MCP 配置并重新加载后，调用它的 get_login_status 工具验证连通性，然后告诉我结果。` +
-    `如果连接失败且提示 MCP 服务未开启，请提醒我打开 BilbliCopy 的 设置 → MCP 服务 开关后再重试。`;
+    `如果连接失败且提示 MCP 服务未开启，请提醒我打开未雨的 设置 → MCP 服务 开关后再重试。`;
 
   const copyToClipboard = async (text: string, markCopied: () => void, failLabel: string) => {
     try {
@@ -129,6 +130,28 @@ export function McpTab({ settings, onSave, onPatch }: McpTabProps) {
             )}
           />
         </button>
+      </div>
+
+      {/* 接口限速 */}
+      <div className="flex items-center justify-between rounded-xl border border-line bg-panel p-4">
+        <div className="space-y-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <Gauge size={18} className="text-accent" />
+            <p className="text-sm font-medium text-ink-2">接口限速</p>
+          </div>
+          <p className="text-xs text-ink-3">
+            AI 客户端调用B站接口的全局频率上限（次/秒），防止 AI 失控连接触发风控。
+            下载速度不受此限制（由下载并发设置控制）。改动即时生效，选「不限速」关闭。
+          </p>
+        </div>
+        <NumberInput
+          value={settings.mcp_rate_limit_per_sec}
+          onChange={(v) => {
+            patchSetting({ mcp_rate_limit_per_sec: v });
+          }}
+          unit="次/秒"
+          unlimitedLabel="不限速"
+        />
       </div>
 
       {/* 使用步骤 */}
