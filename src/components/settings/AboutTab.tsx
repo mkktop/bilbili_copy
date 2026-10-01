@@ -67,7 +67,7 @@ export function AboutTab({ settings, onSave, onPatch }: AboutTabProps) {
   return (
     <div className="space-y-6">
       {/* 应用信息卡片 */}
-      <div className="rounded-xl border border-line bg-gradient-to-br from-panel to-panel-2 p-6 space-y-5 shadow-sm">
+      <div className="rounded-xl border border-line bg-gradient-to-br from-panel/50 to-panel-2/30 backdrop-blur-sm p-6 space-y-5 shadow-sm">
         {/* 应用名称和版本 */}
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent-soft text-accent">
@@ -216,7 +216,7 @@ export function AboutTab({ settings, onSave, onPatch }: AboutTabProps) {
           <p className="text-xs text-ink-3">控制应用是否在启动时自动检查更新，以及从哪个渠道下载更新包</p>
         </header>
 
-        <div className="flex items-center justify-between rounded-xl border border-line bg-panel p-4">
+        <div className="flex items-center justify-between rounded-xl border border-line/60 bg-panel/30 backdrop-blur-sm p-4">
           <div className="space-y-1">
             <p className="text-sm font-medium text-ink-2">启动时自动检查更新</p>
             <p className="text-xs text-ink-3">关闭后需手动检查</p>
@@ -239,7 +239,7 @@ export function AboutTab({ settings, onSave, onPatch }: AboutTabProps) {
           </button>
         </div>
 
-        <div className="flex items-center justify-between rounded-xl border border-line bg-panel p-4">
+        <div className="flex items-center justify-between rounded-xl border border-line/60 bg-panel/30 backdrop-blur-sm p-4">
           <div className="space-y-1">
             <p className="text-sm font-medium text-ink-2">更新下载渠道</p>
             <p className="text-xs text-ink-3">R2 国内直连更快；渠道不可用时会自动回退</p>
@@ -256,7 +256,7 @@ export function AboutTab({ settings, onSave, onPatch }: AboutTabProps) {
                   "px-3 py-1.5 text-xs transition-colors",
                   (settings.update_channel ?? "r2") === value
                     ? "bg-blue-500 text-white font-medium"
-                    : "bg-panel hover:bg-panel-2 text-ink-2"
+                    : "bg-panel/60 hover:bg-panel-2 text-ink-2"
                 )}
               >
                 {label}

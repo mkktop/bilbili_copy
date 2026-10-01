@@ -49,8 +49,8 @@ Registered in `lib.rs` via `generate_handler![]` (grep it for the authoritative 
 
 ## App self-update (commands/app_update.rs)
 
-- 设置字段 `update_channel`（`"r2"` 默认 | `"github"`）。不走 updater 插件的 JS API（它不能运行时换 endpoint），走自定义命令：按渠道选 latest.json 端点列表，R2 渠道依次 `copy.kaikun.top` → 桶自身 r2.dev 域 → GitHub 自动回退；`"github"` 只用 GitHub。下载进度经 `update://progress` 事件推送（downloaded/total/speed + 实际命中渠道，由安装包 URL host 推断）。
-- CI（build.yml `assemble-latest-json` job）发版时用 wrangler 把 MSI/.sig/latest.json 上传到 R2 桶 `copy`（secrets：`CLOUDFLARE_API_TOKEN`、`CLOUDFLARE_ACCOUNT_ID`；安装包 URL 前缀可用仓库 Variable `R2_PUBLIC_BASE` 覆盖，默认 `https://copy.kaikun.top`）。桶根 `latest.json` 即 R2 渠道清单。
+- 设置字段 `update_channel`（`"r2"` 默认 | `"github"`）。不走 updater 插件的 JS API（它不能运行时换 endpoint），走自定义命令：按渠道选 latest.json 端点列表，R2 渠道依次 `weiyu.yeyushi.com` → 桶自身 r2.dev 域 → GitHub 自动回退；`"github"` 只用 GitHub。下载进度经 `update://progress` 事件推送（downloaded/total/speed + 实际命中渠道，由安装包 URL host 推断）。
+- CI（build.yml `assemble-latest-json` job）发版时用 wrangler 把 MSI/.sig/latest.json 上传到 R2 桶 `copy`（secrets：`CLOUDFLARE_API_TOKEN`、`CLOUDFLARE_ACCOUNT_ID`；安装包 URL 前缀可用仓库 Variable `R2_PUBLIC_BASE` 覆盖，默认 `https://weiyu.yeyushi.com`）。桶根 `latest.json` 即 R2 渠道清单。旧自定义域 `copy.kaikun.top` 已废弃（v1.4.1 起换绑 `weiyu.yeyushi.com`；旧版客户端会自动回退 r2.dev/GitHub）。上传后 **Prune 步骤**遍历历史 release 标签把 R2 上旧版安装包删光（只留当前版；文件名取自各 release 资产，兼容旧 BilbliCopy 命名；continue-on-error，回滚走 GitHub Release）。
 - 改名过渡（v1.4.1 起）：productName 变化 → MSI UpgradeCode 变化 → 首次跨名升级装进同级新目录而非原地覆盖。`install_app_update` 安装完成后优先拉起 `<旧目录>/../Weiyu/Weiyu.exe`，找不到才重启旧 exe；数据由 `migrate_legacy_data()`（lib.rs）在新版首次启动时从旧目录搬入。
 
 ## Batch download & subscriptions (commands/batch.rs, commands/subscription.rs)

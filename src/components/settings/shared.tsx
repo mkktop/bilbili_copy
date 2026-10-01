@@ -13,7 +13,7 @@ export function SettingCard({
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex items-start gap-4 p-4 rounded-xl border border-line bg-panel">
+    <div className="flex items-start gap-4 p-4 rounded-xl border border-line/60 bg-panel/30 backdrop-blur-sm">
       <div className="p-2 rounded-lg bg-accent-soft text-accent mt-0.5">
         <Icon size={18} />
       </div>
@@ -45,7 +45,7 @@ export function SegmentedControl<T extends number | string>({
           className={cn(
             "px-3 py-1.5 text-xs font-medium rounded-md transition-all",
             value === opt.value
-              ? "bg-panel text-accent shadow-sm border border-line"
+              ? "bg-panel/70 text-accent shadow-sm border border-line/50"
               : "text-ink-3 hover:text-ink-2"
           )}
         >
@@ -147,7 +147,7 @@ export function NumberInput({
         step={step}
         placeholder={placeholder}
         className={cn(
-          "w-24 px-2.5 py-1.5 text-xs rounded-md border bg-panel text-ink-2 transition-colors",
+          "w-24 px-2.5 py-1.5 text-xs rounded-md border bg-panel/60 text-ink-2 transition-colors",
           unlimited
             ? "border-line text-ink-3 cursor-not-allowed bg-panel-2"
             : "border-line focus:border-accent focus:ring-1 focus:ring-accent outline-none"
@@ -160,7 +160,7 @@ export function NumberInput({
           "px-2 py-1 text-xs rounded-md border transition-colors",
           unlimited
             ? "bg-accent-soft border-accent text-accent"
-            : "bg-panel border-line text-ink-3 hover:bg-panel-2"
+            : "bg-panel/30 border-line/50 text-ink-3 hover:bg-panel-2"
         )}
       >
         {unlimitedLabel}

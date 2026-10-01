@@ -1,5 +1,5 @@
 import { getVersion } from "@tauri-apps/api/app";
-import { lazy, Suspense, useEffect, useRef, useState, useCallback } from "react";
+import { lazy, Suspense, useEffect, useRef, useState, useCallback, type ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { revealItemInDir, openPath } from "@tauri-apps/plugin-opener";
 import { DownloadInput } from "./components/DownloadInput";
@@ -22,8 +22,9 @@ import { useSettings } from "./hooks/useSettings";
 import { useLogin } from "./hooks/useLogin";
 import { useDownloadEvents } from "./hooks/useDownloadEvents";
 import { useUrlIntake } from "./hooks/useUrlIntake";
-import { Download, Search, Trophy, Sparkles, LayoutGrid, BarChart3, Rss, CalendarDays } from "lucide-react";
+import { Download, Search, Trophy, Sparkles, LayoutGrid, BarChart3, Rss, CalendarDays, History, ArrowLeft, Trash2 } from "lucide-react";
 import { TitleBar } from "./components/TitleBar";
+import { HomeHero, RainLayer, SKY_GRADIENT } from "./components/HomeHero";
 import type { AppSettings } from "./hooks/useSettings";
 import { useThemeApplier, type ThemeMode } from "./hooks/useTheme";
 import type { ParsedItem, DownloadTask, ParsedVideoInfo, ParseHistoryEntry, DownloadHistoryEntry, VideoMeta, VideoPage, PlayingItem, PlaylistItem, BatchDownloadResult } from "./types";
@@ -50,12 +51,13 @@ function extractArticleRef(text: string): ArticleRef | null {
   return null;
 }
 
-type View = "main" | "settings" | "detail" | "downloads" | "stats" | "profile" | "explore" | "ranking" | "recommend" | "region" | "dynamic" | "weekly";
+type View = "main" | "history" | "settings" | "detail" | "downloads" | "stats" | "profile" | "explore" | "ranking" | "recommend" | "region" | "dynamic" | "weekly";
 
 /** 视图枚举 → 面包屑来源中文名（详情页/UP 主主页头部用，back 回到该来源） */
 function viewLabel(view: View): string {
   switch (view) {
     case "main": return "主页";
+    case "history": return "历史记录";
     case "explore": return "发现";
     case "ranking": return "排行榜";
     case "recommend": return "推荐";
@@ -312,6 +314,7 @@ export default function App() {
 
   // 解析输入框入口：专栏/图文链接（cv 号或 opus）直接打开阅读页，其余走视频解析。
   // 其他页面的 onParseVideo 不经过此入口（它们只传视频/番剧链接）。
+  // 主页是品牌门户：解析成功直接打开详情覆盖层（记录照常进「历史记录」页）。
   const handleParseFromInput = (url: string) => {
     const ref = extractArticleRef(url);
     if (ref != null) {
@@ -319,18 +322,32 @@ export default function App() {
       setInputUrl("");
       return;
     }
-    void handleParse(url).catch(() => { /* 错误已在 handleParse 内 toast */ });
+    void handleParse(url)
+      .then((videoInfo) => {
+        if (videoInfo) openDetail(videoInfo, "main", "input");
+      })
+      .catch(() => { /* 错误已在 handleParse 内 toast */ });
   };
 
-  const handleSelectItem = (item: ParsedItem) => {
+  const handleSelectItem = (item: ParsedItem, source: View = "main") => {
     if (!item.videoInfo) return;
     // 更新时间戳，使其置顶
     if (item.videoInfo.bvid) {
       invoke("touch_parse_history", { bvid: item.videoInfo.bvid }).catch(() => {});
     }
     setSelectedItem(item);
-    setPreviousView("main");
+    setPreviousView(source);
     setCurrentView("detail");
+  };
+
+  const handleClearParseHistory = () => {
+    if (!window.confirm("确定清空全部解析历史吗？此操作不可恢复。")) return;
+    invoke("clear_parse_history")
+      .then(() => {
+        loadParsePage(1);
+        toast.success("解析历史已清空");
+      })
+      .catch((e) => toast.error(`清空失败：${friendlyError(e)}`));
   };
 
   const handleRemoveParsed = (id: string) => {
@@ -617,7 +634,10 @@ export default function App() {
   const detailOverlay = (
     <>
       {currentView === "detail" && selectedItem && (
-        <div className="fixed inset-0 z-50 bg-base">
+        <div className="fixed inset-x-0 top-10 bottom-0 z-50 overflow-hidden bg-base">
+          {/* 覆盖层自带同款天色 + 雨：不透明显露出后面的页面，顶部保留全局标题栏 */}
+          <div aria-hidden className="pointer-events-none absolute inset-0" style={{ background: SKY_GRADIENT }} />
+          <RainLayer />
           <VideoDetail
             entry={selectedItem}
             sourceLabel={viewLabel(previousView)}
@@ -652,7 +672,9 @@ export default function App() {
               故本层绘制在 VideoDetail 之上。返回关闭本层 → 回到详情；
               点开某视频 → handleSelectFromUpper 替换详情内容并关闭本层。 */}
           {upperViewMid !== null && (
-            <div className="fixed inset-0 z-[60] bg-base">
+            <div className="fixed inset-x-0 top-10 bottom-0 z-[60] overflow-hidden bg-base">
+              <div aria-hidden className="pointer-events-none absolute inset-0" style={{ background: SKY_GRADIENT }} />
+              <RainLayer />
               <UpperHomePage
                 mid={upperViewMid}
                 sourceLabel="视频详情"
@@ -699,7 +721,7 @@ export default function App() {
   if (currentView === "settings") {
     return (
       <>
-        <div className="flex flex-col flex-1 min-h-0 bg-base text-ink">
+        <div className="flex flex-col flex-1 min-h-0 text-ink">
           <Suspense fallback={null}>
             <SettingsPage
               settings={settings}
@@ -722,9 +744,9 @@ export default function App() {
   if (currentView === "downloads" || (currentView === "detail" && previousView === "downloads")) {
     return (
       <>
-        <div className="flex flex-col flex-1 min-h-0 bg-base text-ink">
+        <div className="flex flex-col flex-1 min-h-0 text-ink">
           {/* Header */}
-          <div className="flex items-center gap-3 px-6 py-4 border-b border-line bg-panel">
+          <div className="flex items-center gap-3 px-6 py-4 border-b border-line/60 bg-panel/30 backdrop-blur-md relative z-20">
             <button
               onClick={() => setCurrentView("main")}
               className="p-1.5 rounded-lg border border-line-2 hover:bg-panel-2 transition-colors"
@@ -801,6 +823,50 @@ export default function App() {
               currentPage={downloadPage}
               totalCount={downloadTotal}
               onPageChange={(p) => loadDownloadPage(p, downloadFilter)}
+            />
+          </div>
+        </div>
+        {detailOverlay}
+      </>
+    );
+  }
+
+  // History view（解析历史记录）：detail 时也保持本页渲染（被覆盖层遮挡），返回状态不丢
+  if (currentView === "history" || (currentView === "detail" && previousView === "history")) {
+    return (
+      <>
+        <div className="flex flex-col flex-1 min-h-0 text-ink">
+          {/* Header */}
+          <div className="flex items-center gap-3 px-6 py-4 border-b border-line/60 bg-panel/30 backdrop-blur-md relative z-20">
+            <button
+              onClick={() => setCurrentView("main")}
+              className="p-1.5 rounded-lg border border-line-2 hover:bg-panel-2 transition-colors"
+            >
+              <ArrowLeft size={16} />
+            </button>
+            <h1 className="text-lg font-semibold text-ink">历史记录</h1>
+            <span className="text-xs text-ink-3">共 {parseTotal} 条</span>
+            <div className="ml-auto">
+              <button
+                onClick={handleClearParseHistory}
+                disabled={parseTotal === 0}
+                className="flex items-center gap-1 px-3 py-1.5 text-xs text-red-500 border border-red-200 rounded-lg hover:bg-red-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                <Trash2 size={13} />
+                清空记录
+              </button>
+            </div>
+          </div>
+
+          {/* 解析历史列表 */}
+          <div className="flex-1 overflow-auto px-6 py-2">
+            <ParseList
+              items={parsedItems}
+              onRemove={handleRemoveParsed}
+              onSelect={(item) => handleSelectItem(item, "history")}
+              currentPage={parsePage}
+              totalCount={parseTotal}
+              onPageChange={loadParsePage}
             />
           </div>
         </div>
@@ -952,9 +1018,9 @@ export default function App() {
 
   // Main view
   return (
-    <div className="flex flex-col flex-1 min-h-0 bg-base text-ink">
-      {/* 顶部标题栏 */}
-      <header className="flex items-center justify-end gap-2 px-6 py-3 bg-panel border-b border-line">
+    <div className="flex flex-col flex-1 min-h-0 text-ink">
+      {/* 顶部标题栏（全透明：渐变最深处直通窗口顶端，不切割） */}
+      <header className="relative flex items-center justify-end gap-2 px-6 py-2.5">
         <div className="flex items-center gap-2">
           {/* 发现入口 */}
           <button
@@ -1010,6 +1076,15 @@ export default function App() {
             <CalendarDays size={16} />
           </button>
 
+          {/* 历史记录入口 */}
+          <button
+            onClick={() => setCurrentView("history")}
+            title="历史记录"
+            className="p-1 rounded-md text-ink-3 hover:text-ink-2 hover:bg-panel-2 transition-colors"
+          >
+            <History size={16} />
+          </button>
+
           {/* 下载列表入口 */}
           <div className="relative">
             <button
@@ -1058,21 +1133,36 @@ export default function App() {
         </div>
       </header>
 
-      {/* URL 输入区 */}
-      <div className="px-6 py-3 bg-panel border-b border-line">
-        <DownloadInput value={inputUrl} onChange={setInputUrl} onParse={handleParseFromInput} isParsing={isParsing} />
-      </div>
-
-      {/* 解析列表 */}
-      <div className="flex-1 overflow-auto px-6 py-2">
-        <ParseList
-          items={parsedItems}
-          onRemove={handleRemoveParsed}
-          onSelect={handleSelectItem}
-          currentPage={parsePage}
-          totalCount={parseTotal}
-          onPageChange={loadParsePage}
-        />
+      {/* 品牌门户首页：雨意英雄区 + 居中解析栏（解析成功直接进入详情） */}
+      <div className="relative flex-1 min-h-0 overflow-auto">
+        <div className="flex min-h-full flex-col items-center justify-center px-6 py-12">
+          <HomeHero />
+          <div className="mt-9 w-full max-w-2xl">
+            <DownloadInput value={inputUrl} onChange={setInputUrl} onParse={handleParseFromInput} isParsing={isParsing} />
+          </div>
+          {/* 快捷入口 */}
+          <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
+            {([
+              ["history", "历史记录", <History size={13} />],
+              ["explore", "发现", <Search size={13} />],
+              ["ranking", "排行榜", <Trophy size={13} />],
+              ["recommend", "推荐", <Sparkles size={13} />],
+              ["weekly", "每周必看", <CalendarDays size={13} />],
+            ] as [View, string, ReactNode][]).map(([v, label, icon]) => (
+              <button
+                key={v}
+                onClick={() => setCurrentView(v)}
+                className="flex items-center gap-1.5 rounded-full border border-line bg-panel/60 px-3.5 py-1.5 text-xs text-ink-3 transition-colors hover:border-blue-300 hover:bg-panel-2 hover:text-ink-2"
+              >
+                {icon}
+                {label}
+              </button>
+            ))}
+          </div>
+          <p className="mt-8 text-[11px] text-ink-3 opacity-70">
+            支持视频 / 番剧 / 课程 / 专栏链接 · 复制链接后切回窗口自动填入
+          </p>
+        </div>
       </div>
 
       {/* 登录弹窗 */}
@@ -1104,7 +1194,14 @@ export default function App() {
   })();
 
   return (
-    <div className="flex flex-col flex-1 min-h-0 bg-base text-ink">
+    <div className="relative flex h-screen flex-col bg-base text-ink">
+      {/* 全局天光 + 全页雨幕：整个应用共享的雨天天色，自最顶端延续到底、跨页面不分割 */}
+      <div
+        className="pointer-events-none absolute inset-0 z-0"
+        aria-hidden="true"
+        style={{ background: SKY_GRADIENT }}
+      />
+      <RainLayer />
       <TitleBar
         version={version}
         hasUpdate={!!hasUpdate}
@@ -1112,7 +1209,7 @@ export default function App() {
         toggleTheme={toggleTheme}
         onSettings={() => setCurrentView("settings")}
       />
-      <div className="flex-1 min-h-0 flex flex-col">{view}</div>
+      <div className="relative z-10 flex-1 min-h-0 flex flex-col">{view}</div>
     </div>
   );
 }

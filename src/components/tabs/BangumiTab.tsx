@@ -93,7 +93,7 @@ export function BangumiTab({ onParseVideo, onSelectItem, onBatchDownloadSeason }
             className={`px-3 py-1.5 text-sm rounded-lg border transition-colors ${
               followType === key
                 ? "bg-blue-50 border-blue-300 text-blue-600"
-                : "bg-panel border-line text-ink-3 hover:bg-base"
+                : "bg-panel/30 border-line/50 text-ink-3 hover:bg-base"
             }`}
           >
             {label}
@@ -179,7 +179,7 @@ function BangumiCard({
       <button
         onClick={onClick}
         disabled={loading || !item.season_id}
-        className="flex flex-col w-full bg-panel border border-line rounded-lg overflow-hidden hover:border-line-2 transition-colors text-left disabled:opacity-70"
+        className="flex flex-col w-full bg-panel/30 backdrop-blur-sm border border-line/50 rounded-lg overflow-hidden hover:border-line-2 transition-colors text-left disabled:opacity-70"
       >
       <div className="relative aspect-[3/4] bg-panel-2">
         <img

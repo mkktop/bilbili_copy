@@ -395,7 +395,7 @@ export function UpperView({ mid, scrollRef, onParseVideo, onSelectItem, onBatchD
           {upperError}
         </div>
       ) : upper ? (
-        <div className="px-4 py-4 bg-panel border border-line rounded-lg mb-4">
+        <div className="px-4 py-4 bg-panel/30 backdrop-blur-sm border border-line/50 rounded-lg mb-4">
           <div className="flex items-center gap-4">
             <img
               src={upper.face}
@@ -453,7 +453,7 @@ export function UpperView({ mid, scrollRef, onParseVideo, onSelectItem, onBatchD
           className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border transition-colors ${
             tab === "submission"
               ? "bg-blue-50 border-blue-300 text-blue-600"
-              : "bg-panel border-line text-ink-3 hover:bg-panel-2"
+              : "bg-panel/30 border-line/50 text-ink-3 hover:bg-panel-2"
           }`}
         >
           <ListVideo size={14} />
@@ -464,7 +464,7 @@ export function UpperView({ mid, scrollRef, onParseVideo, onSelectItem, onBatchD
           className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border transition-colors ${
             tab === "collection"
               ? "bg-blue-50 border-blue-300 text-blue-600"
-              : "bg-panel border-line text-ink-3 hover:bg-panel-2"
+              : "bg-panel/30 border-line/50 text-ink-3 hover:bg-panel-2"
           }`}
         >
           <Layers size={14} />
@@ -475,7 +475,7 @@ export function UpperView({ mid, scrollRef, onParseVideo, onSelectItem, onBatchD
           className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border transition-colors ${
             tab === "followers"
               ? "bg-blue-50 border-blue-300 text-blue-600"
-              : "bg-panel border-line text-ink-3 hover:bg-panel-2"
+              : "bg-panel/30 border-line/50 text-ink-3 hover:bg-panel-2"
           }`}
         >
           <Users size={14} />
@@ -597,7 +597,7 @@ export function UpperView({ mid, scrollRef, onParseVideo, onSelectItem, onBatchD
                 <button
                   key={`${c.collection_type}-${c.id}`}
                   onClick={() => handleSelectCollection(c)}
-                  className="flex items-start gap-3 px-4 py-3 bg-panel border border-line rounded-lg hover:bg-panel-2 hover:border-line-2 transition-colors text-left"
+                  className="flex items-start gap-3 px-4 py-3 bg-panel/30 backdrop-blur-sm border border-line/50 rounded-lg hover:bg-panel-2 hover:border-line-2 transition-colors text-left"
                 >
                   {c.cover ? (
                     <img
@@ -642,7 +642,7 @@ export function UpperView({ mid, scrollRef, onParseVideo, onSelectItem, onBatchD
                 {followers.map((f) => (
                   <div
                     key={f.mid}
-                    className="flex items-center gap-3 px-3 py-2.5 bg-panel border border-line rounded-lg"
+                    className="flex items-center gap-3 px-3 py-2.5 bg-panel/30 backdrop-blur-sm border border-line/50 rounded-lg"
                   >
                     <img
                       src={f.face}

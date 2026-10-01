@@ -87,7 +87,7 @@ export function QualityTab({
             <select
               value={videoMaxQuality}
               onChange={(e) => onVideoMaxQualityChange(Number(e.target.value))}
-              className="w-full px-3 py-2 text-sm border border-line-2 rounded-lg bg-panel text-ink-2 focus:outline-none focus:ring-2 focus:ring-accent"
+              className="w-full px-3 py-2 text-sm border border-line-2 rounded-lg bg-panel/60 text-ink-2 focus:outline-none focus:ring-2 focus:ring-accent"
             >
               {VIDEO_QUALITY_OPTIONS.map((q) => (
                 <option key={q.value} value={q.value}>
@@ -104,7 +104,7 @@ export function QualityTab({
             <select
               value={videoMinQuality}
               onChange={(e) => onVideoMinQualityChange(Number(e.target.value))}
-              className="w-full px-3 py-2 text-sm border border-line-2 rounded-lg bg-panel text-ink-2 focus:outline-none focus:ring-2 focus:ring-accent"
+              className="w-full px-3 py-2 text-sm border border-line-2 rounded-lg bg-panel/60 text-ink-2 focus:outline-none focus:ring-2 focus:ring-accent"
             >
               <option value={0}>不限制</option>
               {VIDEO_QUALITY_OPTIONS.map((q) => (
@@ -135,7 +135,7 @@ export function QualityTab({
             <select
               value={audioMaxQuality}
               onChange={(e) => onAudioMaxQualityChange(Number(e.target.value))}
-              className="w-full px-3 py-2 text-sm border border-line-2 rounded-lg bg-panel text-ink-2 focus:outline-none focus:ring-2 focus:ring-accent"
+              className="w-full px-3 py-2 text-sm border border-line-2 rounded-lg bg-panel/60 text-ink-2 focus:outline-none focus:ring-2 focus:ring-accent"
             >
               {AUDIO_QUALITY_OPTIONS.map((q) => (
                 <option key={q.value} value={q.value}>
@@ -152,7 +152,7 @@ export function QualityTab({
             <select
               value={audioMinQuality}
               onChange={(e) => onAudioMinQualityChange(Number(e.target.value))}
-              className="w-full px-3 py-2 text-sm border border-line-2 rounded-lg bg-panel text-ink-2 focus:outline-none focus:ring-2 focus:ring-accent"
+              className="w-full px-3 py-2 text-sm border border-line-2 rounded-lg bg-panel/60 text-ink-2 focus:outline-none focus:ring-2 focus:ring-accent"
             >
               <option value={0}>不限制</option>
               {AUDIO_QUALITY_OPTIONS.map((q) => (
@@ -178,7 +178,7 @@ export function QualityTab({
             return (
               <div
                 key={codec}
-                className="flex items-center gap-2 px-3 py-2 bg-panel border border-line rounded-lg"
+                className="flex items-center gap-2 px-3 py-2 bg-panel/30 backdrop-blur-sm border border-line/50 rounded-lg"
               >
                 <span className="text-xs font-mono text-ink-3 w-5">
                   {index + 1}

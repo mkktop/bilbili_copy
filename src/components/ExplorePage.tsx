@@ -272,8 +272,8 @@ export function ExplorePage({ onBack, onParseVideo, onSelectItem, onBatchDownloa
 
   // ===== 搜索视图 =====
   return (
-    <div className="flex flex-col h-full bg-base text-ink">
-      <header className="flex items-center gap-3 px-6 py-4 bg-panel border-b border-line">
+    <div className="flex flex-col h-full text-ink">
+      <header className="flex items-center gap-3 px-6 py-4 backdrop-blur-md relative z-20">
         <button
           onClick={onBack}
           className="p-1.5 rounded-lg border border-line-2 hover:bg-panel-2 transition-colors"
@@ -302,11 +302,11 @@ export function ExplorePage({ onBack, onParseVideo, onSelectItem, onBatchDownloa
                 }
               }}
               placeholder="搜索视频、UP主、番剧..."
-              className="w-full px-3 py-2 text-sm border border-line-2 rounded-lg bg-panel text-ink-2 placeholder:text-ink-3 focus:outline-none focus:border-accent"
+              className="w-full px-3 py-2 text-sm border border-line-2 rounded-lg bg-panel/60 backdrop-blur-sm text-ink-2 placeholder:text-ink-3 focus:outline-none focus:border-accent"
             />
             {/* 联想下拉 */}
             {suggestOpen && suggests.length > 0 && (
-              <div className="absolute left-0 right-0 top-full z-30 mt-1 rounded-lg bg-panel border border-line shadow-xl py-1">
+              <div className="absolute left-0 right-0 top-full z-30 mt-1 rounded-lg bg-panel/95 backdrop-blur-md border border-line shadow-xl py-1">
                 {suggests.map((s) => (
                   <button
                     key={s}
@@ -344,7 +344,7 @@ export function ExplorePage({ onBack, onParseVideo, onSelectItem, onBatchDownloa
               className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border transition-colors ${
                 searchType === key
                   ? "bg-accent-soft border-accent text-accent"
-                  : "bg-panel border-line text-ink-3 hover:bg-panel-2"
+                  : "bg-panel/30 border-line/50 text-ink-3 hover:bg-panel-2"
               }`}
             >
               <Icon size={14} />
@@ -420,7 +420,7 @@ export function ExplorePage({ onBack, onParseVideo, onSelectItem, onBatchDownloa
                     {history.map((kw) => (
                       <span
                         key={kw}
-                        className="group inline-flex items-center gap-1 pl-2.5 pr-1.5 py-1 text-xs rounded-full bg-panel border border-line text-ink-2 hover:border-accent hover:text-accent transition-colors cursor-pointer"
+                        className="group inline-flex items-center gap-1 pl-2.5 pr-1.5 py-1 text-xs rounded-full bg-panel/30 backdrop-blur-sm border border-line/50 text-ink-2 hover:border-accent hover:text-accent transition-colors cursor-pointer"
                         onClick={() => searchKeyword(kw)}
                       >
                         <span className="max-w-[160px] truncate">{kw}</span>
@@ -535,7 +535,7 @@ function FilterRow({
             className={`px-2.5 py-1 text-xs rounded-md border transition-colors ${
               value === opt.value
                 ? "bg-accent-soft border-accent text-accent"
-                : "bg-panel border-line text-ink-3 hover:bg-panel-2"
+                : "bg-panel/30 border-line/50 text-ink-3 hover:bg-panel-2"
             }`}
           >
             {opt.label}
@@ -557,7 +557,7 @@ function ResultCard({
   onClick: () => void;
 }) {
   const baseBtn =
-    "flex items-start gap-3 w-full px-4 py-3 bg-panel border border-line rounded-lg hover:bg-panel-2 hover:border-line-2 transition-colors text-left disabled:opacity-70";
+    "flex items-start gap-3 w-full px-4 py-3 bg-panel/30 backdrop-blur-sm border border-line/50 rounded-lg hover:bg-panel-2 hover:border-line-2 transition-colors text-left disabled:opacity-70";
 
   if (result.type === "bili_user") {
     return (

@@ -23,8 +23,8 @@ export function UpperHomePage({ mid, sourceLabel, onBack, onParseVideo, onSelect
   const scrollRef = useRef<HTMLDivElement>(null);
 
   return (
-    <div className="flex flex-col h-full bg-base text-ink">
-      <header className="flex items-center gap-2 px-6 py-4 bg-panel border-b border-line">
+    <div className="relative z-10 flex flex-col h-full overflow-hidden text-ink">
+      <header className="flex items-center gap-2 px-6 py-4 backdrop-blur-md relative z-20">
         <button
           onClick={onBack}
           className="flex items-center gap-1.5 p-1.5 rounded-lg border border-line-2 hover:bg-panel-2 transition-colors group"

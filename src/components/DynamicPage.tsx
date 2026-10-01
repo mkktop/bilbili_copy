@@ -116,8 +116,8 @@ export function DynamicPage({
   };
 
   return (
-    <div className="flex flex-col h-full bg-base text-ink">
-      <header className="flex items-center gap-2 px-4 py-3 bg-panel border-b border-line">
+    <div className="flex flex-col h-full text-ink">
+      <header className="flex items-center gap-2 px-4 py-3 backdrop-blur-md relative z-20">
         <button
           onClick={onBack}
           className="p-1 rounded-md text-ink-3 hover:bg-panel-2 transition-colors"
@@ -229,7 +229,7 @@ function DynamicCard({
     <button
       onClick={onClick}
       disabled={loading || !item.bvid}
-      className="flex flex-col gap-2 w-full px-4 py-3 bg-panel border border-line rounded-lg hover:bg-base hover:border-line-2 transition-colors text-left disabled:opacity-70"
+      className="flex flex-col gap-2 w-full px-4 py-3 bg-panel/30 backdrop-blur-sm border border-line/50 rounded-lg hover:bg-base hover:border-line-2 transition-colors text-left disabled:opacity-70"
     >
       {/* UP 主行：头像 + 名称 + 动作 + 相对时间 */}
       <div className="flex items-center gap-2 text-xs text-ink-3">

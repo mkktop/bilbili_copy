@@ -115,7 +115,7 @@ jobs:
       - name: Generate latest.json
         env:
           # R2 公开域名（可在仓库 Variables 里覆盖，如需换绑定域名时不用改代码）
-          R2_BASE: ${{ vars.R2_PUBLIC_BASE || 'https://copy.kaikun.top' }}
+          R2_BASE: ${{ vars.R2_PUBLIC_BASE || 'https://weiyu.yeyushi.com' }}
         run: |
           VERSION="${{ steps.version.outputs.VERSION }}"
           TAG="${{ github.ref_name }}"
@@ -199,3 +199,29 @@ jobs:
             --file "${MSI_FILE}.sig" --remote --content-type text/plain
           npx --yes wrangler@latest r2 object put "${BUCKET}/latest.json" \
             --file latest-r2.json --remote --content-type application/json
+
+      - name: Prune old versions from R2 (keep current only)
+        # 清理 R2 上的历史版本安装包，只保留当前版（回滚走 GitHub Release，全量保留）。
+        # 文件名从各 release 的资产列表取——历史版本可能还是旧产品名（BilbliCopy_*），不能按当前名拼。
+        # 失败不阻塞发版（对象残留可下次发版时再清）。
+        continue-on-error: true
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          CURRENT="${{ github.ref_name }}"
+          PAGE=1
+          while : ; do
+            RESP=$(curl -s "https://api.github.com/repos/${{ github.repository }}/releases?per_page=100&page=$PAGE")
+            COUNT=$(echo "$RESP" | jq 'length')
+            for TAG in $(echo "$RESP" | jq -r '.[].tag_name'); do
+              [ "$TAG" = "$CURRENT" ] && continue
+              echo "清理旧版本: $TAG"
+              for f in $(curl -s "https://api.github.com/repos/${{ github.repository }}/releases/tags/$TAG" | jq -r '.assets[].name' | grep -E '\.(msi|sig)$'); do
+                echo "  delete releases/$TAG/$f"
+                npx --yes wrangler@latest r2 object delete "copy/releases/$TAG/$f" --remote || true
+              done
+            done
+            [ "$COUNT" -lt 100 ] && break
+            PAGE=$((PAGE + 1))
+          done

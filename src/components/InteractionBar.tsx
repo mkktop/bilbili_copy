@@ -164,7 +164,7 @@ export function InteractionBar({ bvid, aid, likeCount }: Props) {
   };
 
   return (
-    <div className="flex items-center gap-2 bg-panel-2 rounded-xl p-2">
+    <div className="flex items-center gap-2 bg-panel/40 rounded-xl p-2 backdrop-blur-sm">
       {/* 一键三连（点赞 + 1 币 + 收藏） */}
       <button
         onClick={handleTriple}
@@ -187,7 +187,7 @@ export function InteractionBar({ bvid, aid, likeCount }: Props) {
         className={`flex items-center gap-1 px-3 py-1.5 text-xs rounded-lg border transition-colors disabled:opacity-50 ${
           liked
             ? "bg-pink-50 border-pink-300 text-pink-600"
-            : "bg-panel border-line text-ink-2 hover:bg-panel-2"
+            : "bg-panel/30 border-line/50 text-ink-2 hover:bg-panel-2"
         }`}
       >
         {busy === "like" ? (
@@ -205,7 +205,7 @@ export function InteractionBar({ bvid, aid, likeCount }: Props) {
       <button
         onClick={handleCoin}
         disabled={busy !== null}
-        className="flex items-center gap-1 px-3 py-1.5 text-xs rounded-lg border bg-panel border-line text-ink-2 hover:bg-panel-2 transition-colors disabled:opacity-50"
+        className="flex items-center gap-1 px-3 py-1.5 text-xs rounded-lg border bg-panel/30 border-line/50 text-ink-2 hover:bg-panel-2 transition-colors disabled:opacity-50"
       >
         {busy === "coin" ? (
           <Loader2 size={13} className="animate-spin" />
@@ -220,7 +220,7 @@ export function InteractionBar({ bvid, aid, likeCount }: Props) {
         <button
           onClick={handleOpenFolders}
           disabled={busy !== null}
-          className="flex items-center gap-1 px-3 py-1.5 text-xs rounded-lg border bg-panel border-line text-ink-2 hover:bg-panel-2 transition-colors disabled:opacity-50"
+          className="flex items-center gap-1 px-3 py-1.5 text-xs rounded-lg border bg-panel/30 border-line/50 text-ink-2 hover:bg-panel-2 transition-colors disabled:opacity-50"
         >
           {busy === "favorite" ? (
             <Loader2 size={13} className="animate-spin" />
@@ -233,7 +233,7 @@ export function InteractionBar({ bvid, aid, likeCount }: Props) {
 
         {/* 收藏夹下拉 */}
         {showFolders && (
-          <div className="absolute top-full left-0 mt-1 z-20 min-w-[180px] max-h-60 overflow-y-auto bg-panel border border-line rounded-lg shadow-lg py-1">
+          <div className="absolute top-full left-0 mt-1 z-20 min-w-[180px] max-h-60 overflow-y-auto bg-panel/95 backdrop-blur-md border border-line rounded-lg shadow-lg py-1">
             {loadingFolders ? (
               <div className="flex items-center justify-center gap-1.5 py-3 text-xs text-ink-3">
                 <Loader2 size={12} className="animate-spin" />

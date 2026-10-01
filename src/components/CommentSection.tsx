@@ -106,7 +106,7 @@ export function CommentSection({ aid }: Props) {
               className={cn(
                 "px-2 py-0.5 text-[11px] rounded transition-colors",
                 mode === m
-                  ? "bg-panel text-accent font-medium shadow-sm"
+                  ? "bg-panel/70 text-accent font-medium shadow-sm"
                   : "text-ink-3 hover:text-ink-2"
               )}
             >

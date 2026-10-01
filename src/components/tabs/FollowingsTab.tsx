@@ -91,7 +91,7 @@ export function FollowingsTab({ onSelectUpper }: Props) {
           <button
             key={item.mid}
             onClick={() => onSelectUpper(item.mid)}
-            className="flex items-center gap-3 px-4 py-3 bg-panel border border-line rounded-lg hover:bg-panel-2 hover:border-line-2 transition-colors text-left"
+            className="flex items-center gap-3 px-4 py-3 bg-panel/30 backdrop-blur-sm border border-line/50 rounded-lg hover:bg-panel-2 hover:border-line-2 transition-colors text-left"
           >
             <img
               src={item.face}

@@ -50,3 +50,104 @@ body {
     transform: translateY(0);
   }
 }
+
+/* 首页品牌区：细雨落下 */
+@keyframes rain-fall {
+  0% {
+    transform: translateY(-50px);
+    opacity: 0;
+  }
+  12% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(460px);
+    opacity: 0;
+  }
+}
+.animate-rain {
+  animation: rain-fall linear infinite;
+}
+
+/* 雨滴落水涟漪 */
+@keyframes ripple-out {
+  0% {
+    transform: scale(0.3);
+    opacity: 0.9;
+  }
+  100% {
+    transform: scale(1.7);
+    opacity: 0;
+  }
+}
+.animate-ripple {
+  animation: ripple-out ease-out infinite;
+}
+
+/* 全页细雨：雨滴贯穿整个主页视口（105vh 保证不同窗口高度都能落穿） */
+@keyframes rain-fall-page {
+  0% {
+    transform: translateY(-70px);
+    opacity: 0;
+  }
+  10% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(105vh);
+    opacity: 0;
+  }
+}
+.animate-rain-page {
+  animation: rain-fall-page linear infinite;
+}
+
+/* 品牌头像：悬浮起伏 */
+@keyframes float-y {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-7px);
+  }
+}
+.animate-float {
+  animation: float-y 3.2s ease-in-out infinite;
+}
+
+/* 星光闪烁 */
+@keyframes twinkle {
+  0%, 100% {
+    opacity: 0.55;
+    transform: scale(0.72);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.12);
+  }
+}
+.animate-twinkle {
+  animation: twinkle 2.2s ease-in-out infinite;
+}
+
+/* 主题化滚动条：透明轨道 + 半透明蓝圆角滑块（WebView2/Chromium） */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(59, 130, 246, 0.28);
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(59, 130, 246, 0.5);
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}

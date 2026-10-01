@@ -211,9 +211,9 @@ export function VideoDetail({ entry, sourceLabel, onBack, onOpenUpper, onPlay, o
   const isAllDownloaded = isMultiPage && selectedPages.size > 0 && [...selectedPages].every((p) => downloadedIds.has(`${entry.id}_P${p}`));
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="relative z-10 flex flex-col h-full overflow-hidden">
       {/* 顶部栏：面包屑（来源 › 视频详情），back 回到来源页 */}
-      <div className="flex items-center gap-2 px-6 py-4 border-b border-line bg-panel">
+      <div className="flex items-center gap-2 px-6 py-4 backdrop-blur-md relative z-20 shrink-0">
         <button
           onClick={onBack}
           className="flex items-center gap-1.5 p-1.5 rounded-lg border border-line-2 hover:bg-panel-2 transition-colors group"
@@ -235,7 +235,7 @@ export function VideoDetail({ entry, sourceLabel, onBack, onOpenUpper, onPlay, o
       </div>
 
       {/* 内容区：lg 双栏（左 视频信息 | 右 分P+评论）各自独立滚动；窄屏单栏整体滚动 */}
-      <div className="flex-1 flex flex-col lg:flex-row overflow-y-auto lg:overflow-hidden">
+      <div className="flex-1 min-h-0 flex flex-col lg:flex-row overflow-y-auto lg:overflow-hidden">
         {/* 左栏：封面 + 标题/UP/统计/互动/简介（lg 独立列，窄屏随主滚动） */}
         <section className="lg:w-2/5 lg:shrink-0 lg:overflow-y-auto lg:border-r lg:border-line">
         {/* 封面区 — 模糊背景 + 完整封面 */}
@@ -484,7 +484,7 @@ export function VideoDetail({ entry, sourceLabel, onBack, onOpenUpper, onPlay, o
                 className={cn(
                   "px-4 py-1.5 text-xs font-medium rounded-md transition-all",
                   episodeTab === "main"
-                    ? "bg-panel text-accent shadow-sm border border-line"
+                    ? "bg-panel/70 text-accent shadow-sm border border-line/50"
                     : "text-ink-3 hover:text-ink-2"
                 )}
               >
@@ -495,7 +495,7 @@ export function VideoDetail({ entry, sourceLabel, onBack, onOpenUpper, onPlay, o
                 className={cn(
                   "px-4 py-1.5 text-xs font-medium rounded-md transition-all",
                   episodeTab === "extra"
-                    ? "bg-panel text-accent shadow-sm border border-line"
+                    ? "bg-panel/70 text-accent shadow-sm border border-line/50"
                     : "text-ink-3 hover:text-ink-2"
                 )}
               >
@@ -623,7 +623,7 @@ export function VideoDetail({ entry, sourceLabel, onBack, onOpenUpper, onPlay, o
       </div>
 
       {/* 底部固定下载按钮 */}
-      <div className="px-6 py-3 bg-panel border-t border-line space-y-2">
+      <div className="px-6 py-3 bg-panel/30 backdrop-blur-md border-t border-line/60 space-y-2">
         {/* 模式选择：仅字幕 / 仅音频（互斥） */}
         <div className="flex items-center gap-4 py-1">
           <label className="flex items-center gap-2 cursor-pointer select-none">

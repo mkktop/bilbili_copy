@@ -54,7 +54,7 @@ export function VideoCard({
     <div
       onClick={selectMode && onToggleSelect ? onToggleSelect : undefined}
       className={cn(
-        "relative flex items-start gap-3 w-full px-4 py-3 bg-panel border rounded-lg transition-colors text-left",
+        "relative flex items-start gap-3 w-full px-4 py-3 bg-panel/30 backdrop-blur-sm border rounded-lg transition-colors text-left",
         selectMode ? "cursor-pointer" : "hover:bg-panel-2 hover:border-line-2",
         selected
           ? "border-blue-300 bg-blue-50"
@@ -79,7 +79,7 @@ export function VideoCard({
           <span
             className={cn(
               "absolute -top-1.5 -left-1.5 w-5 h-5 rounded-full flex items-center justify-center border-2",
-              selected ? "bg-blue-500 border-blue-500" : "bg-panel border-line-2"
+              selected ? "bg-blue-500 border-blue-500" : "bg-panel/30 border-line-2"
             )}
           >
             {selected && <CheckCircle2 size={12} className="text-white" />}

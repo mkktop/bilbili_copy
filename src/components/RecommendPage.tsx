@@ -92,8 +92,8 @@ export function RecommendPage({
   };
 
   return (
-    <div className="flex flex-col h-full bg-base text-ink">
-      <header className="flex items-center gap-2 px-4 py-3 bg-panel border-b border-line">
+    <div className="flex flex-col h-full text-ink">
+      <header className="flex items-center gap-2 px-4 py-3 backdrop-blur-md relative z-20">
         <button
           onClick={onBack}
           className="p-1 rounded-md text-ink-3 hover:bg-panel-2 transition-colors"
@@ -184,7 +184,7 @@ function RecommendCard({
     <button
       onClick={onClick}
       disabled={loading || !item.bvid}
-      className="relative flex items-start gap-3 w-full px-4 py-3 bg-panel border border-line rounded-lg hover:bg-base hover:border-line-2 transition-colors text-left disabled:opacity-70"
+      className="relative flex items-start gap-3 w-full px-4 py-3 bg-panel/30 backdrop-blur-sm border border-line/50 rounded-lg hover:bg-base hover:border-line-2 transition-colors text-left disabled:opacity-70"
     >
       {/* 封面 */}
       <img

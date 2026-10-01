@@ -166,7 +166,7 @@ const DownloadRow = memo(
       item.progress !== undefined;
 
     return (
-      <div className="flex items-start gap-3 px-4 py-3 bg-panel border border-line rounded-lg">
+      <div className="flex items-start gap-3 px-4 py-3 bg-panel/30 backdrop-blur-sm border border-line/50 rounded-lg">
         {/* 封面缩略图（无封面时回退文件图标）；点击进入视频详情页 */}
         {item.pic ? (
           <img

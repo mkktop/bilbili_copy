@@ -102,7 +102,7 @@ export function McpTab({ settings, onSave, onPatch }: McpTabProps) {
   return (
     <div className="space-y-6">
       {/* 总开关 */}
-      <div className="flex items-center justify-between rounded-xl border border-line bg-panel p-4">
+      <div className="flex items-center justify-between rounded-xl border border-line/60 bg-panel/30 backdrop-blur-sm p-4">
         <div className="space-y-1 min-w-0">
           <div className="flex items-center gap-2">
             <Bot size={18} className="text-accent" />
@@ -133,7 +133,7 @@ export function McpTab({ settings, onSave, onPatch }: McpTabProps) {
       </div>
 
       {/* 接口限速 */}
-      <div className="flex items-center justify-between rounded-xl border border-line bg-panel p-4">
+      <div className="flex items-center justify-between rounded-xl border border-line/60 bg-panel/30 backdrop-blur-sm p-4">
         <div className="space-y-1 min-w-0">
           <div className="flex items-center gap-2">
             <Gauge size={18} className="text-accent" />
@@ -161,7 +161,7 @@ export function McpTab({ settings, onSave, onPatch }: McpTabProps) {
           <p className="text-xs text-ink-3">开启开关后，把下面的配置片段粘贴到客户端的 MCP 设置里</p>
         </header>
 
-        <div className="rounded-xl border border-line bg-panel p-4 space-y-3">
+        <div className="rounded-xl border border-line/60 bg-panel/30 backdrop-blur-sm p-4 space-y-3">
           <ol className="text-xs text-ink-3 space-y-1 list-decimal list-inside">
             <li>打开上方「MCP 服务」开关</li>
             <li>复制下方配置片段</li>
@@ -180,7 +180,7 @@ export function McpTab({ settings, onSave, onPatch }: McpTabProps) {
             <button
               onClick={handleCopy}
               title="复制配置"
-              className="absolute top-2 right-2 p-1.5 rounded-md border border-line bg-panel hover:bg-panel-2 transition-colors text-ink-3 hover:text-ink-2"
+              className="absolute top-2 right-2 p-1.5 rounded-md border border-line/60 bg-panel/30 backdrop-blur-sm hover:bg-panel-2 transition-colors text-ink-3 hover:text-ink-2"
             >
               {copied ? <Check size={14} className="text-green-600" /> : <Copy size={14} />}
             </button>
@@ -204,7 +204,7 @@ export function McpTab({ settings, onSave, onPatch }: McpTabProps) {
           </p>
         </header>
 
-        <div className="rounded-xl border border-line bg-panel p-4 space-y-3">
+        <div className="rounded-xl border border-line/60 bg-panel/30 backdrop-blur-sm p-4 space-y-3">
           <div className="relative">
             <p className="rounded-lg bg-panel-2 border border-line p-3 pr-12 text-xs leading-5 text-ink-2">
               {installPrompt}
@@ -212,7 +212,7 @@ export function McpTab({ settings, onSave, onPatch }: McpTabProps) {
             <button
               onClick={handleCopyPrompt}
               title="复制口令"
-              className="absolute top-2 right-2 p-1.5 rounded-md border border-line bg-panel hover:bg-panel-2 transition-colors text-ink-3 hover:text-ink-2"
+              className="absolute top-2 right-2 p-1.5 rounded-md border border-line/60 bg-panel/30 backdrop-blur-sm hover:bg-panel-2 transition-colors text-ink-3 hover:text-ink-2"
             >
               {copiedPrompt ? <Check size={14} className="text-green-600" /> : <Copy size={14} />}
             </button>
@@ -225,7 +225,7 @@ export function McpTab({ settings, onSave, onPatch }: McpTabProps) {
         <header className="space-y-1">
           <h3 className="text-sm font-medium text-ink-2">工作方式与安全边界</h3>
         </header>
-        <div className="rounded-xl border border-line bg-panel p-4 space-y-2.5 text-xs text-ink-3">
+        <div className="rounded-xl border border-line/60 bg-panel/30 backdrop-blur-sm p-4 space-y-2.5 text-xs text-ink-3">
           <div className="flex gap-2">
             <ShieldCheck size={14} className="text-accent shrink-0 mt-0.5" />
             <p>

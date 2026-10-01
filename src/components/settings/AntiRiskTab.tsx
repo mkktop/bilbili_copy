@@ -124,7 +124,7 @@ export function AntiRiskTab({
             <select
               value={gpuPreset}
               onChange={(e) => onGpuPresetChange(e.target.value)}
-              className="flex-1 px-3 py-2 text-sm border border-line rounded-lg bg-panel text-ink-2 focus:outline-none focus:ring-2 focus:ring-accent"
+              className="flex-1 px-3 py-2 text-sm border border-line rounded-lg bg-panel/60 text-ink-2 focus:outline-none focus:ring-2 focus:ring-accent"
             >
               <option value="">选择 GPU 型号</option>
               {gpuOptions.map((o) => (
@@ -136,7 +136,7 @@ export function AntiRiskTab({
             <select
               value={resolutionPreset}
               onChange={(e) => onResolutionPresetChange(e.target.value)}
-              className="flex-1 px-3 py-2 text-sm border border-line rounded-lg bg-panel text-ink-2 focus:outline-none focus:ring-2 focus:ring-accent"
+              className="flex-1 px-3 py-2 text-sm border border-line rounded-lg bg-panel/60 text-ink-2 focus:outline-none focus:ring-2 focus:ring-accent"
             >
               <option value="">选择分辨率</option>
               {resOptions.map((o) => (
@@ -185,7 +185,7 @@ export function AntiRiskTab({
               className={cn(
                 "px-3 py-1.5 text-xs font-medium rounded-md transition-all",
                 requestDelayMs === opt.value
-                  ? "bg-panel text-accent shadow-sm border border-line"
+                  ? "bg-panel/70 text-accent shadow-sm border border-line/50"
                   : "text-ink-3 hover:text-ink-2"
               )}
             >

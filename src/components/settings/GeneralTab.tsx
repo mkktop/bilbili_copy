@@ -155,7 +155,7 @@ export function GeneralTab({
               value={dir}
               readOnly
               placeholder="未设置（使用安装目录/downloads/）"
-              className="flex-1 px-3 py-2 text-sm border border-line-2 rounded-lg bg-panel-2 text-ink-2 truncate"
+              className="flex-1 px-3 py-2 text-sm border border-line-2 rounded-lg bg-panel/60-2 text-ink-2 truncate"
             />
             <button
               onClick={handleSelectDir}

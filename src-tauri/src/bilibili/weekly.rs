@@ -129,13 +129,22 @@ pub async fn get_weekly_series_list(
 /// 获取每周必看某期详细信息（公开接口，无需登录）
 /// API: GET https://api.bilibili.com/x/web-interface/popular/series/one?number={n}
 ///
-/// @param number 期数（不传则返回最新一期）
+/// @param number 期数；不传时**默认最新一期**——B站 API 不带 number 参数会返回第 1 期
+/// （最早），因此这里先拉期数列表显式定位最新一期再请求。
 pub async fn get_weekly_detail(
     number: Option<i64>,
     credential: Option<&Credential>,
 ) -> Result<WeeklyDetail> {
     let client = api_client();
 
+    let number = match number {
+        Some(n) => Some(n),
+        None => get_weekly_series_list(credential)
+            .await?
+            .iter()
+            .map(|s| s.number)
+            .max(),
+    };
     let number_s = number.map(|n| n.to_string());
     let mut req = client
         .get("https://api.bilibili.com/x/web-interface/popular/series/one")

@@ -6,6 +6,7 @@ import {
 import type { ArticleData } from "../types";
 import { formatDate } from "../types";
 import { useToast } from "./Toast";
+import { RainLayer, SKY_GRADIENT } from "./HomeHero";
 import { friendlyError } from "../lib/errors";
 
 interface Props {
@@ -288,8 +289,11 @@ export function ArticleReaderPage({ cvid, opusId, onBack }: Props) {
   }, [article, safeHtml]);
 
   return (
-    <div className="fixed inset-0 z-[80] bg-base text-ink flex flex-col">
-      <header className="flex items-center gap-3 px-6 py-4 bg-panel border-b border-line shrink-0">
+    <div className="fixed inset-x-0 top-10 bottom-0 z-[80] overflow-hidden bg-base">
+      <div aria-hidden className="pointer-events-none absolute inset-0" style={{ background: SKY_GRADIENT }} />
+      <RainLayer />
+      <div className="relative z-10 flex flex-col h-full text-ink">
+      <header className="flex items-center gap-3 px-6 py-4 backdrop-blur-md relative z-20 shrink-0">
         <button
           onClick={onBack}
           className="p-1.5 rounded-lg border border-line-2 hover:bg-base transition-colors"
@@ -366,6 +370,7 @@ export function ArticleReaderPage({ cvid, opusId, onBack }: Props) {
             />
           </article>
         ) : null}
+      </div>
       </div>
     </div>
   );

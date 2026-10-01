@@ -37,7 +37,7 @@ export function BatchBar({
           "flex items-center gap-1 px-2.5 py-1 text-xs rounded-md border transition-colors",
           selectMode
             ? "bg-blue-50 border-blue-300 text-blue-600"
-            : "bg-panel border-line text-ink-3 hover:bg-panel-2"
+            : "bg-panel/30 border-line/50 text-ink-3 hover:bg-panel-2"
         )}
       >
         {selectMode ? <CheckSquare size={12} /> : <Square size={12} />}

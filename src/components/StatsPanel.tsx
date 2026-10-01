@@ -33,9 +33,9 @@ export function StatsPanel({ onBack }: Props) {
   }, []);
 
   return (
-    <div className="flex flex-col h-full bg-base text-ink">
+    <div className="flex flex-col h-full text-ink">
       {/* Header */}
-      <div className="flex items-center gap-3 px-6 py-4 border-b border-line bg-panel">
+      <div className="flex items-center gap-3 px-6 py-4 backdrop-blur-md relative z-20">
         <button
           onClick={onBack}
           className="p-1.5 rounded-lg border border-line-2 hover:bg-panel-2 transition-colors"

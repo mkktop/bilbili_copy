@@ -174,8 +174,8 @@ export function WeeklyPage({ onBack, onParseVideo, onSelectItem, onPlayPlaylist,
   };
 
   return (
-    <div className="flex flex-col h-full bg-base text-ink">
-      <header className="flex items-center gap-3 px-6 py-4 bg-panel border-b border-line">
+    <div className="flex flex-col h-full text-ink">
+      <header className="relative z-20 flex items-center gap-3 px-6 py-4 backdrop-blur-md relative z-20">
         <button
           onClick={onBack}
           className="p-1.5 rounded-lg border border-line-2 hover:bg-base transition-colors"
@@ -183,12 +183,12 @@ export function WeeklyPage({ onBack, onParseVideo, onSelectItem, onPlayPlaylist,
           <ArrowLeft size={16} />
         </button>
         {/* 内容源切换：每周必看 / 入站必刷 */}
-        <div className="flex rounded-lg border border-line p-0.5 bg-panel-2">
+        <div className="flex rounded-lg border border-line/60 p-0.5 bg-panel/40 backdrop-blur-sm">
           <button
             onClick={() => setSource("weekly")}
             className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md transition-all ${
               source === "weekly"
-                ? "bg-panel text-pink-500 shadow-sm border border-line font-medium"
+                ? "bg-panel/70 text-pink-500 shadow-sm border border-line/50 font-medium"
                 : "text-ink-3 hover:text-ink-2"
             }`}
           >
@@ -199,7 +199,7 @@ export function WeeklyPage({ onBack, onParseVideo, onSelectItem, onPlayPlaylist,
             onClick={() => setSource("precious")}
             className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md transition-all ${
               source === "precious"
-                ? "bg-panel text-pink-500 shadow-sm border border-line font-medium"
+                ? "bg-panel/70 text-pink-500 shadow-sm border border-line/50 font-medium"
                 : "text-ink-3 hover:text-ink-2"
             }`}
           >
@@ -213,7 +213,7 @@ export function WeeklyPage({ onBack, onParseVideo, onSelectItem, onPlayPlaylist,
           <div className="relative ml-2" ref={selectorRef}>
             <button
               onClick={() => setSelectorOpen((v) => !v)}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border border-line bg-panel-2 hover:bg-base transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border border-line/60 bg-panel/40 hover:bg-panel-2 transition-colors"
             >
               <span className="max-w-[200px] truncate">
                 {detail ? `第${detail.config.number}期` : "选择期数"}
@@ -221,7 +221,7 @@ export function WeeklyPage({ onBack, onParseVideo, onSelectItem, onPlayPlaylist,
               <ChevronDown size={14} className={`transition-transform ${selectorOpen ? "rotate-180" : ""}`} />
             </button>
             {selectorOpen && (
-              <div className="absolute left-0 top-full z-50 mt-1 w-[320px] max-h-[50vh] overflow-auto rounded-lg bg-panel border border-line shadow-xl py-1">
+              <div className="absolute left-0 top-full z-50 mt-1 w-[320px] max-h-[50vh] overflow-auto rounded-lg bg-panel/95 backdrop-blur-md border border-line shadow-xl py-1">
                 {seriesList.slice(0, 50).map((s) => (
                   <button
                     key={s.number}
@@ -405,7 +405,7 @@ function WeeklyCard({
   onPlay?: () => void;
 }) {
   return (
-    <div className="relative flex items-start gap-3 w-full px-4 py-3 bg-panel border border-line rounded-lg hover:bg-base hover:border-line-2 transition-colors">
+    <div className="relative flex items-start gap-3 w-full px-4 py-3 bg-panel/30 backdrop-blur-sm border border-line/50 rounded-lg hover:bg-base hover:border-line-2 transition-colors">
       {/* 序号 */}
       <div className="w-7 h-7 rounded-md flex items-center justify-center text-xs font-bold shrink-0 mt-0.5 bg-panel-2 text-ink-3">
         {index}

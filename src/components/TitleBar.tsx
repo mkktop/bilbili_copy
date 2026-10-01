@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { CloudRain, Settings, Minus, Square, X, Copy, Sun, Moon } from "lucide-react";
+import { Settings, Minus, Square, X, Copy, Sun, Moon } from "lucide-react";
+
+const avatarUrl = new URL("../assets/avatar.png", import.meta.url).href;
 
 interface TitleBarProps {
   version: string;
@@ -40,10 +42,10 @@ export function TitleBar({ version, hasUpdate, resolvedTheme, toggleTheme, onSet
   }, [win]);
 
   return (
-    <div className="flex items-stretch h-10 shrink-0 bg-panel select-none">
+    <div className="relative flex items-stretch h-10 shrink-0 select-none">
       {/* 品牌区（可拖动） */}
       <div data-tauri-drag-region className="flex items-center gap-2 pl-4 pr-2">
-        <CloudRain size={16} className="text-blue-500" />
+        <img src={avatarUrl} alt="" className="h-[20px] w-[20px] rounded-full" draggable={false} />
         <span className="text-sm font-bold text-ink">未雨</span>
         <span className="text-[11px] text-ink-3">v{version}</span>
         <div className="relative">

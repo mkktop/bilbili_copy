@@ -150,8 +150,8 @@ export function RankingPage({ onBack, onParseVideo, onSelectItem }: Props) {
     filterOptions.find((o) => o.value === rid)?.label ?? "";
 
   return (
-    <div className="flex flex-col h-full bg-base text-ink">
-      <header className="flex items-center gap-3 px-6 py-4 bg-panel border-b border-line">
+    <div className="flex flex-col h-full text-ink">
+      <header className="flex items-center gap-3 px-6 py-4 backdrop-blur-md relative z-20">
         <button
           onClick={onBack}
           className="p-1.5 rounded-lg border border-line-2 hover:bg-base transition-colors"
@@ -262,7 +262,7 @@ function ContentTypeTabs({
   onChange: (t: ContentType) => void;
 }) {
   return (
-    <div className="flex gap-1 p-1 bg-panel-2 rounded-lg w-fit">
+    <div className="flex gap-1 p-1 bg-panel/40 rounded-lg w-fit backdrop-blur-sm">
       {(
         [
           { key: "ugc", label: "UGC 视频", Icon: Trophy },
@@ -274,7 +274,7 @@ function ContentTypeTabs({
           onClick={() => onChange(key)}
           className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md transition-colors ${
             value === key
-              ? "bg-panel text-ink shadow-sm"
+              ? "bg-panel/70 text-ink shadow-sm"
               : "text-ink-3 hover:text-ink-2"
           }`}
         >
@@ -311,7 +311,7 @@ function FilterRow({
               className={`px-2.5 py-1 text-xs rounded-md border transition-colors ${
                 active
                   ? "bg-accent-soft border-accent text-accent"
-                  : "bg-panel border-line text-ink-3 hover:bg-base"
+                  : "bg-panel/30 border-line/50 text-ink-3 hover:bg-base"
               }`}
             >
               {opt.label}
@@ -347,7 +347,7 @@ function RankingCard({
     <button
       onClick={onClick}
       disabled={loading || !item.bvid}
-      className="relative flex items-start gap-3 w-full px-4 py-3 bg-panel border border-line rounded-lg hover:bg-base hover:border-line-2 transition-colors text-left disabled:opacity-70"
+      className="relative flex items-start gap-3 w-full px-4 py-3 bg-panel/30 backdrop-blur-sm border border-line/50 rounded-lg hover:bg-base hover:border-line-2 transition-colors text-left disabled:opacity-70"
     >
       {/* 名次 */}
       <div
@@ -442,7 +442,7 @@ function PgcRankCard({
     <button
       onClick={onClick}
       disabled={loading || !item.season_id}
-      className="relative flex items-start gap-3 w-full px-4 py-3 bg-panel border border-line rounded-lg hover:bg-base hover:border-line-2 transition-colors text-left disabled:opacity-70"
+      className="relative flex items-start gap-3 w-full px-4 py-3 bg-panel/30 backdrop-blur-sm border border-line/50 rounded-lg hover:bg-base hover:border-line-2 transition-colors text-left disabled:opacity-70"
     >
       {/* 名次 */}
       <div

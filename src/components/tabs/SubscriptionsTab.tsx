@@ -105,7 +105,7 @@ function SubscriptionManager() {
         {subs.map((s) => (
           <div
             key={s.id}
-            className="flex items-center gap-2.5 px-3 py-2 bg-panel border border-blue-100 rounded-lg"
+            className="flex items-center gap-2.5 px-3 py-2 bg-panel/30 backdrop-blur-sm border border-blue-100/60 rounded-lg"
           >
             {s.cover ? (
               <img src={s.cover} alt="" className="w-10 h-10 rounded object-cover shrink-0 bg-panel-2" />
@@ -464,7 +464,7 @@ export function SubscriptionsTab({ onParseVideo, onSelectItem, onBatchDownload }
           return (
             <div
               key={key}
-              className="flex items-start gap-3 px-4 py-3 bg-panel border border-line rounded-lg hover:border-line-2 transition-colors text-left"
+              className="flex items-start gap-3 px-4 py-3 bg-panel/30 backdrop-blur-sm border border-line/50 rounded-lg hover:border-line-2 transition-colors text-left"
             >
               <button
                 onClick={() => handleSelectCollection(c)}

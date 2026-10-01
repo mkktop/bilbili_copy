@@ -11,7 +11,7 @@ use tauri::{AppHandle, Emitter, Url};
 use tauri_plugin_updater::UpdaterExt;
 
 /// R2 渠道 latest.json（CI 发版时与安装包一起上传到桶根目录）
-const R2_LATEST_JSON: &str = "https://copy.kaikun.top/latest.json";
+const R2_LATEST_JSON: &str = "https://weiyu.yeyushi.com/latest.json";
 /// R2 渠道兜底：r2.dev 直连桶域名（自定义域名故障时仍可拉取，低频更新场景可接受）
 const R2_DEV_LATEST_JSON: &str =
     "https://pub-9ad8f47e95c54818b4c9c3dd2b3cb0b2.r2.dev/latest.json";

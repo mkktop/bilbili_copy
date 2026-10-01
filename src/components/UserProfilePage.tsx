@@ -230,9 +230,9 @@ export function UserProfilePage({
   };
 
   return (
-    <div className="flex flex-col h-full bg-base text-ink">
+    <div className="flex flex-col h-full text-ink">
       {/* 顶部标题栏 */}
-      <header className="flex items-center gap-3 px-6 py-4 bg-panel border-b border-line">
+      <header className="flex items-center gap-3 px-6 py-4 backdrop-blur-md relative z-20">
         <button
           onClick={() => {
             if (selectedFolder) {
@@ -281,7 +281,7 @@ export function UserProfilePage({
                 className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border transition-colors ${
                   tab === key
                     ? "bg-blue-50 border-blue-300 text-blue-600"
-                    : "bg-panel border-line text-ink-3 hover:bg-base"
+                    : "bg-panel/30 border-line/50 text-ink-3 hover:bg-base"
                 }`}
               >
                 <Icon size={14} />
@@ -295,7 +295,7 @@ export function UserProfilePage({
         {!selectedFolder && tab === "favorites" && (
           <>
             {/* 用户信息卡片 */}
-            <div className="px-4 py-5 bg-panel border border-line rounded-lg mb-4">
+            <div className="px-4 py-5 bg-panel/30 backdrop-blur-sm border border-line/50 rounded-lg mb-4">
               <div className="flex items-center gap-4">
                 <div className="relative">
                   <img
@@ -402,7 +402,7 @@ export function UserProfilePage({
                 {folders.map((folder) => (
                   <div
                     key={folder.id}
-                    className="flex items-center gap-1 px-4 py-3 bg-panel border border-line rounded-lg hover:border-line-2 transition-colors"
+                    className="flex items-center gap-1 px-4 py-3 bg-panel/30 backdrop-blur-sm border border-line/50 rounded-lg hover:border-line-2 transition-colors"
                   >
                     <button
                       onClick={() => handleSelectFolder(folder)}
@@ -548,7 +548,7 @@ export function UserProfilePage({
                           : undefined
                       }
                       className={cn(
-                        "flex items-start gap-3 w-full px-4 py-3 bg-panel border rounded-lg transition-colors text-left",
+                        "flex items-start gap-3 w-full px-4 py-3 bg-panel/30 backdrop-blur-sm border rounded-lg transition-colors text-left",
                         favSelectMode && "cursor-pointer",
                         favSelectMode && media.bvid && favSelected.has(media.bvid)
                           ? "border-blue-300 bg-blue-50"
@@ -568,7 +568,7 @@ export function UserProfilePage({
                               "absolute -top-1.5 -left-1.5 w-5 h-5 rounded-full flex items-center justify-center border-2",
                               media.bvid && favSelected.has(media.bvid)
                                 ? "bg-blue-500 border-blue-500"
-                                : "bg-panel border-line-2"
+                                : "bg-panel/30 border-line-2"
                             )}
                           >
                             {media.bvid && favSelected.has(media.bvid) && (

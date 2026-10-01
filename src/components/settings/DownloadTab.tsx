@@ -174,7 +174,7 @@ export function DownloadTab({
           onChange={(e) => onFilenameTemplateChange(e.target.value)}
           placeholder="{video_title}/{title}"
           spellCheck={false}
-          className="w-full px-3 py-2 text-sm font-mono border border-line-2 rounded-lg bg-panel-2 text-ink focus:outline-none focus:border-blue-500 transition-colors"
+          className="w-full px-3 py-2 text-sm font-mono border border-line-2 rounded-lg bg-panel/60-2 text-ink focus:outline-none focus:border-blue-500 transition-colors"
         />
         <p className="text-xs text-ink-3 mt-2 leading-relaxed">
           可用占位符：{"{title}"} 标题（多P时即 Pn 分P名）· {"{video_title}"} 合集/视频名 · {"{bvid}"} · {"{ep}"} 剧集号（非番剧为空，EP{"{ep}"} 会残留 EP 前缀）· {"{cid}"} · {"{up}"} UP 主名。
