@@ -1,6 +1,6 @@
 [package]
 name = "weiyu"
-version = "1.4.1"
+version = "1.4.2"
 description = "未雨 (Weiyu) - Download videos from Bilibili"
 authors = ["you"]
 edition = "2021"

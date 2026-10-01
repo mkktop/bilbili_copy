@@ -397,6 +397,19 @@ pub fn run() {
             });
         })
         .setup(|app| {
+            // 主窗口在配置里 create:false（MCP 无头模式复用同一份配置，绝不能弹窗），
+            // GUI 模式在这里按配置手动创建。
+            let window_cfg = app
+                .config()
+                .app
+                .windows
+                .iter()
+                .find(|w| w.label == "main")
+                .cloned()
+                .expect("缺少 main 窗口配置");
+            tauri::WebviewWindowBuilder::from_config(app, &window_cfg)?
+                .build()?;
+
             // 启动下载调度器 dispatcher 后台循环。常驻运行：
             // pop 最高优先级任务 → acquire permit → spawn 执行 → 处理 pause/cancel/优先级。
             let app_handle = app.handle().clone();

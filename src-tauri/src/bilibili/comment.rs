@@ -35,12 +35,127 @@ pub struct CommentItem {
     pub floor: i64,
 }
 
-/// 获取视频评论（分页）
+/// 获取视频评论（分页）。
+/// 已登录优先走新版 WBI 主接口（mode 排序真正生效）；失败或未登录回退老接口。
+pub async fn get_comments(
+    aid: i64,
+    pn: u32,
+    mode: u32,
+    credential: Option<&Credential>,
+) -> Result<PagedResult<CommentItem>> {
+    if let Some(cred) = credential {
+        match get_comments_wbi_main(aid, pn, mode, cred).await {
+            Ok(res) => return Ok(res),
+            Err(e) => {
+                log::warn!(
+                    "[comment] WBI 主接口失败，回退老接口: aid={} pn={} mode={} err={}",
+                    aid,
+                    pn,
+                    mode,
+                    e
+                );
+            }
+        }
+    }
+    get_comments_legacy(aid, pn, mode, credential).await
+}
+
+/// 新版评论主接口（WBI 签名 + 游标分页）
+/// API: GET https://api.bilibili.com/x/v2/reply/wbi/main
+///   mode：3=按热度，2=按时间。老接口 /x/v2/reply 的 mode 已被 B站废弃
+///   （任何值都返回默认排序），只有这个 WBI 签名接口排序真正生效。
+///   分页：cursor 游标制（pagination_str 传上一页 next_offset）。为兼容前端
+///   页码语义，第 pn 页需要串行请求 pn 次、每次带上一页游标（页深一般 ≤3，可接受）。
+///
+/// @param aid 视频 aid（作为 oid）
+/// @param pn 页码，从 1 开始
+/// @param mode 排序：3=按热度，2=按时间
+async fn get_comments_wbi_main(
+    aid: i64,
+    pn: u32,
+    mode: u32,
+    cred: &Credential,
+) -> Result<PagedResult<CommentItem>> {
+    use crate::bilibili::wbi;
+
+    let client = api_client();
+    let mixin_key = wbi::get_mixin_key_cached(cred).await?;
+
+    let mut next_offset: Option<String> = None; // None = 第一页
+    let mut items: Vec<CommentItem> = Vec::new();
+    let mut total = 0i64;
+
+    for _ in 0..pn {
+        let pagination_str = match &next_offset {
+            Some(o) => serde_json::json!({ "offset": o }).to_string(),
+            None => "{\"offset\":\"\"}".to_string(),
+        };
+        let mut params: Vec<(String, String)> = vec![
+            ("oid".to_string(), aid.to_string()),
+            ("type".to_string(), "1".to_string()),
+            ("mode".to_string(), mode.to_string()),
+            ("pagination_str".to_string(), pagination_str),
+            ("plat".to_string(), "1".to_string()),
+        ];
+        wbi::sign_params(&mut params, &mixin_key);
+
+        let resp_text = client
+            .get("https://api.bilibili.com/x/v2/reply/wbi/main")
+            .header("Referer", REFERER)
+            .header("Cookie", cred.cookie_header())
+            .query(&params)
+            .send()
+            .await?
+            .text()
+            .await?;
+
+        let resp: Value = serde_json::from_str(&resp_text).context("评论响应解析失败")?;
+        let code = resp["code"].as_i64().unwrap_or(-1);
+        if code != 0 {
+            anyhow::bail!("评论 WBI 接口返回 code={}（{}）", code, resp["message"].as_str().unwrap_or("未知错误"));
+        }
+        total = resp["data"]["cursor"]["all_count"].as_i64().unwrap_or(0);
+        let list = resp["data"]["replies"].as_array().cloned().unwrap_or_default();
+        items = list
+            .into_iter()
+            .map(parse_comment_item)
+            .filter(|it| it.rpid > 0)
+            .collect();
+
+        // 下一页游标；没有则说明到底了
+        next_offset = resp["data"]["cursor"]["pagination_reply"]["next_offset"]
+            .as_str()
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string());
+        if next_offset.is_none() {
+            break;
+        }
+    }
+
+    let has_more = next_offset.is_some();
+    log::info!(
+        "[comment/wbi] aid={} pn={} mode={} 获取到 {} 条评论（共 {} 条）",
+        aid,
+        pn,
+        mode,
+        items.len(),
+        total
+    );
+
+    Ok(PagedResult {
+        items,
+        total,
+        has_more,
+        page: pn,
+    })
+}
+
+/// 老版评论接口（未登录回退用；B站已废弃其 mode 参数，排序不生效）
 /// API: GET https://api.bilibili.com/x/v2/reply
 ///   type=1：oid 是 aid（视频）
 ///   pn：页码（从 1 开始）
 ///   ps：页大小（固定 20）
-///   mode：3=按热度，2=按时间
+///   mode：3=按热度，2=按时间（已废弃，仅未登录回退时使用）
 ///
 /// 注：评论接口为公开接口，未登录也可查看。返回 data.page.count 为评论总数，
 /// data.replies 为本页评论数组。data.replies 可能为 null（无评论时）。
@@ -49,7 +164,7 @@ pub struct CommentItem {
 /// @param pn 页码，从 1 开始
 /// @param mode 排序：3=按热度（默认），2=按时间
 /// @param credential 可选登录态：已登录则带 cookie
-pub async fn get_comments(
+async fn get_comments_legacy(
     aid: i64,
     pn: u32,
     mode: u32,
