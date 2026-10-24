@@ -11,6 +11,25 @@ permissions:
   contents: write
 
 jobs:
+  cli:
+    uses: ./.github/workflows/cli.yml
+
+  publish-cli:
+    needs: [build, cli]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: weiyu-cli-linux-*
+          path: cli-artifacts
+          merge-multiple: true
+      - name: Attach Linux CLI packages to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: gh release upload "$RELEASE_TAG" cli-artifacts/*.tar.gz cli-artifacts/*.sha256 --clobber
+
   build:
     strategy:
       fail-fast: false
@@ -88,7 +107,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ env.TAURI_SIGNING_PRIVATE_KEY }}
         with:
           tagName: ${{ github.ref_name }}
-          releaseName: "未雨 for Windows ${{ github.ref_name }}"
+          releaseName: "未雨 ${{ github.ref_name }}"
           releaseBody: ${{ steps.release_notes.outputs.NOTES }}
           releaseDraft: false
           prerelease: false

@@ -53,6 +53,11 @@
 
 ## ✨ Features
 
+### 🖥️ Server CLI & Remote MCP
+- Standalone **Linux ARM64 / x86_64** binaries, JSON queries, stdio MCP and authenticated Streamable HTTP MCP
+- 35 read-only Bilibili query tools, sharing the desktop API implementation; no desktop runtime required
+- [Server deployment guide](docs/server-cli.md): binary packages, Cookie setup, Docker, systemd and AI client configuration
+
 ### 📥 Downloading
 - **Up to 8K / HDR / Dolby Vision** video quality, Hi-Res lossless & Dolby Atmos audio, configurable codec priority (AVC / HEVC / AV1)
 - **Multi-threaded, resumable downloads** — pause, restart, or close the app mid-download; cross-session resume protected by stream fingerprints
@@ -179,7 +184,8 @@ Weiyu is a **Tauri 2** application: a Rust backend handling all network and file
 ```
 
 - **`commands/`** — `#[tauri::command]` handlers; parameter validation and orchestration, registered in `lib.rs`.
-- **`bilibili/`** — Core business logic, organized by Bilibili API domain (`passport`, `credential`, `playurl`, `pgc`, `wbi`, `danmaku`, `subtitle`, `nfo`, …).
+- **`crates/weiyu-core`** — Shared Bilibili API implementation. Desktop `bilibili/` reexports it and retains download, NFO, filename and player seek helpers.
+- **`crates/weiyu-cli`** — Independent JSON CLI and read-only HTTP/stdio MCP server for Linux ARM64/x86_64.
 - **`download_manager.rs`** — Decouples task submission from execution: priority queue, pause / cancel, concurrency semaphores.
 - **`db.rs`** — SQLite via `rusqlite` (WAL mode), schema migrations stored inline.
 

@@ -1,0 +1,104 @@
+name: CLI and Shared Core
+
+on:
+  pull_request:
+    paths:
+      - "crates/**"
+      - "src-tauri/**"
+      - "Cargo.*"
+      - "scripts/package-cli.sh"
+      - "deploy/server/**"
+      - ".github/workflows/cli.yml"
+      - ".github/workflows/build.yml"
+  push:
+    branches: [master]
+    paths:
+      - "crates/**"
+      - "src-tauri/**"
+      - "Cargo.*"
+      - "scripts/package-cli.sh"
+      - "deploy/server/**"
+      - ".github/workflows/cli.yml"
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - uses: swatinem/rust-cache@v2
+      - name: Check CLI formatting
+        run: cargo fmt -p weiyu-cli --check
+      - name: Test shared APIs, CLI and MCP transports
+        run: cargo test --workspace --no-default-features --locked
+
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - target: aarch64-unknown-linux-musl
+            platform: linux-arm64
+          - target: x86_64-unknown-linux-musl
+            platform: linux-x86_64
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      - name: Install portable cross compiler
+        run: pip install cargo-zigbuild==0.24.0 ziglang==0.14.1
+      - name: Build static Linux CLI
+        run: cargo zigbuild --locked --release -p weiyu-cli --target ${{ matrix.target }}
+      - name: Run packaged CLI and MCP smoke checks
+        shell: bash
+        run: |
+          if [[ "${{ matrix.platform }}" == "linux-arm64" ]]; then
+            sudo apt-get update -qq
+            sudo apt-get install -y qemu-user
+            python scripts/smoke-cli.py target/${{ matrix.target }}/release/weiyu-cli --runner qemu-aarch64
+          else
+            python scripts/smoke-cli.py target/${{ matrix.target }}/release/weiyu-cli
+          fi
+      - name: Package executable and deployment guide
+        run: bash scripts/package-cli.sh ${{ matrix.target }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: weiyu-cli-${{ matrix.platform }}
+          path: artifacts/weiyu-cli-${{ matrix.platform }}.tar.gz*
+          if-no-files-found: error
+
+  desktop-check:
+    if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm build:renderer
+      - name: Verify desktop compatibility with shared core
+        run: cargo check --locked --manifest-path src-tauri/Cargo.toml

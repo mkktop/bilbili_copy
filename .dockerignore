@@ -1,0 +1,14 @@
+.git
+node_modules
+dist
+target
+**/target
+artifacts
+test-results
+playwright-report
+deploy/server/secrets
+deploy/server/.env
+src-tauri/resources
+keys
+keys.pub
+.claude

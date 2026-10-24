@@ -1,0 +1,27 @@
+services:
+  weiyu:
+    build:
+      context: ../..
+      dockerfile: deploy/server/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8787:8787"
+    environment:
+      WEIYU_MCP_TOKEN_FILE: /run/secrets/mcp_token
+      WEIYU_COOKIE_FILE: /run/secrets/bilibili_cookie
+      WEIYU_ALLOWED_HOSTS: ${WEIYU_PUBLIC_HOST:-localhost}
+      WEIYU_RATE_LIMIT: ${WEIYU_RATE_LIMIT:-2}
+      WEIYU_MAX_CONCURRENCY: ${WEIYU_MAX_CONCURRENCY:-4}
+    secrets:
+      - mcp_token
+      - bilibili_cookie
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+
+secrets:
+  mcp_token:
+    file: ./secrets/mcp-token
+  bilibili_cookie:
+    file: ./secrets/bilibili.cookie
