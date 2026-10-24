@@ -30,7 +30,7 @@ const state = {
   settings: initialSettings, history: params.has("empty") ? [] : history, downloads: params.has("empty") ? [] : downloads,
   counts: params.has("empty") ? {all:0,queued:0,downloading:0,paused:0,done:0,error:0} : {all:123,queued:12,downloading:3,paused:8,done:96,error:4},
   calls: [] as {cmd: string; args: any}[], failSave: false, failPatch: false, failHistory: false, failCounts: false, saveDelay: 0, delayedFilters: false,
-  suggestionRace: false, loggedIn: params.has("logged"), emit,
+  suggestionRace: false, loggedIn: params.has("logged"), emit, paginateDownloads: false, statusWriteDelay: 0,
 };
 (window as any).__workspace = state;
 mockWindows("main");
@@ -49,10 +49,21 @@ mockIPC(async (cmd, payload: any) => {
     case "login_logout": state.loggedIn=false; return null;
     case "get_parse_history": if(state.failHistory) throw new Error("读取记录失败"); return state.history;
     case "get_parse_count": return state.history.length ? 89 : 0;
-    case "get_download_history": if(state.delayedFilters && payload.status==="downloading") await new Promise(resolve=>setTimeout(resolve,500)); return state.downloads.filter(item=>!payload.status || item.status===payload.status);
+    case "get_download_history": {
+      if(state.delayedFilters && payload.status==="downloading") await new Promise(resolve=>setTimeout(resolve,500));
+      const rows=state.downloads.filter(item=>!payload.status || item.status===payload.status);
+      return state.paginateDownloads ? rows.slice((payload.page-1)*20,payload.page*20) : rows;
+    }
+    case "update_download_status": {
+      if(state.statusWriteDelay) await new Promise(resolve=>setTimeout(resolve,state.statusWriteDelay));
+      const row=state.downloads.find(item=>item.id===payload.id);
+      if(row) row.status=payload.status;
+      return null;
+    }
     case "get_download_count": if(state.failCounts) throw new Error("读取数量失败"); return state.counts[(payload.status ?? "all") as keyof typeof state.counts];
     case "get_download_stats": return {total_count:state.counts.all,done_count:state.counts.done,done_size:12400000000,done_duration:34200};
     case "parse_video": return infos[0];
+    case "get_article_content": return {cvid:payload.cvid ?? 0,opus_id:payload.opusId ?? "",title:"测试专栏文章",author_name:"测试作者",author_mid:100,publish_time:0,words:12,banner_url:"",content_html:"<p>用于验证页面导航的本地文章。</p>"};
     case "get_related_videos": return [];
     case "get_ai_summary": return null;
     case "get_video_comments": return {items:[],total:0,has_more:false};

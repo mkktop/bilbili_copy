@@ -82,6 +82,71 @@ test("download filters include queued jobs and reject stale paginated responses"
   await expect(filters.getByRole("button", {name:/已完成/})).toHaveAttribute("aria-current","page");
 });
 
+test("filtered downloads replace completed jobs after queued jobs start", async ({page}) => {
+  const errors=await start(page);
+  await work(page).getByRole("button", {name:"下载管理",exact:true}).click();
+  await page.getByRole("navigation", {name:"下载状态筛选"}).getByRole("button", {name:/下载中/}).click();
+  await expect(page.locator(".download-row")).toHaveCount(1);
+  await page.evaluate(async () => {
+    const state=(window as any).__workspace;
+    state.statusWriteDelay=300;
+    state.downloads.find((item:any)=>item.id==="download-1").title="队列接续任务";
+    state.counts.queued--;state.counts.done++;
+    await state.emit("download://complete", {id:"download-0",output_path:"D:\\Videos\\finished.mp4",size:1024});
+    await state.emit("download://state", {id:"download-1",status:"downloading"});
+  });
+  await expect(page.locator(".download-row")).toHaveCount(1);
+  await expect(page.locator(".download-row")).toContainText("队列接续任务");
+  expect(errors).toEqual([]);
+});
+
+test("a shrinking queue returns from an emptied last page to remaining jobs", async ({page}) => {
+  await start(page);
+  await page.evaluate(() => {
+    const state=(window as any).__workspace;
+    const seed=state.downloads[1];
+    state.paginateDownloads=true;
+    state.downloads=Array.from({length:21},(_,i)=>({...seed,id:`queue-${i}`,title:`排队任务 ${i+1}`}));
+    state.counts={all:21,queued:21,downloading:0,paused:0,done:0,error:0};
+  });
+  await work(page).getByRole("button", {name:"下载管理",exact:true}).click();
+  await page.getByRole("navigation", {name:"下载状态筛选"}).getByRole("button", {name:/排队中/}).click();
+  await expect(page.locator(".download-row")).toHaveCount(20);
+  await page.getByRole("button", {name:"下一页",exact:true}).click();
+  await expect(page.locator(".download-row")).toHaveCount(1);
+  await expect(page.locator(".download-row")).toContainText("排队任务 21");
+  await page.evaluate(async () => {
+    const state=(window as any).__workspace;
+    state.counts.queued=20;state.counts.downloading=1;
+    await state.emit("download://state", {id:"queue-20",status:"downloading"});
+  });
+  await expect(page.locator(".download-row")).toHaveCount(20);
+  await expect(page.locator(".download-row").first()).toContainText("排队任务 1");
+});
+
+test("an empty page keeps pagination available when other records exist", async ({page}) => {
+  await start(page);
+  await page.evaluate(() => { (window as any).__workspace.downloads=[]; });
+  await work(page).getByRole("button", {name:"下载管理",exact:true}).click();
+  await expect(page.getByText("当前页暂时没有任务", {exact:true})).toBeVisible();
+  await page.getByRole("button", {name:"下一页",exact:true}).click();
+  await expect.poll(()=>page.evaluate(()=>(window as any).__workspace.calls.filter((c:any)=>c.cmd==="get_download_history").at(-1)?.args.page)).toBe(2);
+});
+
+for(const [link,destination] of [["https://www.bilibili.com/read/cv12345","下载管理"],["https://www.bilibili.com/opus/1234567890123456789","设置"]]) {
+  test(`article overlay closes when navigating to ${destination}`, async ({page}) => {
+    const errors=await start(page);
+    await page.getByRole("textbox", {name:"B 站视频或专栏链接",exact:true}).fill(link);
+    await page.getByRole("button", {name:"解析链接",exact:true}).click();
+    await expect(page.getByRole("article").getByRole("heading", {name:"测试专栏文章",exact:true})).toBeVisible();
+    const navigation=destination==="设置" ? tools(page) : work(page);
+    await navigation.getByRole("button", {name:destination,exact:true}).click();
+    await expect(page.getByRole("heading", {name:destination,exact:true})).toBeVisible();
+    await expect(page.locator(".workspace-overlay")).toHaveCount(0);
+    expect(errors).toEqual([]);
+  });
+}
+
 test("theme patches preserve unsaved settings and sticky save persists them", async ({page}) => {
   const errors=await start(page);await openSettings(page);
   const dir=page.getByRole("textbox", {name:"默认下载目录",exact:true});

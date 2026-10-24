@@ -368,10 +368,13 @@ export function DownloadList({
 }: DownloadListProps) {
   if (downloads.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center h-full text-ink-3 gap-2">
+      <div className="flex flex-col min-h-full">
+        <div className="flex flex-1 flex-col items-center justify-center text-ink-3 gap-2 py-8">
         <Download size={40} strokeWidth={1.5} />
-        <p className="text-sm">{filter ? "这个分类暂时没有任务" : "还没有下载任务"}</p>
-        <p className="text-xs text-ink-3">{filter ? "切换状态筛选，查看其他下载记录" : "在工作台粘贴链接，解析后选择要下载的内容"}</p>
+        <p className="text-sm">{totalCount > 0 ? "当前页暂时没有任务" : filter ? "这个分类暂时没有任务" : "还没有下载任务"}</p>
+        <p className="text-xs text-ink-3">{totalCount > 0 ? "可翻页查看其他任务，或刷新列表" : filter ? "切换状态筛选，查看其他下载记录" : "在工作台粘贴链接，解析后选择要下载的内容"}</p>
+        </div>
+        <Pagination currentPage={currentPage} totalCount={totalCount} pageSize={HISTORY_PAGE_SIZE} onPageChange={onPageChange} />
       </div>
     );
   }

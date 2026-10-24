@@ -34,6 +34,7 @@ import { useThemeApplier, type ThemeMode } from "./hooks/useTheme";
 import type { ParsedItem, DownloadTask, ParsedVideoInfo, ParseHistoryEntry, DownloadHistoryEntry, VideoMeta, VideoPage, PlayingItem, PlaylistItem, BatchDownloadResult } from "./types";
 import { dbToParsedItem, dbToDownloadTask } from "./types";
 import { friendlyError } from "./lib/errors";
+import { HISTORY_PAGE_SIZE } from "./lib/constants";
 
 // 非首屏组件懒加载：设置页/统计页/在线播放器体积较大（播放器含 MSE 逻辑），
 // 拆出独立 chunk，首屏 bundle 不再包含它们。三者均为命名导出，需转成 default。
@@ -95,9 +96,11 @@ export default function App() {
   const [downloadTotal, setDownloadTotal] = useState(0);
   // 下载库状态过滤（null=全部）：排队中/下载中/已完成/已暂停/失败
   const [downloadFilter, setDownloadFilter] = useState<DownloadFilter>(null);
+  const [downloadLibraryRevision, setDownloadLibraryRevision] = useState(0);
   const [settingsDirty, setSettingsDirty] = useState(false);
   const parseRequestRef = useRef(0);
   const downloadRequestRef = useRef(0);
+  const downloadQueryRef = useRef<{ page: number; filter: DownloadFilter }>({ page: 1, filter: null });
   const overview = useLibraryOverview(`${currentView}:${parseTotal}:${downloads.map(item => `${item.id}:${item.status}`).join(",")}`);
 
   const { phase, updateInfo } = useUpdate();
@@ -134,7 +137,8 @@ export default function App() {
     }
   }, [toast]);
 
-  const loadDownloadPage = useCallback(async (page: number, filter: string | null = null) => {
+  const loadDownloadPage = useCallback(async (page: number, filter: DownloadFilter = null): Promise<void> => {
+    downloadQueryRef.current = { page, filter };
     const request = ++downloadRequestRef.current;
     try {
       const [history, total] = await Promise.all([
@@ -142,6 +146,11 @@ export default function App() {
         invoke<number>("get_download_count", { status: filter }),
       ]);
       if (request !== downloadRequestRef.current) return;
+      const lastPage = Math.max(1, Math.ceil(total / HISTORY_PAGE_SIZE));
+      if (page > lastPage) {
+        await loadDownloadPage(lastPage, filter);
+        return;
+      }
       setDownloads(history.map(dbToDownloadTask));
       setDownloadTotal(total);
       setDownloadPage(page);
@@ -156,10 +165,23 @@ export default function App() {
     loadDownloadPage(1);
   }, []);
 
+  // 状态变更可能改变筛选结果的成员；落库后重取当前查询，批量事件合并刷新。
+  useEffect(() => {
+    if (currentView !== "downloads" || downloadLibraryRevision === 0) return;
+    const timer = setTimeout(() => {
+      const { page, filter } = downloadQueryRef.current;
+      void loadDownloadPage(page, filter);
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [currentView, downloadLibraryRevision, loadDownloadPage]);
+
   // 下载事件监听（订阅 + 双层节流 + 落库逻辑已抽到 hook）
   const { downloadingIds } = useDownloadEvents({
     setDownloads,
-    onLibraryChange: overview.refresh,
+    onLibraryChange: () => {
+      overview.refresh();
+      setDownloadLibraryRevision(revision => revision + 1);
+    },
     onRiskControl: (vVoucher) => {
       setCaptchaVoucher(vVoucher);
       toast.error("触发风控验证，请完成验证后重试");
@@ -204,7 +226,7 @@ export default function App() {
   const navigate = (next: View) => {
     if (currentView === "settings" && next !== "settings" && settingsDirty && !window.confirm("有尚未保存的设置，确定离开并放弃这些修改吗？")) return;
     if (next !== "settings") setSettingsDirty(false);
-    setCurrentView(next); setUpperViewMid(null);
+    setCurrentView(next); setUpperViewMid(null); setArticleRef(null);
     if (next !== "detail") setSelectedItem(null);
     if (next === "downloads") { setDownloadFilter(null); void loadDownloadPage(1); }
     if (next === "history") void loadParsePage(1);
