@@ -13,7 +13,7 @@ export function DownloadInput({ value, onChange, onParse, isParsing }: DownloadI
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const url = value.trim();
-    if (url) {
+    if (url && !isParsing) {
       onParse(url);
     }
   };
@@ -21,15 +21,16 @@ export function DownloadInput({ value, onChange, onParse, isParsing }: DownloadI
   return (
     <form
       onSubmit={handleSubmit}
-      className="flex items-center gap-3 rounded-2xl border border-line bg-panel/60 px-5 shadow-lg shadow-blue-500/5 backdrop-blur-md transition-all focus-within:border-blue-400/50 focus-within:ring-2 focus-within:ring-blue-400/40 focus-within:shadow-blue-500/10"
+      className="download-input"
     >
       <Search size={18} className="shrink-0 text-ink-3" />
       <input
         name="url"
         type="text"
+        aria-label="B 站视频或专栏链接"
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        placeholder="粘贴 B 站链接，未雨为你绸缪…"
+        placeholder="粘贴 B 站视频、合集或专栏链接"
         disabled={isParsing}
         className="flex-1 bg-transparent py-3.5 text-sm text-ink-2 placeholder:text-ink-3 focus:outline-none disabled:opacity-50"
       />
@@ -45,18 +46,17 @@ export function DownloadInput({ value, onChange, onParse, isParsing }: DownloadI
       )}
       <button
         type="submit"
-        disabled={isParsing}
-        className="flex items-center gap-1.5 whitespace-nowrap rounded-full border border-white/25 bg-gradient-to-r from-sky-400 via-blue-500 to-indigo-400 px-6 py-2 text-sm font-bold text-white shadow-md shadow-blue-400/30 transition-all hover:scale-105 hover:shadow-lg hover:shadow-blue-400/40 active:scale-95 disabled:opacity-50"
+        disabled={isParsing || !value.trim()}
       >
         {isParsing ? (
           <>
             <Loader2 size={14} className="animate-spin" />
-            未雨中...
+            正在解析
           </>
         ) : (
           <>
             <Search size={14} />
-            未雨一下
+            解析链接
           </>
         )}
       </button>

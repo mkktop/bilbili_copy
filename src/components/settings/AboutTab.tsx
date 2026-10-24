@@ -16,7 +16,7 @@ import type { AppSettings } from "../../hooks/useSettings";
 import type { UpdateChannel } from "../../lib/updater";
 import { cn } from "../../lib/utils";
 
-const GITHUB_URL = "https://github.com/mkk/bilbili_copy";
+const GITHUB_URL = "https://github.com/mkktop/bilbili_copy";
 
 interface AboutTabProps {
   settings: AppSettings;

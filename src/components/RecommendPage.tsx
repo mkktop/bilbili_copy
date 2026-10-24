@@ -93,7 +93,7 @@ export function RecommendPage({
 
   return (
     <div className="flex flex-col h-full text-ink">
-      <header className="flex items-center gap-2 px-4 py-3 backdrop-blur-md relative z-20">
+      <header className="workspace-header flex items-center gap-2 px-4 py-3 backdrop-blur-md relative z-20">
         <button
           onClick={onBack}
           className="p-1 rounded-md text-ink-3 hover:bg-panel-2 transition-colors"

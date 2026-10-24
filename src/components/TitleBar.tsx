@@ -19,12 +19,13 @@ interface TitleBarProps {
  * 关闭按钮走 window.close() → 后端 CloseRequested 拦截 → 与原生关闭一样隐藏到托盘。
  */
 export function TitleBar({ version, hasUpdate, resolvedTheme, toggleTheme, onSettings }: TitleBarProps) {
-  const win = getCurrentWindow();
+  const [win] = useState(() => getCurrentWindow());
   const [maximized, setMaximized] = useState(false);
 
   useEffect(() => {
     win.isMaximized().then(setMaximized).catch(() => {});
     let unlisten: (() => void) | null = null;
+    let active = true;
     win
       .onResized(async () => {
         try {
@@ -34,9 +35,11 @@ export function TitleBar({ version, hasUpdate, resolvedTheme, toggleTheme, onSet
         }
       })
       .then((fn) => {
-        unlisten = fn;
+        if (active) unlisten = fn;
+        else fn();
       });
     return () => {
+      active = false;
       unlisten?.();
     };
   }, [win]);

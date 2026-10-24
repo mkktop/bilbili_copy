@@ -126,6 +126,7 @@ function IconButton({
     <button
       onClick={onClick}
       title={title}
+      aria-label={title}
       className={cn(
         "p-1 rounded transition-colors shrink-0",
         danger
@@ -166,7 +167,7 @@ const DownloadRow = memo(
       item.progress !== undefined;
 
     return (
-      <div className="flex items-start gap-3 px-4 py-3 bg-panel/30 backdrop-blur-sm border border-line/50 rounded-lg">
+      <div className="download-row flex items-start gap-3 px-4 py-3 border">
         {/* 封面缩略图（无封面时回退文件图标）；点击进入视频详情页 */}
         {item.pic ? (
           <img
@@ -224,7 +225,7 @@ const DownloadRow = memo(
 
             {/* 进度条 */}
             {showProgress && (
-              <div className="w-full bg-line rounded-full h-1.5 mt-1.5">
+              <div role="progressbar" aria-label={`${item.title} 下载进度`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.min(item.progress ?? 0, 100)} className="w-full bg-line rounded-full h-1.5 mt-1.5">
                 <div
                   className={cn(
                     "h-1.5 rounded-full transition-all duration-300",
@@ -240,7 +241,7 @@ const DownloadRow = memo(
         </div>
 
         {/* 操作按钮区：按状态切换 */}
-        <div className="flex items-center gap-0.5 mt-1 shrink-0">
+        <div className="download-row-actions flex items-center gap-0.5 mt-1 shrink-0">
           {item.status === "queued" && (
             <>
               {/* 置顶：用一个大优先级值；后端 set_priority 会覆盖 */}
@@ -367,9 +368,13 @@ export function DownloadList({
 }: DownloadListProps) {
   if (downloads.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center h-full text-ink-3 gap-2">
+      <div className="flex flex-col min-h-full">
+        <div className="flex flex-1 flex-col items-center justify-center text-ink-3 gap-2 py-8">
         <Download size={40} strokeWidth={1.5} />
-        <p className="text-sm">暂无下载任务</p>
+        <p className="text-sm">{totalCount > 0 ? "当前页暂时没有任务" : filter ? "这个分类暂时没有任务" : "还没有下载任务"}</p>
+        <p className="text-xs text-ink-3">{totalCount > 0 ? "可翻页查看其他任务，或刷新列表" : filter ? "切换状态筛选，查看其他下载记录" : "在工作台粘贴链接，解析后选择要下载的内容"}</p>
+        </div>
+        <Pagination currentPage={currentPage} totalCount={totalCount} pageSize={HISTORY_PAGE_SIZE} onPageChange={onPageChange} />
       </div>
     );
   }

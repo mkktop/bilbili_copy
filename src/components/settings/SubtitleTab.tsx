@@ -29,6 +29,7 @@ interface SubtitleTabProps {
   saving: boolean;
   saved: boolean;
   onSave: () => void;
+  showSaveButton?: boolean;
 }
 
 // 弹幕渲染档位预设（值就是后端存的原始数值）
@@ -85,6 +86,7 @@ export function SubtitleTab({
   saving,
   saved,
   onSave,
+  showSaveButton = true,
 }: SubtitleTabProps) {
   return (
     <div className="space-y-4 max-w-lg">
@@ -98,7 +100,7 @@ export function SubtitleTab({
         title="下载弹幕"
         description="视频下载完成后自动保存弹幕为 ASS 字幕文件，可直接在播放器中加载显示。"
       >
-        <ToggleSwitch checked={downloadDanmaku} onChange={onDownloadDanmakuChange} />
+        <ToggleSwitch label="下载弹幕" checked={downloadDanmaku} onChange={onDownloadDanmakuChange} />
       </SettingCard>
 
       {/* 弹幕渲染配置：仅在开启弹幕下载时显示，避免无关配置干扰 */}
@@ -184,7 +186,7 @@ export function SubtitleTab({
         title="下载字幕"
         description="自动保存 CC 字幕文件（按语言分别保存，如 zh-Hans、en）。可在下方选择导出格式。"
       >
-        <ToggleSwitch checked={downloadSubtitle} onChange={onDownloadSubtitleChange} />
+        <ToggleSwitch label="下载字幕" checked={downloadSubtitle} onChange={onDownloadSubtitleChange} />
       </SettingCard>
 
       {/* 字幕格式：仅在开启字幕下载时显示 */}
@@ -203,6 +205,7 @@ export function SubtitleTab({
       )}
 
       {/* Save button */}
+      {showSaveButton && (
       <button
         onClick={onSave}
         disabled={saving}
@@ -215,6 +218,7 @@ export function SubtitleTab({
       >
         {saving ? "保存中..." : saved ? "已保存 ✓" : "保存设置"}
       </button>
+      )}
     </div>
   );
 }

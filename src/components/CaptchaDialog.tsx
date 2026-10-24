@@ -153,13 +153,13 @@ export function CaptchaDialog({ vVoucher, onSuccess, onCancel }: CaptchaDialogPr
   if (!vVoucher) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+    <div role="dialog" aria-modal="true" aria-labelledby="captcha-title" className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
       <div className="bg-panel rounded-2xl shadow-xl w-80 overflow-hidden">
         {/* Header */}
         <div className="px-5 py-4 border-b border-line">
           <div className="flex items-center gap-2">
             <ShieldCheck size={18} className="text-blue-500" />
-            <h3 className="text-sm font-semibold text-ink">安全验证</h3>
+            <h3 id="captcha-title" className="text-sm font-semibold text-ink">安全验证</h3>
           </div>
           <p className="text-xs text-ink-3 mt-1">完成验证后继续下载</p>
         </div>

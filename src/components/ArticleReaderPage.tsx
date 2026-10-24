@@ -289,7 +289,7 @@ export function ArticleReaderPage({ cvid, opusId, onBack }: Props) {
   }, [article, safeHtml]);
 
   return (
-    <div className="fixed inset-x-0 top-10 bottom-0 z-[80] overflow-hidden bg-base">
+    <div className="workspace-overlay fixed inset-x-0 top-10 bottom-0 z-[80] overflow-hidden bg-base">
       <div aria-hidden className="pointer-events-none absolute inset-0" style={{ background: SKY_GRADIENT }} />
       <RainLayer />
       <div className="relative z-10 flex flex-col h-full text-ink">

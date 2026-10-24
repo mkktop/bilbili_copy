@@ -13,7 +13,7 @@ export function SettingCard({
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex items-start gap-4 p-4 rounded-xl border border-line/60 bg-panel/30 backdrop-blur-sm">
+    <div className="setting-card flex items-start gap-4 p-4 rounded-xl border border-line/60 bg-panel/30 backdrop-blur-sm">
       <div className="p-2 rounded-lg bg-accent-soft text-accent mt-0.5">
         <Icon size={18} />
       </div>
@@ -70,6 +70,10 @@ export function ToggleRow({
     <div className="flex items-center justify-between py-2">
       <span className="text-sm text-ink-2">{label}</span>
       <button
+        type="button"
+        role="switch"
+        aria-label={label}
+        aria-checked={checked}
         onClick={() => onChange(!checked)}
         className={cn(
           "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
@@ -91,12 +95,18 @@ export function ToggleRow({
 export function ToggleSwitch({
   checked,
   onChange,
+  label = "启用此功能",
 }: {
   checked: boolean;
   onChange: (v: boolean) => void;
+  label?: string;
 }) {
   return (
     <button
+      type="button"
+      role="switch"
+      aria-label={label}
+      aria-checked={checked}
       onClick={() => onChange(!checked)}
       className={cn(
         "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",

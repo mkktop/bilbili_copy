@@ -33,15 +33,16 @@ export function McpTab({ settings, onSave, onPatch }: McpTabProps) {
       } else {
         await onSave({ ...settings, ...partial });
       }
+      return true;
     } catch (e) {
-      console.error(e);
-      window.alert(`保存失败：${e instanceof Error ? e.message : String(e)}`);
+      toast.error(`保存失败：${e instanceof Error ? e.message : String(e)}`);
+      return false;
     }
   };
 
   const handleToggle = () => {
-    patchSetting({ mcp_enabled: !settings.mcp_enabled }).then(() => {
-      if (!settings.mcp_enabled) {
+    patchSetting({ mcp_enabled: !settings.mcp_enabled }).then((success) => {
+      if (success && !settings.mcp_enabled) {
         toast.success("MCP 服务已开启，按下方步骤配置 AI 客户端即可");
       }
     });

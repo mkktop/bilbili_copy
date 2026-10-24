@@ -45,6 +45,7 @@ interface QualityTabProps {
   saving: boolean;
   saved: boolean;
   onSave: () => void;
+  showSaveButton?: boolean;
 }
 
 export function QualityTab({
@@ -61,6 +62,7 @@ export function QualityTab({
   saving,
   saved,
   onSave,
+  showSaveButton = true,
 }: QualityTabProps) {
   const moveCodec = (index: number, direction: "up" | "down") => {
     const next = [...codecPriority];
@@ -208,6 +210,7 @@ export function QualityTab({
       </section>
 
       {/* 保存按钮 */}
+      {showSaveButton && (
       <div className="pt-2 flex items-center gap-3">
         <button
           onClick={onSave}
@@ -220,6 +223,7 @@ export function QualityTab({
           <span className="text-xs text-green-500">设置已保存</span>
         )}
       </div>
+      )}
     </div>
   );
 }

@@ -1,8 +1,13 @@
 import { getVersion } from "@tauri-apps/api/app";
-import { lazy, Suspense, useEffect, useRef, useState, useCallback, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, useRef, useState, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { revealItemInDir, openPath } from "@tauri-apps/plugin-opener";
-import { DownloadInput } from "./components/DownloadInput";
+import { AppSidebar, DiscoveryNav } from "./components/workspace/AppSidebar";
+import { HomePage } from "./components/workspace/HomePage";
+import { DownloadsToolbar } from "./components/workspace/DownloadsToolbar";
+import { DISCOVERY_VIEWS, type View } from "./components/workspace/navigation";
+import { useLibraryOverview, type DownloadFilter } from "./hooks/useLibraryOverview";
+import "./components/workspace/workspace.css";
 import { DownloadList } from "./components/DownloadList";
 import { ParseList } from "./components/ParseList";
 import { VideoDetail } from "./components/VideoDetail";
@@ -22,14 +27,14 @@ import { useSettings } from "./hooks/useSettings";
 import { useLogin } from "./hooks/useLogin";
 import { useDownloadEvents } from "./hooks/useDownloadEvents";
 import { useUrlIntake } from "./hooks/useUrlIntake";
-import { Download, Search, Trophy, Sparkles, LayoutGrid, BarChart3, Rss, CalendarDays, History, ArrowLeft, Trash2 } from "lucide-react";
+import { ArrowLeft, Trash2, Library, LogIn, Loader2 } from "lucide-react";
 import { TitleBar } from "./components/TitleBar";
-import { HomeHero, RainLayer, SKY_GRADIENT } from "./components/HomeHero";
 import type { AppSettings } from "./hooks/useSettings";
 import { useThemeApplier, type ThemeMode } from "./hooks/useTheme";
 import type { ParsedItem, DownloadTask, ParsedVideoInfo, ParseHistoryEntry, DownloadHistoryEntry, VideoMeta, VideoPage, PlayingItem, PlaylistItem, BatchDownloadResult } from "./types";
 import { dbToParsedItem, dbToDownloadTask } from "./types";
 import { friendlyError } from "./lib/errors";
+import { HISTORY_PAGE_SIZE } from "./lib/constants";
 
 // 非首屏组件懒加载：设置页/统计页/在线播放器体积较大（播放器含 MSE 逻辑），
 // 拆出独立 chunk，首屏 bundle 不再包含它们。三者均为命名导出，需转成 default。
@@ -50,8 +55,6 @@ function extractArticleRef(text: string): ArticleRef | null {
   if (cv) return { cvid: Number(cv[1]) };
   return null;
 }
-
-type View = "main" | "history" | "settings" | "detail" | "downloads" | "stats" | "profile" | "explore" | "ranking" | "recommend" | "region" | "dynamic" | "weekly";
 
 /** 视图枚举 → 面包屑来源中文名（详情页/UP 主主页头部用，back 回到该来源） */
 function viewLabel(view: View): string {
@@ -91,19 +94,25 @@ export default function App() {
   const [parseTotal, setParseTotal] = useState(0);
   const [downloadPage, setDownloadPage] = useState(1);
   const [downloadTotal, setDownloadTotal] = useState(0);
-  // 下载库状态过滤（null=全部）：下载中/已完成/已暂停/失败
-  const [downloadFilter, setDownloadFilter] = useState<string | null>(null);
+  // 下载库状态过滤（null=全部）：排队中/下载中/已完成/已暂停/失败
+  const [downloadFilter, setDownloadFilter] = useState<DownloadFilter>(null);
+  const [downloadLibraryRevision, setDownloadLibraryRevision] = useState(0);
+  const [settingsDirty, setSettingsDirty] = useState(false);
+  const parseRequestRef = useRef(0);
+  const downloadRequestRef = useRef(0);
+  const downloadQueryRef = useRef<{ page: number; filter: DownloadFilter }>({ page: 1, filter: null });
+  const overview = useLibraryOverview(`${currentView}:${parseTotal}:${downloads.map(item => `${item.id}:${item.status}`).join(",")}`);
 
   const { phase, updateInfo } = useUpdate();
   const { settings, save, patch } = useSettings();
+  const toast = useToast();
   // 主题切换走 patch_settings 局部保存：拿陈旧 settings 快照整份覆盖会把
   // 设置页里未保存的修改静默回滚。
   const { resolved: resolvedTheme, toggle: toggleTheme } = useThemeApplier(
     settings.theme,
-    useCallback((t: ThemeMode) => patch({ theme: t }), [patch])
+    useCallback((t: ThemeMode) => { void patch({ theme: t }).catch(error => toast.error(`主题保存失败：${friendlyError(error)}`)); }, [patch, toast])
   );
   const { userInfo, logout, generateQrcode, pollQrcode } = useLogin();
-  const toast = useToast();
   const [version, setVersion] = useState("");
   const [loginDialogOpen, setLoginDialogOpen] = useState(false);
 
@@ -113,11 +122,13 @@ export default function App() {
 
   // 分页加载函数
   const loadParsePage = useCallback(async (page: number) => {
+    const request = ++parseRequestRef.current;
     try {
       const [parses, total] = await Promise.all([
         invoke<ParseHistoryEntry[]>("get_parse_history", { page }),
         invoke<number>("get_parse_count"),
       ]);
+      if (request !== parseRequestRef.current) return;
       setParsedItems(parses.map(dbToParsedItem));
       setParseTotal(total);
       setParsePage(page);
@@ -126,12 +137,20 @@ export default function App() {
     }
   }, [toast]);
 
-  const loadDownloadPage = useCallback(async (page: number, filter: string | null = null) => {
+  const loadDownloadPage = useCallback(async (page: number, filter: DownloadFilter = null): Promise<void> => {
+    downloadQueryRef.current = { page, filter };
+    const request = ++downloadRequestRef.current;
     try {
       const [history, total] = await Promise.all([
         invoke<DownloadHistoryEntry[]>("get_download_history", { page, status: filter }),
         invoke<number>("get_download_count", { status: filter }),
       ]);
+      if (request !== downloadRequestRef.current) return;
+      const lastPage = Math.max(1, Math.ceil(total / HISTORY_PAGE_SIZE));
+      if (page > lastPage) {
+        await loadDownloadPage(lastPage, filter);
+        return;
+      }
       setDownloads(history.map(dbToDownloadTask));
       setDownloadTotal(total);
       setDownloadPage(page);
@@ -146,9 +165,23 @@ export default function App() {
     loadDownloadPage(1);
   }, []);
 
+  // 状态变更可能改变筛选结果的成员；落库后重取当前查询，批量事件合并刷新。
+  useEffect(() => {
+    if (currentView !== "downloads" || downloadLibraryRevision === 0) return;
+    const timer = setTimeout(() => {
+      const { page, filter } = downloadQueryRef.current;
+      void loadDownloadPage(page, filter);
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [currentView, downloadLibraryRevision, loadDownloadPage]);
+
   // 下载事件监听（订阅 + 双层节流 + 落库逻辑已抽到 hook）
   const { downloadingIds } = useDownloadEvents({
     setDownloads,
+    onLibraryChange: () => {
+      overview.refresh();
+      setDownloadLibraryRevision(revision => revision + 1);
+    },
     onRiskControl: (vVoucher) => {
       setCaptchaVoucher(vVoucher);
       toast.error("触发风控验证，请完成验证后重试");
@@ -166,10 +199,14 @@ export default function App() {
   // currentView 镜像进 ref：useUrlIntake 监听器只注册一次，经 ref 读最新视图
   const currentViewRef = useRef(currentView);
   currentViewRef.current = currentView;
+  const settingsDirtyRef = useRef(settingsDirty);
+  settingsDirtyRef.current = settingsDirty;
 
   // 剪贴板/拖放链接感知：识别到新链接自动填入解析输入框；专栏链接直接打开阅读页。
   // 拖放从任意视图生效（跳回主页）；剪贴板探测仅主页生效（避免其他视图被打断）。
   const handleUrlIntake = useCallback((url: string) => {
+    if (currentViewRef.current === "settings" && settingsDirtyRef.current && !window.confirm("有尚未保存的设置，确定离开并放弃这些修改吗？")) return;
+    setSettingsDirty(false);
     const ref = extractArticleRef(url);
     if (ref != null) {
       setCurrentView((v) => (v === "main" ? v : "main"));
@@ -185,9 +222,20 @@ export default function App() {
   });
 
   const hasUpdate = phase === "available" && updateInfo;
-  const activeDownloads = downloads.filter(
-    (d) => d.status === "downloading" || d.status === "queued"
-  ).length;
+  const activeDownloads = overview.counts ? overview.counts.downloading + overview.counts.queued : null;
+  const navigate = (next: View) => {
+    if (currentView === "settings" && next !== "settings" && settingsDirty && !window.confirm("有尚未保存的设置，确定离开并放弃这些修改吗？")) return;
+    if (next !== "settings") setSettingsDirty(false);
+    setCurrentView(next); setUpperViewMid(null); setArticleRef(null);
+    if (next !== "detail") setSelectedItem(null);
+    if (next === "downloads") { setDownloadFilter(null); void loadDownloadPage(1); }
+    if (next === "history") void loadParsePage(1);
+  };
+  const openDownloadFilter = (filter: DownloadFilter) => {
+    navigate("downloads"); setDownloadFilter(filter); void loadDownloadPage(1, filter);
+  };
+  const activeView = currentView === "detail" ? previousView : currentView;
+  const pageLoading = <div className="workspace-empty" role="status"><Loader2 size={24} className="animate-spin" /><span>正在加载页面</span></div>;
 
   const handleSaveSettings = async (s: AppSettings) => {
     await save(s);
@@ -634,10 +682,8 @@ export default function App() {
   const detailOverlay = (
     <>
       {currentView === "detail" && selectedItem && (
-        <div className="fixed inset-x-0 top-10 bottom-0 z-50 overflow-hidden bg-base">
-          {/* 覆盖层自带同款天色 + 雨：不透明显露出后面的页面，顶部保留全局标题栏 */}
-          <div aria-hidden className="pointer-events-none absolute inset-0" style={{ background: SKY_GRADIENT }} />
-          <RainLayer />
+        <div className="workspace-overlay fixed inset-x-0 top-10 bottom-0 z-50 overflow-hidden bg-base">
+          {/* 详情保留标题栏和侧栏，来源页继续挂载以保存浏览状态。 */}
           <VideoDetail
             entry={selectedItem}
             sourceLabel={viewLabel(previousView)}
@@ -672,9 +718,7 @@ export default function App() {
               故本层绘制在 VideoDetail 之上。返回关闭本层 → 回到详情；
               点开某视频 → handleSelectFromUpper 替换详情内容并关闭本层。 */}
           {upperViewMid !== null && (
-            <div className="fixed inset-x-0 top-10 bottom-0 z-[60] overflow-hidden bg-base">
-              <div aria-hidden className="pointer-events-none absolute inset-0" style={{ background: SKY_GRADIENT }} />
-              <RainLayer />
+            <div className="workspace-overlay fixed inset-x-0 top-10 bottom-0 z-[60] overflow-hidden bg-base">
               <UpperHomePage
                 mid={upperViewMid}
                 sourceLabel="视频详情"
@@ -743,12 +787,13 @@ export default function App() {
     return (
       <>
         <div className="flex flex-col flex-1 min-h-0 text-ink">
-          <Suspense fallback={null}>
+          <Suspense fallback={pageLoading}>
             <SettingsPage
               settings={settings}
               onSave={handleSaveSettings}
+              onDirtyChange={setSettingsDirty}
               onPatch={patch}
-              onBack={() => setCurrentView("main")}
+              onBack={() => navigate("main")}
               onClearParse={() => loadParsePage(1)}
               onClearDownload={() => loadDownloadPage(1)}
             />
@@ -766,71 +811,16 @@ export default function App() {
     return (
       <>
         <div className="flex flex-col flex-1 min-h-0 text-ink">
-          {/* Header */}
-          <div className="flex items-center gap-3 px-6 py-4 border-b border-line/60 bg-panel/30 backdrop-blur-md relative z-20">
-            <button
-              onClick={() => setCurrentView("main")}
-              className="p-1.5 rounded-lg border border-line-2 hover:bg-panel-2 transition-colors"
-            >
-              <Download size={16} className="rotate-180" />
-            </button>
-            <h1 className="text-lg font-semibold text-ink">下载列表</h1>
-            {activeDownloads > 0 && (
-              <span className="text-xs text-blue-500 font-medium">
-                {activeDownloads} 个任务进行中
-              </span>
-            )}
-            {/* 下载库状态过滤 */}
-            <div className="flex items-center gap-1 ml-2">
-              {([
-                [null, "全部"],
-                ["downloading", "下载中"],
-                ["done", "已完成"],
-                ["paused", "已暂停"],
-                ["error", "失败"],
-              ] as [string | null, string][]).map(([value, label]) => (
-                <button
-                  key={label}
-                  onClick={() => {
-                    setDownloadFilter(value);
-                    loadDownloadPage(1, value);
-                  }}
-                  className={
-                    "px-2.5 py-1 text-xs rounded-full transition-colors " +
-                    (downloadFilter === value
-                      ? "bg-blue-500 text-white"
-                      : "text-ink-3 hover:bg-panel-2")
-                  }
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-            {/* 批量操作：全部暂停（保留续传）/ 重试当前页全部失败 */}
-            <div className="ml-auto flex items-center gap-2">
-              {activeDownloads > 0 && (
-                <button
-                  onClick={handlePauseAll}
-                  className="px-3 py-1.5 text-xs text-amber-600 border border-amber-200 rounded-lg hover:bg-amber-50 transition-colors"
-                >
-                  全部暂停
-                </button>
-              )}
-              {downloads.some((d) => d.status === "error") && (
-                <button
-                  onClick={handleRetryAllFailed}
-                  className="px-3 py-1.5 text-xs text-blue-600 border border-blue-200 rounded-lg hover:bg-blue-50 transition-colors"
-                >
-                  重试全部失败
-                </button>
-              )}
-            </div>
-          </div>
+          <DownloadsToolbar filter={downloadFilter} counts={overview.counts}
+            onFilter={status => { setDownloadFilter(status); void loadDownloadPage(1, status); }}
+            onPauseAll={handlePauseAll} onRetryFailed={handleRetryAllFailed}
+            hasFailedTasks={downloads.some(item => item.status === "error")}
+            onRefresh={() => { overview.refresh(); void loadDownloadPage(downloadPage, downloadFilter); }} />
 
           {/* Download list */}
           <div className="flex-1 overflow-auto px-6 py-4">
             <DownloadList
-              downloads={downloads}
+              downloads={downloadFilter ? downloads.filter(item => item.status === downloadFilter) : downloads}
               filter={downloadFilter}
               onRemove={handleRemoveDownload}
               onRemoveWithFile={handleRemoveWithFile}
@@ -842,7 +832,7 @@ export default function App() {
               onOpenFolder={handleOpenFolder}
               onOpenDetail={handleOpenDetail}
               currentPage={downloadPage}
-              totalCount={downloadTotal}
+              totalCount={overview.counts?.[downloadFilter ?? "all"] ?? downloadTotal}
               onPageChange={(p) => loadDownloadPage(p, downloadFilter)}
             />
           </div>
@@ -901,7 +891,7 @@ export default function App() {
   if (currentView === "stats" || (currentView === "detail" && previousView === "stats")) {
     return (
       <>
-        <Suspense fallback={null}>
+        <Suspense fallback={pageLoading}>
           <StatsPanel onBack={() => setCurrentView("main")} />
         </Suspense>
         {detailOverlay}
@@ -911,6 +901,9 @@ export default function App() {
   // 注意：detail 视图不再独占渲染，而是作为覆盖层叠加在来源页之上，
   // 这样来源页（main/explore/profile）组件不会被卸载，返回时其 state（搜索结果、
   // UP 主投稿列表、收藏夹视频等）得以保留。详情覆盖层在最末尾渲染。
+  if ((currentView === "profile" || (currentView === "detail" && previousView === "profile")) && !userInfo) {
+    return <div className="workspace-page"><header className="workspace-page-heading"><div><span className="workspace-eyebrow">你的资料库</span><h1>我的资料库</h1><p>收藏、稍后再看和关注的内容，都在这里。</p></div></header><div className="workspace-empty"><span className="empty-icon"><Library size={28} /></span><h3>登录后查看你的内容</h3><p>同步 B 站收藏夹、观看历史与追番记录。</p><button type="button" onClick={() => setLoginDialogOpen(true)}><LogIn size={15} />登录 B 站</button></div>{detailOverlay}</div>;
+  }
   // Profile view
   // detail 状态下若来源是 profile，仍渲染 UserProfilePage（被覆盖层遮挡），
   // 返回时收藏夹视频列表等 state 不丢失。
@@ -1037,200 +1030,27 @@ export default function App() {
     );
   }
 
-  // Main view
-  return (
-    <div className="flex flex-col flex-1 min-h-0 text-ink">
-      {/* 顶部标题栏（全透明：渐变最深处直通窗口顶端，不切割） */}
-      <header className="relative flex items-center justify-end gap-2 px-6 py-2.5">
-        <div className="flex items-center gap-2">
-          {/* 发现入口 */}
-          <button
-            onClick={() => setCurrentView("explore")}
-            title="发现"
-            className="p-1 rounded-md text-ink-3 hover:text-ink-2 hover:bg-panel-2 transition-colors"
-          >
-            <Search size={16} />
-          </button>
-
-          {/* 排行榜入口 */}
-          <button
-            onClick={() => setCurrentView("ranking")}
-            title="热门排行榜"
-            className="p-1 rounded-md text-ink-3 hover:text-ink-2 hover:bg-panel-2 transition-colors"
-          >
-            <Trophy size={16} />
-          </button>
-
-          {/* 推荐视频入口 */}
-          <button
-            onClick={() => setCurrentView("recommend")}
-            title="推荐视频"
-            className="p-1 rounded-md text-ink-3 hover:text-ink-2 hover:bg-panel-2 transition-colors"
-          >
-            <Sparkles size={16} />
-          </button>
-
-          {/* 关注动态入口 */}
-          <button
-            onClick={() => setCurrentView("dynamic")}
-            title="关注动态"
-            className="p-1 rounded-md text-ink-3 hover:text-ink-2 hover:bg-panel-2 transition-colors"
-          >
-            <Rss size={16} />
-          </button>
-
-          {/* 分区浏览入口 */}
-          <button
-            onClick={() => setCurrentView("region")}
-            title="分区浏览"
-            className="p-1 rounded-md text-ink-3 hover:text-ink-2 hover:bg-panel-2 transition-colors"
-          >
-            <LayoutGrid size={16} />
-          </button>
-
-          {/* 每周必看入口 */}
-          <button
-            onClick={() => setCurrentView("weekly")}
-            title="每周必看"
-            className="p-1 rounded-md text-ink-3 hover:text-ink-2 hover:bg-panel-2 transition-colors"
-          >
-            <CalendarDays size={16} />
-          </button>
-
-          {/* 历史记录入口 */}
-          <button
-            onClick={() => setCurrentView("history")}
-            title="历史记录"
-            className="p-1 rounded-md text-ink-3 hover:text-ink-2 hover:bg-panel-2 transition-colors"
-          >
-            <History size={16} />
-          </button>
-
-          {/* 下载列表入口 */}
-          <div className="relative">
-            <button
-              onClick={() => setCurrentView("downloads")}
-              title="下载列表"
-              className="p-1 rounded-md text-ink-3 hover:text-ink-2 hover:bg-panel-2 transition-colors"
-            >
-              <Download size={16} />
-            </button>
-            {activeDownloads > 0 && (
-              <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 flex items-center justify-center rounded-full bg-blue-500 text-white text-[10px] font-medium px-1">
-                {activeDownloads}
-              </span>
-            )}
-          </div>
-
-          {/* 统计入口 */}
-          <button
-            onClick={() => setCurrentView("stats")}
-            title="下载统计"
-            className="p-1 rounded-md text-ink-3 hover:text-ink-2 hover:bg-panel-2 transition-colors"
-          >
-            <BarChart3 size={16} />
-          </button>
-
-          {/* 登录按钮 / 头像（最右边） */}
-          {userInfo ? (
-            <button
-              onClick={() => setCurrentView("profile")}
-              className="p-0.5 rounded-full hover:ring-2 hover:ring-blue-300 transition-all"
-            >
-              <img
-                src={userInfo.face}
-                alt={userInfo.uname}
-                className="w-7 h-7 rounded-full object-cover"
-              />
-            </button>
-          ) : (
-            <button
-              onClick={() => setLoginDialogOpen(true)}
-              className="px-3 py-1 text-xs font-medium text-blue-500 border border-blue-300 rounded-lg hover:bg-blue-50 transition-colors"
-            >
-              登录
-            </button>
-          )}
-        </div>
-      </header>
-
-      {/* 品牌门户首页：雨意英雄区 + 居中解析栏（解析成功直接进入详情） */}
-      <div className="relative flex-1 min-h-0 overflow-auto">
-        <div className="flex min-h-full flex-col items-center justify-center px-6 py-12">
-          <HomeHero />
-          <div className="mt-9 w-full max-w-2xl">
-            <DownloadInput value={inputUrl} onChange={setInputUrl} onParse={handleParseFromInput} isParsing={isParsing} />
-          </div>
-          {/* 快捷入口 */}
-          <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
-            {([
-              ["history", "历史记录", <History size={13} />],
-              ["explore", "发现", <Search size={13} />],
-              ["ranking", "排行榜", <Trophy size={13} />],
-              ["recommend", "推荐", <Sparkles size={13} />],
-              ["weekly", "每周必看", <CalendarDays size={13} />],
-            ] as [View, string, ReactNode][]).map(([v, label, icon]) => (
-              <button
-                key={v}
-                onClick={() => setCurrentView(v)}
-                className="flex items-center gap-1.5 rounded-full border border-line bg-panel/60 px-3.5 py-1.5 text-xs text-ink-3 transition-colors hover:border-blue-300 hover:bg-panel-2 hover:text-ink-2"
-              >
-                {icon}
-                {label}
-              </button>
-            ))}
-          </div>
-          <p className="mt-8 text-[11px] text-ink-3 opacity-70">
-            支持视频 / 番剧 / 课程 / 专栏链接 · 复制链接后切回窗口自动填入
-          </p>
-        </div>
-      </div>
-
-      {/* 登录弹窗 */}
-      <LoginDialog
-        open={loginDialogOpen}
-        onClose={() => setLoginDialogOpen(false)}
-        onSuccess={() => setLoginDialogOpen(false)}
-        generateQrcode={generateQrcode}
-        pollQrcode={pollQrcode}
-      />
-
-      {/* 风控验证码弹窗 */}
-      <CaptchaDialog
-        vVoucher={captchaVoucher}
-        onSuccess={() => setCaptchaVoucher(null)}
-        onCancel={() => setCaptchaVoucher(null)}
-      />
-
-      {/* 专栏/图文阅读覆盖层（最上层 z-[80]，懒加载） */}
-      {articleRef != null && (
-        <Suspense fallback={null}>
-          <ArticleReaderPage cvid={articleRef.cvid} opusId={articleRef.opusId} onBack={() => setArticleRef(null)} />
-        </Suspense>
-      )}
-
-      {detailOverlay}
-    </div>
-  );
+  return <>
+    <HomePage input={inputUrl} onInput={setInputUrl} onParse={handleParseFromInput} parsing={isParsing}
+      counts={overview.counts} countsError={overview.error} refreshCounts={overview.refresh} revision={parseTotal}
+      onNavigate={navigate} onDownloads={openDownloadFilter} onSelect={item => handleSelectItem(item, "main")} />
+    {detailOverlay}
+  </>;
   })();
 
   return (
-    <div className="relative flex h-screen flex-col bg-base text-ink">
-      {/* 全局天光 + 全页雨幕：整个应用共享的雨天天色，自最顶端延续到底、跨页面不分割 */}
-      <div
-        className="pointer-events-none absolute inset-0 z-0"
-        aria-hidden="true"
-        style={{ background: SKY_GRADIENT }}
-      />
-      <RainLayer />
-      <TitleBar
-        version={version}
-        hasUpdate={!!hasUpdate}
-        resolvedTheme={resolvedTheme}
-        toggleTheme={toggleTheme}
-        onSettings={() => setCurrentView("settings")}
-      />
-      <div className="relative z-10 flex-1 min-h-0 flex flex-col">{view}</div>
+    <div className="app-shell relative flex h-screen flex-col bg-base text-ink">
+      <TitleBar version={version} hasUpdate={!!hasUpdate} resolvedTheme={resolvedTheme} toggleTheme={toggleTheme} onSettings={() => navigate("settings")} />
+      <div className="workspace">
+        <AppSidebar view={activeView} activeDownloads={activeDownloads} hasUpdate={!!hasUpdate} user={userInfo} onNavigate={navigate} onLogin={() => setLoginDialogOpen(true)} />
+        <div className="workspace-content">
+          {DISCOVERY_VIEWS.includes(activeView) && <DiscoveryNav view={activeView} onNavigate={navigate} />}
+          <div className="workspace-view">{view}</div>
+        </div>
+      </div>
+      <LoginDialog open={loginDialogOpen} onClose={() => setLoginDialogOpen(false)} onSuccess={() => setLoginDialogOpen(false)} generateQrcode={generateQrcode} pollQrcode={pollQrcode} />
+      <CaptchaDialog vVoucher={captchaVoucher} onSuccess={() => setCaptchaVoucher(null)} onCancel={() => setCaptchaVoucher(null)} />
+      {articleRef != null && <Suspense fallback={null}><ArticleReaderPage cvid={articleRef.cvid} opusId={articleRef.opusId} onBack={() => setArticleRef(null)} /></Suspense>}
     </div>
   );
 }
