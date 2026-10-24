@@ -340,6 +340,7 @@ export function VideoDetail({ entry, sourceLabel, onBack, onOpenUpper, onPlay, o
                   duration: info.duration,
                   title: info.title,
                   pages: info.pages,
+                  videoInfo: info,
                 })
               }
               className="flex items-center justify-center gap-2 w-full py-2.5 rounded-lg bg-blue-500 text-white text-sm font-medium hover:bg-blue-600 transition-colors"
@@ -566,6 +567,17 @@ export function VideoDetail({ entry, sourceLabel, onBack, onOpenUpper, onPlay, o
                       <span className="text-sm text-ink-2 flex-1 truncate">
                         {p.part}
                       </span>
+                      {onPlay && (
+                        <button type="button" aria-label={`播放 ${p.part}`} title="播放这一集"
+                          className="p-1.5 rounded-md text-accent hover:bg-accent-soft shrink-0"
+                          onClick={event => {
+                            event.stopPropagation();
+                            onPlay({ bvid: p.bvid || info.bvid, aid: info.aid, cid: p.cid, epId: p.ep_id || info.ep_id,
+                              duration: p.duration, title: info.title, pages: currentPages, videoInfo: info });
+                          }}>
+                          <Play size={15} />
+                        </button>
+                      )}
                       {p.duration > 0 && (
                         <span className="text-xs text-ink-3 shrink-0">
                           {formatDuration(p.duration)}

@@ -42,7 +42,7 @@ export function TitleBar({ version, hasUpdate, resolvedTheme, toggleTheme, onSet
   }, [win]);
 
   return (
-    <div className="relative flex items-stretch h-10 shrink-0 select-none">
+    <div className="app-titlebar relative flex items-stretch h-10 shrink-0 select-none">
       {/* 品牌区（可拖动） */}
       <div data-tauri-drag-region className="flex items-center gap-2 pl-4 pr-2">
         <img src={avatarUrl} alt="" className="h-[20px] w-[20px] rounded-full" draggable={false} />

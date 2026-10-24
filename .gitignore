@@ -3,6 +3,8 @@ node_modules/
 
 # Build output
 dist/
+test-results/
+playwright-report/
 
 # Rust build
 src-tauri/target/
