@@ -232,7 +232,7 @@ export function UserProfilePage({
   return (
     <div className="flex flex-col h-full text-ink">
       {/* 顶部标题栏 */}
-      <header className="flex items-center gap-3 px-6 py-4 backdrop-blur-md relative z-20">
+      <header className="workspace-header flex items-center gap-3 px-6 py-4 backdrop-blur-md relative z-20">
         <button
           onClick={() => {
             if (selectedFolder) {
@@ -252,7 +252,7 @@ export function UserProfilePage({
             ? selectedFolder.title
             : selectedUpperMid !== null
             ? "UP 主主页"
-            : "个人主页"}
+            : "我的资料库"}
         </h1>
         {selectedFolder && (
           <span className="text-xs text-ink-3">
@@ -264,7 +264,7 @@ export function UserProfilePage({
       <div ref={scrollRef} className="flex-1 overflow-auto px-6 py-4">
         {/* Tab 切换栏（收藏夹详情 / UP 主主页视图不显示） */}
         {!selectedFolder && selectedUpperMid === null && (
-          <div className="flex gap-1 mb-4">
+          <div className="workspace-tabs workspace-profile-tabs">
             {(
               [
                 { key: "favorites", label: "收藏夹", Icon: FolderOpen },
@@ -278,9 +278,10 @@ export function UserProfilePage({
               <button
                 key={key}
                 onClick={() => handleSetTab(key)}
+                aria-selected={tab === key}
                 className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border transition-colors ${
                   tab === key
-                    ? "bg-blue-50 border-blue-300 text-blue-600"
+                    ? "bg-accent-soft border-accent/30 text-accent"
                     : "bg-panel/30 border-line/50 text-ink-3 hover:bg-base"
                 }`}
               >

@@ -173,17 +173,19 @@ export function LoginDialog({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+    <div role="dialog" aria-modal="true" aria-labelledby="login-title" className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
       <div className="bg-panel rounded-xl shadow-xl p-6 w-80 relative">
         {/* 关闭按钮 */}
         <button
           onClick={onClose}
+          type="button"
+          aria-label="关闭登录弹窗"
           className="absolute top-3 right-3 p-1 rounded-md text-ink-3 hover:text-ink-2 hover:bg-panel-2"
         >
           <X size={16} />
         </button>
 
-        <h2 className="text-base font-semibold text-ink mb-4 text-center">
+        <h2 id="login-title" className="text-base font-semibold text-ink mb-4 text-center">
           B站账号登录
         </h2>
 

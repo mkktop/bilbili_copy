@@ -12,6 +12,7 @@ interface GeneralTabProps {
   saving: boolean;
   saved: boolean;
   onSave: () => void;
+  showSaveButton?: boolean;
   onClearParse?: () => void;
   onClearDownload?: () => void;
   theme: string;
@@ -28,6 +29,7 @@ export function GeneralTab({
   saving,
   saved,
   onSave,
+  showSaveButton = true,
   onClearParse,
   onClearDownload,
   theme,
@@ -120,7 +122,7 @@ export function GeneralTab({
               : "关闭窗口将直接退出应用，进行中的下载会被中断"
           }
         >
-          <ToggleSwitch checked={closeToTray} onChange={onCloseToTrayChange} />
+          <ToggleSwitch label="关闭时最小化到托盘" checked={closeToTray} onChange={onCloseToTrayChange} />
         </SettingCard>
           <SettingCard
             icon={Bell}
@@ -131,7 +133,7 @@ export function GeneralTab({
                 : "下载完成时不发送通知"
             }
           >
-            <ToggleSwitch checked={notifyOnComplete} onChange={onNotifyOnCompleteChange} />
+          <ToggleSwitch label="下载完成通知" checked={notifyOnComplete} onChange={onNotifyOnCompleteChange} />
           </SettingCard>
       </section>
 
@@ -152,10 +154,11 @@ export function GeneralTab({
           <div className="flex items-center gap-2">
             <input
               type="text"
+              aria-label="默认下载目录"
               value={dir}
-              readOnly
+              onChange={event => onDirChange(event.target.value)}
               placeholder="未设置（使用安装目录/downloads/）"
-              className="flex-1 px-3 py-2 text-sm border border-line-2 rounded-lg bg-panel/60-2 text-ink-2 truncate"
+              className="flex-1 min-w-0 px-3 py-2 text-sm border border-line-2 rounded-lg bg-panel text-ink-2 truncate"
             />
             <button
               onClick={handleSelectDir}
@@ -203,6 +206,7 @@ export function GeneralTab({
         </div>
       </section>
 
+      {showSaveButton && (
       <div className="pt-2 flex items-center gap-3">
         <button
           onClick={onSave}
@@ -220,6 +224,7 @@ export function GeneralTab({
           <span className="text-xs text-green-500">设置已保存</span>
         )}
       </div>
+      )}
     </div>
   );
 }

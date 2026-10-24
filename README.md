@@ -89,6 +89,7 @@
 - Clear prompts for VIP / paid / member-only content — never mistakenly downloads a preview clip as the full video
 
 ### 🎨 Experience
+- Persistent workspace navigation, a home dashboard with recent records, database-wide download filters, and categorized settings with draft protection
 - Light / dark / system themes; auto-detect pasted links, drag-and-drop link parsing
 - Minimize to tray on close, background downloads; download statistics dashboard (count / size / duration)
 - In-app auto-update; fully pooled API connections for fast browsing and parsing
@@ -97,9 +98,9 @@
 
 <table>
   <tr>
-    <td width="33%" align="center"><b>Home — Parse & Queue</b></td>
+    <td width="33%" align="center"><b>Workspace — Parse & Recent Records</b></td>
     <td width="33%" align="center"><b>Settings</b></td>
-    <td width="33%" align="center"><b>Personal Homepage</b></td>
+    <td width="33%" align="center"><b>Personal Library</b></td>
   </tr>
   <tr>
     <td width="33%" align="center"><img src="docs/screenshots/home.png" alt="Home view"></td>
@@ -107,11 +108,13 @@
     <td width="33%" align="center"><img src="docs/screenshots/profile.png" alt="Profile view"></td>
   </tr>
   <tr>
-    <td width="33%" align="center">Paste a link, parse it, and queue downloads.</td>
-    <td width="33%" align="center">Quality, download, subtitles/danmaku, anti-risk, theme, tray.</td>
+    <td width="33%" align="center">Parse a link, see global counts, and return to recent records.</td>
+    <td width="33%" align="center">Categorized navigation, sticky save controls, and protected drafts.</td>
     <td width="33%" align="center">Favorites, watch history, watch later, follows, subscriptions.</td>
   </tr>
 </table>
+
+*Browser previews of production components with synthetic local records. See the [workspace guide](docs/workspace-experience.md) for download management, search and compact dark-mode previews.*
 
 ## 📦 Installation
 

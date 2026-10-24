@@ -11,6 +11,7 @@ pnpm dev                        # Full Tauri dev (starts Vite + compiles Rust)
 pnpm build                      # Production build
 pnpm typecheck                  # TypeScript only (tsc --noEmit)
 pnpm test:player                # Playwright: player UI + real local MSE audio/video regression tests
+pnpm test:ui                    # All Playwright tests, including full App workspace flows
 cd src-tauri && cargo check     # Rust only
 cd src-tauri && cargo test --lib  # Rust unit tests DO exist (db.rs / download_manager.rs / download.rs, ~70 tests)
 ```
@@ -18,6 +19,8 @@ cd src-tauri && cargo test --lib  # Rust unit tests DO exist (db.rs / download_m
 There is **no linter or formatter** configured (`eslint` / `prettier` / `vitest` don't exist), but `cargo test --lib` works and should stay green.
 
 Player browser tests live in `tests/player/` with local fMP4 fixtures and mocked Tauri commands (no Bilibili network access). Run `pnpm exec playwright install chromium` first, or set `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` to an installed Chromium. These tests do not replace Windows WebView2 validation. The controls/details UI and scoped player styles live in `src/components/player/`; keep the same video DOM node when switching normal/theater/mini layouts.
+
+The same directory includes `workspace.html` / `workspace.spec.ts`, which mount the production App with mocked Tauri IPC/events and synthetic local records. Workspace navigation/styles live in `src/components/workspace/`. Counts must come from database count commands rather than one page of rows; refresh them after background task state writes. Settings drafts must survive unrelated immediate patches (theme, MCP, update preferences).
 
 ## Architecture quirks an agent will trip on
 

@@ -50,90 +50,29 @@ export function VideoCard({
   onToggleSelect,
   trailing,
 }: VideoCardProps) {
+  const choose = selectMode && onToggleSelect ? onToggleSelect : onClick;
   return (
-    <div
-      onClick={selectMode && onToggleSelect ? onToggleSelect : undefined}
-      className={cn(
-        "relative flex items-start gap-3 w-full px-4 py-3 bg-panel/30 backdrop-blur-sm border rounded-lg transition-colors text-left",
-        selectMode ? "cursor-pointer" : "hover:bg-panel-2 hover:border-line-2",
-        selected
-          ? "border-blue-300 bg-blue-50"
-          : "border-line",
-        disabled && "opacity-70"
-      )}
-    >
-      {/* 封面 */}
-      <div className="relative shrink-0">
-        <img
-          src={cover}
-          alt={title}
-          className="w-24 h-16 rounded object-cover bg-panel-2"
-        />
-        {!!badge && (
-          <span className="absolute top-1 left-1 px-1 py-0.5 rounded bg-black/60 text-white text-[10px] leading-none">
-            {badge}
+    <div className={cn("library-video-card relative flex items-start gap-3 w-full border rounded-xl transition-colors text-left", selected ? "border-accent/40 bg-accent-soft" : "border-line bg-panel", disabled && "opacity-70")}>
+      <button type="button" onClick={choose} disabled={disabled || loading} aria-label={title} aria-pressed={selectMode ? !!selected : undefined}
+        className="flex items-start gap-3 flex-1 min-w-0 p-4 text-left rounded-xl hover:bg-panel-2 transition-colors disabled:cursor-wait">
+        <span className="relative shrink-0">
+          <img src={cover} alt="" loading="lazy" className="w-24 h-16 rounded-md object-cover bg-panel-2" />
+          {!!badge && <span className="absolute top-1 left-1 px-1 py-0.5 rounded bg-black/60 text-white text-[10px] leading-none">{badge}</span>}
+          {selectMode && <span className={cn("absolute -top-1.5 -left-1.5 w-5 h-5 rounded-full flex items-center justify-center border-2", selected ? "bg-blue-500 border-blue-500" : "bg-panel border-line-2")}>{selected && <CheckCircle2 size={12} className="text-white" />}</span>}
+        </span>
+        <span className="flex-1 min-w-0">
+          <span className="block text-sm text-ink line-clamp-2 leading-snug">{title}</span>
+          <span className="flex items-center gap-x-3 gap-y-1 mt-2 text-xs text-ink-3 flex-wrap">
+            {upperName && <span className="flex items-center gap-1"><User size={11} />{upperName}</span>}
+            {!!duration && duration > 0 && <span className="flex items-center gap-1"><Clock size={11} />{formatDuration(duration)}</span>}
+            {!!play && play > 0 && <span className="flex items-center gap-1"><Eye size={11} />{formatCount(play)}</span>}
+            {!!danmaku && danmaku > 0 && <span className="flex items-center gap-1"><MessageSquare size={11} />{formatCount(danmaku)}</span>}
+            {!!pubdate && <span>{formatDate(pubdate)}</span>}
           </span>
-        )}
-        {/* 选中标记 */}
-        {selectMode && (
-          <span
-            className={cn(
-              "absolute -top-1.5 -left-1.5 w-5 h-5 rounded-full flex items-center justify-center border-2",
-              selected ? "bg-blue-500 border-blue-500" : "bg-panel/30 border-line-2"
-            )}
-          >
-            {selected && <CheckCircle2 size={12} className="text-white" />}
-          </span>
-        )}
-      </div>
-
-      {/* 信息 */}
-      <button
-        type="button"
-        onClick={
-          selectMode && onToggleSelect ? undefined : disabled || loading ? undefined : onClick
-        }
-        disabled={disabled || loading}
-        className={cn(
-          "flex-1 min-w-0 text-left",
-          !selectMode && !disabled && !loading && "cursor-pointer"
-        )}
-      >
-        <p className="text-sm text-ink-2 line-clamp-2 leading-snug">{title}</p>
-        <div className="flex items-center gap-3 mt-1.5 text-xs text-ink-3 flex-wrap">
-          {upperName && (
-            <span className="flex items-center gap-0.5">
-              <User size={10} />
-              {upperName}
-            </span>
-          )}
-          {!!duration && duration > 0 && (
-            <span className="flex items-center gap-0.5">
-              <Clock size={10} />
-              {formatDuration(duration)}
-            </span>
-          )}
-          {!!play && play > 0 && (
-            <span className="flex items-center gap-0.5">
-              <Eye size={10} />
-              {formatCount(play)}
-            </span>
-          )}
-          {!!danmaku && danmaku > 0 && (
-            <span className="flex items-center gap-0.5">
-              <MessageSquare size={10} />
-              {formatCount(danmaku)}
-            </span>
-          )}
-          {!!pubdate && <span>{formatDate(pubdate)}</span>}
-        </div>
+        </span>
       </button>
-
-      {/* 行尾（移除按钮等）+ 加载指示 */}
-      {trailing}
-      {loading && (
-        <Loader2 size={16} className="animate-spin text-blue-500 shrink-0 mt-1" />
-      )}
+      {trailing && <div className="pr-3 pt-4 shrink-0">{trailing}</div>}
+      {loading && <Loader2 size={16} className="animate-spin text-accent shrink-0 mt-4 mr-3" />}
     </div>
   );
 }

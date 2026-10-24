@@ -89,6 +89,7 @@
 - 大会员 / 充电 / 付费内容无权限时明确提示，不会误把试看片段当正片下载
 
 ### ⚙️ 体验细节
+- 常驻工作区导航，首页展示最近记录；下载状态显示全库数量；分类设置支持固定保存栏与草稿保护
 - 深色 / 浅色 / 跟随系统主题；复制链接自动识别填入，拖拽链接入窗即解析
 - 关闭窗口最小化到托盘，后台继续下载；下载统计面板（累计数量 / 大小 / 时长）
 - 应用内自动更新；全部 API 连接池化，浏览与解析响应迅速
@@ -97,9 +98,9 @@
 
 <table>
   <tr>
-    <td width="33%" align="center"><b>首页 —— 解析与下载队列</b></td>
+    <td width="33%" align="center"><b>工作台 —— 解析与最近记录</b></td>
     <td width="33%" align="center"><b>设置页</b></td>
-    <td width="33%" align="center"><b>个人主页</b></td>
+    <td width="33%" align="center"><b>我的资料库</b></td>
   </tr>
   <tr>
     <td width="33%" align="center"><img src="docs/screenshots/home.png" alt="首页"></td>
@@ -107,11 +108,13 @@
     <td width="33%" align="center"><img src="docs/screenshots/profile.png" alt="个人主页"></td>
   </tr>
   <tr>
-    <td width="33%" align="center">粘贴链接，一键解析，加入下载队列。</td>
-    <td width="33%" align="center">视频质量、下载、字幕弹幕、防风控、主题、托盘等。</td>
+    <td width="33%" align="center">解析链接、查看全库数量、回到最近记录。</td>
+    <td width="33%" align="center">分类导航、固定保存栏、未保存修改保护。</td>
     <td width="33%" align="center">收藏夹、观看历史、稍后再看、关注、订阅。</td>
   </tr>
 </table>
+
+*以上为生产组件的浏览器预览，使用虚构的本地测试记录。下载管理、搜索与窄窗口深色模式预览见 [工作区说明](docs/workspace-experience.md)。*
 
 ## 📦 安装
 

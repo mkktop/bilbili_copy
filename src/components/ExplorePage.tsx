@@ -16,6 +16,7 @@ import {
   Flame,
   X,
   Trash2,
+  SlidersHorizontal,
 } from "lucide-react";
 import type {
   SearchResult,
@@ -81,6 +82,10 @@ export function ExplorePage({ onBack, onParseVideo, onSelectItem, onBatchDownloa
   // 搜索联想：输入 ≥2 字符时防抖 300ms 拉取，点击直接搜索
   const [suggests, setSuggests] = useState<string[]>([]);
   const [suggestOpen, setSuggestOpen] = useState(false);
+  const [activeSuggest, setActiveSuggest] = useState(-1);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const suggestionsDismissed = useRef(false);
 
   const [upperMid, setUpperMid] = useState<number | null>(null);
   const [parsingKey, setParsingKey] = useState<string | null>(null);
@@ -117,19 +122,22 @@ export function ExplorePage({ onBack, onParseVideo, onSelectItem, onBatchDownloa
       setSuggestOpen(false);
       return;
     }
+    let active = true;
     const timer = setTimeout(() => {
       invoke<string[]>("get_search_suggest", { term: k })
         .then((items) => {
-          setSuggests(items);
-          setSuggestOpen(items.length > 0);
+          if (!active) return;
+          setSuggests(items); setActiveSuggest(-1);
+          setSuggestOpen(items.length > 0 && !suggestionsDismissed.current && document.activeElement === inputRef.current);
         })
-        .catch(() => setSuggests([]));
+        .catch(() => { if (active) setSuggests([]); });
     }, 300);
-    return () => clearTimeout(timer);
+    return () => { active = false; clearTimeout(timer); };
   }, [keyword]);
 
   // 点击联想词：填入并立即搜索（收起下拉）
   const pickSuggest = (kw: string) => {
+    suggestionsDismissed.current = true;
     setSuggestOpen(false);
     searchKeyword(kw);
   };
@@ -182,6 +190,7 @@ export function ExplorePage({ onBack, onParseVideo, onSelectItem, onBatchDownloa
   );
 
   const handleSearch = () => {
+    suggestionsDismissed.current = true; setSuggestOpen(false);
     recordKeyword(keyword);
     doSearch(keyword, searchType, 1, false, order, duration, tids);
   };
@@ -273,46 +282,55 @@ export function ExplorePage({ onBack, onParseVideo, onSelectItem, onBatchDownloa
   // ===== 搜索视图 =====
   return (
     <div className="flex flex-col h-full text-ink">
-      <header className="flex items-center gap-3 px-6 py-4 backdrop-blur-md relative z-20">
+      <header className="workspace-header flex items-center gap-3 px-6 py-4 backdrop-blur-md relative z-20">
         <button
           onClick={onBack}
           className="p-1.5 rounded-lg border border-line-2 hover:bg-panel-2 transition-colors"
         >
           <ArrowLeft size={16} />
         </button>
-        <h1 className="text-lg font-semibold text-ink">发现</h1>
+        <h1 className="text-lg font-semibold text-ink">搜索内容</h1>
       </header>
 
       <div className="flex-1 overflow-auto px-6 py-4">
+        <section className="workspace-search-box" aria-label="内容搜索">
         {/* 搜索框（含联想下拉） */}
         <div className="relative flex gap-2 mb-3">
           <div className="relative flex-1">
             <input
+              ref={inputRef}
+              role="combobox"
+              aria-label="搜索视频、UP 主或番剧"
+              aria-autocomplete="list"
+              aria-expanded={suggestOpen}
+              aria-controls="search-suggestions"
+              aria-activedescendant={suggestOpen && activeSuggest >= 0 ? `search-suggestion-${activeSuggest}` : undefined}
               value={keyword}
-              onChange={(e) => setKeyword(e.target.value)}
-              onFocus={() => { if (suggests.length > 0) setSuggestOpen(true); }}
+              onChange={(e) => { suggestionsDismissed.current = false; setKeyword(e.target.value); }}
+              onFocus={() => { if (suggests.length > 0 && !suggestionsDismissed.current) setSuggestOpen(true); }}
               onBlur={() => {
                 // 延迟收起：给 mousedown 选中联想词留出时间（blur 先于 click）
                 setTimeout(() => setSuggestOpen(false), 150);
               }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  setSuggestOpen(false);
-                  handleSearch();
-                }
+              onKeyDown={(event) => {
+                if (event.key === "ArrowDown" && suggests.length) { event.preventDefault(); setSuggestOpen(true); setActiveSuggest(value => (value + 1) % suggests.length); }
+                else if (event.key === "ArrowUp" && suggests.length) { event.preventDefault(); setSuggestOpen(true); setActiveSuggest(value => value <= 0 ? suggests.length - 1 : value - 1); }
+                else if (event.key === "Escape") { suggestionsDismissed.current = true; setSuggestOpen(false); }
+                else if (event.key === "Enter") { event.preventDefault(); if (suggestOpen && activeSuggest >= 0) pickSuggest(suggests[activeSuggest]); else handleSearch(); }
               }}
               placeholder="搜索视频、UP主、番剧..."
               className="w-full px-3 py-2 text-sm border border-line-2 rounded-lg bg-panel/60 backdrop-blur-sm text-ink-2 placeholder:text-ink-3 focus:outline-none focus:border-accent"
             />
             {/* 联想下拉 */}
             {suggestOpen && suggests.length > 0 && (
-              <div className="absolute left-0 right-0 top-full z-30 mt-1 rounded-lg bg-panel/95 backdrop-blur-md border border-line shadow-xl py-1">
-                {suggests.map((s) => (
+              <div id="search-suggestions" role="listbox" aria-label="搜索建议" className="absolute left-0 right-0 top-full z-30 mt-1 rounded-lg bg-panel/95 backdrop-blur-md border border-line shadow-xl py-1">
+                {suggests.map((s, index) => (
                   <button
                     key={s}
+                    type="button" role="option" id={`search-suggestion-${index}`} aria-selected={activeSuggest === index} tabIndex={-1}
                     // mousedown 触发（早于 input blur 收起下拉）
                     onMouseDown={(e) => { e.preventDefault(); pickSuggest(s); }}
-                    className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-sm text-ink-2 hover:bg-panel-2 transition-colors"
+                    className={`w-full flex items-center gap-2 px-3 py-2 text-left text-sm text-ink-2 hover:bg-panel-2 transition-colors ${activeSuggest === index ? "bg-accent-soft" : ""}`}
                   >
                     <Search size={12} className="text-ink-3 shrink-0" />
                     <span className="truncate">{s}</span>
@@ -336,11 +354,12 @@ export function ExplorePage({ onBack, onParseVideo, onSelectItem, onBatchDownloa
         </div>
 
         {/* 类型 tab */}
-        <div className="flex gap-1 mb-4 flex-wrap">
+        <div className="workspace-tabs mb-3">
           {TYPE_TABS.map(({ key, label, Icon }) => (
             <button
               key={key}
               onClick={() => handleTypeChange(key)}
+              aria-selected={searchType === key}
               className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border transition-colors ${
                 searchType === key
                   ? "bg-accent-soft border-accent text-accent"
@@ -353,9 +372,10 @@ export function ExplorePage({ onBack, onParseVideo, onSelectItem, onBatchDownloa
           ))}
         </div>
 
+        {searchType === "video" && <div className="flex items-center justify-between mb-3"><span className="text-xs text-ink-3">按关键词查找感兴趣的内容</span><button type="button" className="workspace-filter-trigger" aria-expanded={filtersOpen} aria-controls="search-filters" onClick={() => setFiltersOpen(value => !value)}><SlidersHorizontal size={14} />筛选{[order !== "totalrank", duration !== "0", tids !== "0"].filter(Boolean).length > 0 && `（${[order !== "totalrank", duration !== "0", tids !== "0"].filter(Boolean).length}）`}</button></div>}
         {/* 高级筛选器：仅 video 类型显示（UP主/番剧/影视搜索不支持 order/duration/tids） */}
-        {searchType === "video" && (
-          <div className="space-y-2 mb-4">
+        {searchType === "video" && filtersOpen && (
+          <div id="search-filters" className="workspace-filter-panel space-y-3">
             <FilterRow
               label="排序"
               options={ORDER_OPTIONS}
@@ -377,9 +397,11 @@ export function ExplorePage({ onBack, onParseVideo, onSelectItem, onBatchDownloa
           </div>
         )}
 
+        </section>
+
         {/* 错误 */}
         {error && (
-          <div className="flex items-center gap-2 px-4 py-3 mb-3 text-sm text-red-500 bg-red-50 border border-red-200 rounded-lg">
+          <div className="flex items-center gap-2 px-4 py-3 mb-3 text-sm text-red-500 bg-red-500/10 border border-red-500/20 rounded-lg">
             <AlertCircle size={14} />
             {error}
           </div>

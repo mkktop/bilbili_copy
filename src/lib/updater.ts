@@ -36,7 +36,7 @@ export const UPDATE_PROGRESS_EVENT = "update://progress";
 export const UPDATE_DOWNLOADED_EVENT = "update://downloaded";
 
 export function channelLabel(channel?: string | null): string {
-  return channel === "github" ? "GitHub" : "R2（copy.kaikun.top）";
+  return channel === "github" ? "GitHub" : "R2（weiyu.yeyushi.com）";
 }
 
 const JUST_UPDATED_KEY = "bilibili_dl:update:justUpdatedTo";

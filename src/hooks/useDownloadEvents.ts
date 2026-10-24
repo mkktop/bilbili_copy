@@ -41,6 +41,8 @@ interface Options {
   onRiskControl: (vVoucher: string) => void;
   /** 下载失败时回调（toast 提示） */
   onDownloadError: (error: string) => void;
+  /** 状态落库后刷新全库数量，也覆盖不在当前分页中的任务。 */
+  onLibraryChange?: () => void;
 }
 
 /**
@@ -55,7 +57,7 @@ interface Options {
  * 返回 downloadingIds：活跃任务 id 集合（queued/downloading），
  * 供 handleDownload 做重复提交防抖。
  */
-export function useDownloadEvents({ setDownloads, onRiskControl, onDownloadError }: Options): {
+export function useDownloadEvents({ setDownloads, onRiskControl, onDownloadError, onLibraryChange }: Options): {
   downloadingIds: MutableRefObject<Set<string>>;
 } {
   const downloadingIds = useRef<Set<string>>(new Set());
@@ -68,6 +70,8 @@ export function useDownloadEvents({ setDownloads, onRiskControl, onDownloadError
   onRiskControlRef.current = onRiskControl;
   const onDownloadErrorRef = useRef(onDownloadError);
   onDownloadErrorRef.current = onDownloadError;
+  const onLibraryChangeRef = useRef(onLibraryChange);
+  onLibraryChangeRef.current = onLibraryChange;
 
   useEffect(() => {
     let cancelled = false;
@@ -116,7 +120,7 @@ export function useDownloadEvents({ setDownloads, onRiskControl, onDownloadError
               d.id === id ? { ...d, status: "done" as const, progress: 100, outputPath: output_path } : d
             )
           );
-          invoke("update_download_status", { id, status: "done", progress: 100, phase: null, errorMsg: null, outputPath: output_path, size }).catch(() => {});
+          invoke("update_download_status", { id, status: "done", progress: 100, phase: null, errorMsg: null, outputPath: output_path, size }).catch(() => {}).finally(() => onLibraryChangeRef.current?.());
         }),
         listen<DownloadError>("download://error", (event) => {
           if (cancelled) return;
@@ -127,7 +131,7 @@ export function useDownloadEvents({ setDownloads, onRiskControl, onDownloadError
               d.id === id ? { ...d, status: "error" as const, errorMsg: error } : d
             )
           );
-          invoke("update_download_status", { id, status: "error", progress: null, phase: null, errorMsg: error, outputPath: null }).catch(() => {});
+          invoke("update_download_status", { id, status: "error", progress: null, phase: null, errorMsg: error, outputPath: null }).catch(() => {}).finally(() => onLibraryChangeRef.current?.());
           onDownloadErrorRef.current(error);
         }),
         listen<{ v_voucher: string }>("download://risk_control", (event) => {
@@ -143,18 +147,20 @@ export function useDownloadEvents({ setDownloads, onRiskControl, onDownloadError
             setDownloads((prev) =>
               prev.map((d) => (d.id === id ? { ...d, status: "downloading" as const } : d))
             );
-            invoke("update_download_status", { id, status: "downloading", progress: null, phase: null, errorMsg: null, outputPath: null }).catch(() => {});
+            invoke("update_download_status", { id, status: "downloading", progress: null, phase: null, errorMsg: null, outputPath: null }).catch(() => {}).finally(() => onLibraryChangeRef.current?.());
           } else if (status === "paused") {
             cleanupTask(id);
             setDownloads((prev) =>
               prev.map((d) => (d.id === id ? { ...d, status: "paused" as const } : d))
             );
-            invoke("update_download_status", { id, status: "paused", progress: null, phase: null, errorMsg: null, outputPath: null }).catch(() => {});
+            invoke("update_download_status", { id, status: "paused", progress: null, phase: null, errorMsg: null, outputPath: null }).catch(() => {}).finally(() => onLibraryChangeRef.current?.());
           } else if (status === "cancelled") {
             cleanupTask(id);
             // 取消即从列表移除（.tmp 已被后端清理，记录也删除）
             setDownloads((prev) => prev.filter((d) => d.id !== id));
-            invoke("delete_download_history", { id }).catch(() => {});
+            invoke("delete_download_history", { id }).catch(() => {}).finally(() => onLibraryChangeRef.current?.());
+          } else if (status === "queued") {
+            onLibraryChangeRef.current?.();
           }
         }),
       ]);

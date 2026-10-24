@@ -21,6 +21,7 @@ interface AntiRiskTabProps {
   saving: boolean;
   saved: boolean;
   onSave: () => void;
+  showSaveButton?: boolean;
 }
 
 interface PresetOption {
@@ -51,6 +52,7 @@ export function AntiRiskTab({
   saving,
   saved,
   onSave,
+  showSaveButton = true,
 }: AntiRiskTabProps) {
   const [gpuOptions, setGpuOptions] = useState<PresetOption[]>([]);
   const [resOptions, setResOptions] = useState<PresetOption[]>([]);
@@ -210,6 +212,7 @@ export function AntiRiskTab({
       </SettingCard>
 
       {/* Save button */}
+      {showSaveButton && (
       <button
         onClick={onSave}
         disabled={saving}
@@ -222,6 +225,7 @@ export function AntiRiskTab({
       >
         {saving ? "保存中..." : saved ? "已保存 ✓" : "保存设置"}
       </button>
+      )}
     </div>
   );
 }

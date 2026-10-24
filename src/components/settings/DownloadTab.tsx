@@ -32,6 +32,7 @@ interface DownloadTabProps {
   saving: boolean;
   saved: boolean;
   onSave: () => void;
+  showSaveButton?: boolean;
 }
 
 const NUMBER_OPTIONS = [1, 2, 3, 4, 5];
@@ -64,6 +65,7 @@ export function DownloadTab({
   saving,
   saved,
   onSave,
+  showSaveButton = true,
 }: DownloadTabProps) {
   // 模板实时预览（占位符替换为示例值，未知占位符置空——与后端渲染规则一致）
   const preview = (filenameTemplate.trim() || "{video_title}/{title}")
@@ -244,6 +246,7 @@ export function DownloadTab({
       </SettingCard>
 
       {/* Save button */}
+      {showSaveButton && (
       <button
         onClick={onSave}
         disabled={saving}
@@ -256,6 +259,7 @@ export function DownloadTab({
       >
         {saving ? "保存中..." : saved ? "已保存 ✓" : "保存设置"}
       </button>
+      )}
     </div>
   );
 }

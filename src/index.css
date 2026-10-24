@@ -8,29 +8,29 @@
  * 值用空格分隔的 R G B 三元组，配合 Tailwind 的 rgb(var(--x) / <alpha-value>) 支持透明度修饰符。
  */
 :root {
-  --color-base: 249 250 251;       /* gray-50  页面底色 */
+  --color-base: 246 248 252;       /* 页面底色 */
   --color-panel: 255 255 255;      /* white    卡片/面板 */
-  --color-panel-2: 249 250 251;    /* gray-50  悬停/嵌套表面 */
-  --color-line: 229 231 235;       /* gray-200 默认边框 */
-  --color-line-2: 209 213 219;     /* gray-300 强边框 */
+  --color-panel-2: 241 244 250;    /* 悬停/嵌套表面 */
+  --color-line: 228 233 242;       /* 默认边框 */
+  --color-line-2: 208 217 232;     /* 强边框 */
   --color-ink: 17 24 39;           /* gray-900 主文本 */
-  --color-ink-2: 75 85 99;         /* gray-600 次文本（标题/标签） */
-  --color-ink-3: 156 163 175;      /* gray-400 弱化文本（描述/占位） */
-  --color-accent: 59 130 246;      /* blue-500  蓝色强调 */
-  --color-accent-soft: 239 246 255;/* blue-50   蓝色软背景 */
+  --color-ink-2: 82 96 121;        /* 次文本 */
+  --color-ink-3: 112 126 150;      /* 辅助文本 */
+  --color-accent: 69 102 194;      /* 蓝色强调 */
+  --color-accent-soft: 235 240 254;/* 蓝色软背景 */
 }
 
 .dark {
-  --color-base: 3 7 18;            /* gray-950 */
-  --color-panel: 17 24 39;         /* gray-900 */
-  --color-panel-2: 31 41 55;       /* gray-800 */
-  --color-line: 31 41 55;          /* gray-800 */
-  --color-line-2: 55 65 81;        /* gray-700 */
+  --color-base: 16 19 27;
+  --color-panel: 23 28 39;
+  --color-panel-2: 31 38 53;
+  --color-line: 42 51 69;
+  --color-line-2: 59 72 96;
   --color-ink: 243 244 246;        /* gray-100 */
   --color-ink-2: 209 213 219;      /* gray-300 */
-  --color-ink-3: 107 114 128;      /* gray-500 */
-  --color-accent: 96 165 250;      /* blue-400 */
-  --color-accent-soft: 23 37 84;   /* blue-950 */
+  --color-ink-3: 144 158 183;
+  --color-accent: 157 186 255;
+  --color-accent-soft: 35 47 77;
 }
 
 body {
