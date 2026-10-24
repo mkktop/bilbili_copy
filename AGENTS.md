@@ -10,11 +10,14 @@ Tauri 2 desktop app (Windows-only) for downloading Bilibili videos. Brand name *
 pnpm dev                        # Full Tauri dev (starts Vite + compiles Rust)
 pnpm build                      # Production build
 pnpm typecheck                  # TypeScript only (tsc --noEmit)
+pnpm test:player                # Playwright: player UI + real local MSE audio/video regression tests
 cd src-tauri && cargo check     # Rust only
 cd src-tauri && cargo test --lib  # Rust unit tests DO exist (db.rs / download_manager.rs / download.rs, ~70 tests)
 ```
 
 There is **no linter or formatter** configured (`eslint` / `prettier` / `vitest` don't exist), but `cargo test --lib` works and should stay green.
+
+Player browser tests live in `tests/player/` with local fMP4 fixtures and mocked Tauri commands (no Bilibili network access). Run `pnpm exec playwright install chromium` first, or set `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` to an installed Chromium. These tests do not replace Windows WebView2 validation. The controls/details UI and scoped player styles live in `src/components/player/`; keep the same video DOM node when switching normal/theater/mini layouts.
 
 ## Architecture quirks an agent will trip on
 

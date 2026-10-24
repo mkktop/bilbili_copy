@@ -170,7 +170,7 @@ export function InteractionBar({ bvid, aid, likeCount }: Props) {
         onClick={handleTriple}
         disabled={busy !== null}
         title="点赞 + 投 1 币 + 收藏（收藏夹优先用你这次选过的，否则默认收藏夹）"
-        className="flex items-center gap-1 px-3 py-1.5 text-xs rounded-lg border bg-gradient-to-r from-pink-50 to-amber-50 border-pink-200 text-pink-600 hover:from-pink-100 hover:to-amber-100 transition-colors disabled:opacity-50"
+        className="flex items-center gap-1 px-3 py-1.5 text-xs rounded-lg border bg-accent-soft border-accent/30 text-accent hover:bg-accent/15 transition-colors disabled:opacity-50"
       >
         {busy === "triple" ? (
           <Loader2 size={13} className="animate-spin" />
@@ -186,7 +186,7 @@ export function InteractionBar({ bvid, aid, likeCount }: Props) {
         disabled={busy !== null}
         className={`flex items-center gap-1 px-3 py-1.5 text-xs rounded-lg border transition-colors disabled:opacity-50 ${
           liked
-            ? "bg-pink-50 border-pink-300 text-pink-600"
+            ? "bg-accent-soft border-accent/30 text-accent"
             : "bg-panel/30 border-line/50 text-ink-2 hover:bg-panel-2"
         }`}
       >

@@ -48,7 +48,9 @@ export interface PlayingItem {
   epId?: number;
   duration: number;
   title: string;
-  /** 正片分P列表：多分P时播放器顶栏显示「选集」菜单 */
+  /** 已解析的视频信息，播放页复用，避免打开时重复请求。 */
+  videoInfo?: ParsedVideoInfo;
+  /** 正片分P列表：在播放器侧栏切换 */
   pages?: VideoPage[];
   /** 跨稿件播放列表（每周必看/收藏夹等场景）：传入后播放器支持自动切下一集 */
   playlist?: PlaylistItem[];

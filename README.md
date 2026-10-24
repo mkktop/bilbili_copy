@@ -66,6 +66,11 @@
 - Real-time danmaku, multi-language subtitles (incl. AI subtitles), 0.5x–2x speed, multi-part selection
 - **Playlist mode** — auto-play next episode across uploads; pair with Weekly Highlights to binge a whole issue
 - Resume position, mini player, system picture-in-picture, full keyboard shortcuts
+- **New watch layout** — collapsible episodes/recommendations, unified player controls, theater mode, comments, clickable AI chapters, and downloads alongside playback; quality changes preserve pause state and position
+
+<img src="docs/screenshots/player.png" alt="Weiyu watch page with unified controls, episodes and video information" width="900" />
+
+*Browser preview of the player component using a locally generated demo clip. See the [player guide](docs/player-experience.md).*
 
 ### 🧭 Browse & Discover
 - **Explore** — unified search (videos / UPs / bangumi / movies) + search history + Bilibili trending hot search

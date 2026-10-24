@@ -692,6 +692,7 @@ export default function App() {
       {playingItem && (
         <Suspense fallback={null}>
           <VideoPlayer
+            key={`${playingItem.bvid}-${playingItem.cid}`}
             bvid={playingItem.bvid}
             aid={playingItem.aid}
             cid={playingItem.cid}
@@ -701,6 +702,26 @@ export default function App() {
             pages={playingItem.pages}
             playlist={playingItem.playlist}
             playlistIndex={playingItem.playlistIndex}
+            videoInfo={playingItem.videoInfo}
+            onDownload={async (info, page) => {
+              const entryId = selectedItem?.videoInfo?.bvid === info.bvid ? selectedItem.id : `player-${info.bvid}`;
+              const id = info.pages.length > 1 ? `${entryId}_P${page.page}` : entryId;
+              return handleDownload(id, page.bvid || info.bvid, page.cid, page.part, info.series_title || info.title,
+                page.ep_id || info.ep_id, page.duration, info.pic, false, false, {
+                  bvid: info.bvid, title: page.part, desc: info.desc, pic: info.pic,
+                  owner_mid: info.owner_mid, owner_name: info.owner_name, owner_face: info.owner_face,
+                  duration: page.duration, pubdate: info.pubdate ?? 0, view_count: info.view_count ?? 0,
+                  like_count: info.like_count ?? 0, danmaku_count: info.danmaku_count ?? 0, tags: info.tags ?? [],
+                });
+            }}
+            onOpenRelated={async (nextBvid) => {
+              try {
+                const info = await handleParse(`https://www.bilibili.com/video/${nextBvid}`);
+                const page = info?.pages[0];
+                if (info && page) setPlayingItem({ bvid: info.bvid, aid: info.aid, cid: page.cid,
+                  epId: info.ep_id, duration: page.duration, title: info.title, pages: info.pages, videoInfo: info });
+              } catch { /* handleParse 已显示错误提示 */ }
+            }}
             danmakuStyle={{
               fontSize: settings.danmaku_font_size,
               scrollDuration: settings.danmaku_scroll_duration,
