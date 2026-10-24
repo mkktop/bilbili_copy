@@ -1,0 +1,22 @@
+[Unit]
+Description=Weiyu read-only Bilibili HTTP MCP server
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=weiyu
+Group=weiyu
+EnvironmentFile=/etc/weiyu/weiyu.env
+ExecStart=/usr/local/bin/weiyu-cli serve --listen 127.0.0.1:8787 --token-file /etc/weiyu/mcp-token
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=60
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

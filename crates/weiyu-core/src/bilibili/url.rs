@@ -184,7 +184,7 @@ fn is_b23_short_url(url: &str) -> bool {
 }
 
 /// 解析 b23.tv 短链接，跟随重定向获取真实 URL 后提取视频 ID
-pub(crate) async fn resolve_short_url(short_url: &str) -> Result<ParsedUrl> {
+pub async fn resolve_short_url(short_url: &str) -> Result<ParsedUrl> {
     // 共享 api_client()：UA 相同且自带超时（旧版无超时，短链挂起会永久阻塞解析）
     let client = crate::bilibili::api_client();
 

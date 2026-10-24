@@ -53,6 +53,11 @@
 
 ## ✨ 功能特性
 
+### 🖥️ 服务器 CLI 与远程 MCP
+- 独立 **Linux ARM64 / x86_64** 二进制，支持 JSON 查询、stdio MCP 与带认证的 Streamable HTTP MCP
+- 35 个只读 B 站查询工具，与桌面版复用 API 实现，无需图形环境
+- [服务器部署说明](docs/server-cli.md)：安装包、Cookie、Docker、systemd 与 AI 客户端配置
+
 ### 📥 视频下载
 - **最高 8K / HDR / 杜比视界**画质，Hi-Res 无损与杜比全景声音质，编码优先级可自定义（AVC / HEVC / AV1）
 - **多线程分片 + 断点续传**：暂停、退出重启都能接着下，跨会话续传由流指纹保护
@@ -179,7 +184,8 @@ pnpm build
 ```
 
 - **`commands/`** —— `#[tauri::command]` 处理函数，负责参数校验与流程编排，在 `lib.rs` 中注册。
-- **`bilibili/`** —— 核心业务逻辑，按 B 站接口域划分（`passport`、`credential`、`playurl`、`pgc`、`wbi`、`danmaku`、`subtitle`、`nfo` 等）。
+- **`crates/weiyu-core`** —— 桌面版与服务器版共用的 B 站 API 实现。桌面 `bilibili/` 重导出共享模块，保留下载、NFO、文件命名与播放器索引辅助代码。
+- **`crates/weiyu-cli`** —— 独立 JSON CLI 与只读 HTTP/stdio MCP 服务，支持 Linux ARM64/x86_64。
 - **`download_manager.rs`** —— 将「任务提交」与「任务执行」解耦：优先级队列、暂停 / 取消、并发信号量。
 - **`db.rs`** —— 基于 `rusqlite` 的 SQLite（WAL 模式），schema 迁移内联管理。
 

@@ -2,7 +2,7 @@
 
 ## What this is
 
-Tauri 2 desktop app (Windows-only) for downloading Bilibili videos. Brand name **未雨 (Weiyu)** — renamed from "BilbliCopy" in v1.4.1: user-facing UI strings say 未雨, binary/installer/product name is `Weiyu`, Rust package `weiyu`. Rust backend + React 18 frontend (Vite + Tailwind CSS). Single-package repo, not a monorepo.
+Tauri 2 desktop app (Windows-only) for downloading Bilibili videos, plus an independent Linux ARM64/x86_64 query CLI and HTTP/stdio MCP server. Brand name **未雨 (Weiyu)** — renamed from "BilbliCopy" in v1.4.1: user-facing UI strings say 未雨, binary/installer/product name is `Weiyu`, Rust package `weiyu`. Rust backend + React 18 frontend (Vite + Tailwind CSS). The root Cargo workspace contains `crates/weiyu-core` and `crates/weiyu-cli`; `src-tauri` remains a separate desktop package and reexports shared API modules under its existing `bilibili` paths.
 
 ## Commands
 
@@ -12,6 +12,8 @@ pnpm build                      # Production build
 pnpm typecheck                  # TypeScript only (tsc --noEmit)
 pnpm test:player                # Playwright: player UI + real local MSE audio/video regression tests
 pnpm test:ui                    # All Playwright tests, including full App workspace flows
+cargo test --workspace --no-default-features --locked # Shared API + CLI/MCP tests (no desktop dependencies)
+cargo run -p weiyu-cli -- tools # Discover server read-only tools
 cd src-tauri && cargo check     # Rust only
 cd src-tauri && cargo test --lib  # Rust unit tests DO exist (db.rs / download_manager.rs / download.rs, ~70 tests)
 ```
@@ -77,7 +79,8 @@ Registered in `lib.rs` via `generate_handler![]` (grep it for the authoritative 
 
 ## Version management
 
-Version must be synced in **three files** before release:
+Version must be synced in **four files** before release:
+- Root `Cargo.toml` → `[workspace.package].version` (shared core + CLI inherit it)
 - `package.json` → `"version"`
 - `src-tauri/Cargo.toml` → `[package].version`
 - `src-tauri/tauri.conf.json` → `"version"`
@@ -85,6 +88,12 @@ Version must be synced in **three files** before release:
 Only change version when explicitly asked. CI triggers on `v*` tag push. Tag push: `git push origin v0.X.X` (single tag, not `--tags`).
 
 **Release flow**: batch all changes → write `RELEASE_NOTES.md` (CI reads it as release body) → single commit → tag.
+
+## Server CLI
+
+`crates/weiyu-cli` is a separate runtime: no Tauri, WebView, FFmpeg, GUI settings, SQLite or background downloads. It calls `weiyu-core` directly and exposes an explicit read-only query registry. Keep downloads/account mutations out of this server registry. CLI JSON commands, stdio MCP and authenticated Streamable HTTP MCP share that registry. Bilibili Cookie comes only from an explicit operator-provided file, never from AI tool arguments. HTTP access tokens are separate from Bilibili Cookie. stdout is exclusively protocol in stdio mode, including startup failures.
+
+Portable releases use `cargo zigbuild -p weiyu-cli --release --target aarch64-unknown-linux-musl` or `x86_64-unknown-linux-musl`, then `bash scripts/package-cli.sh TARGET`. CI `.github/workflows/cli.yml` verifies both packages and Windows desktop compilation; tag releases attach CLI archives alongside the existing MSI without changing desktop updater manifests. Deployment instructions and systemd/Compose templates are in `docs/server-cli.md` and `deploy/server/`.
 
 ## CSP and external resources
 

@@ -175,6 +175,16 @@ pub async fn fetch_subtitle_cues(
         .collect())
 }
 
+/// Server queries use a bounded response even when the CDN omits Content-Length.
+pub async fn fetch_subtitle_cues_bounded(
+    client: &reqwest::Client,
+    subtitle_url: &str,
+    max_bytes: usize,
+) -> anyhow::Result<Vec<SubtitleCue>> {
+    let items = fetch_subtitle_content_limited(client, subtitle_url, Some(max_bytes)).await?;
+    Ok(items.into_iter().map(|it| SubtitleCue { from: it.from, to: it.to, content: it.content }).collect())
+}
+
 /// 下载单条字幕并转换为 SRT 格式
 pub async fn fetch_subtitle_srt(
     client: &reqwest::Client,
@@ -198,6 +208,14 @@ async fn fetch_subtitle_content(
     client: &reqwest::Client,
     subtitle_url: &str,
 ) -> anyhow::Result<Vec<SubtitleItem>> {
+    fetch_subtitle_content_limited(client, subtitle_url, None).await
+}
+
+async fn fetch_subtitle_content_limited(
+    client: &reqwest::Client,
+    subtitle_url: &str,
+    max_bytes: Option<usize>,
+) -> anyhow::Result<Vec<SubtitleItem>> {
     // 补全 URL 前缀（API 返回 //aisubtitle.hdslb.com/... 格式）
     let url = if subtitle_url.starts_with("//") {
         format!("https:{}", subtitle_url)
@@ -210,9 +228,29 @@ async fn fetch_subtitle_content(
         .header("User-Agent", USER_AGENT)
         .send()
         .await
-        .context("请求字幕内容失败")?;
+        .context("请求字幕内容失败")?
+        .error_for_status()?;
 
-    let body_text = resp.text().await?;
+    parse_subtitle_response(resp, max_bytes).await
+}
+
+async fn parse_subtitle_response(
+    mut resp: reqwest::Response,
+    max_bytes: Option<usize>,
+) -> anyhow::Result<Vec<SubtitleItem>> {
+    let body_text = if let Some(limit) = max_bytes {
+        if resp.content_length().is_some_and(|size| size > limit as u64) {
+            anyhow::bail!("字幕内容超过大小限制");
+        }
+        let mut body = Vec::new();
+        while let Some(chunk) = resp.chunk().await? {
+            if body.len().saturating_add(chunk.len()) > limit { anyhow::bail!("字幕内容超过大小限制"); }
+            body.extend_from_slice(&chunk);
+        }
+        String::from_utf8(body).context("字幕不是UTF-8文本")?
+    } else {
+        resp.text().await?
+    };
     let content: SubtitleContent = serde_json::from_str(&body_text)
         .context("字幕内容解析失败")?;
 
@@ -298,5 +336,32 @@ mod tests {
         assert!(vtt.starts_with("WEBVTT\n\n"));
         assert!(vtt.contains("00:00:01.500 --> 00:00:03.000"));
         assert!(!vtt.contains("--> 00:00:03,000"), "VTT 不应用逗号");
+    }
+
+    #[tokio::test]
+    async fn bounded_queries_reject_large_fixed_and_chunked_bodies() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let client = reqwest::Client::builder().no_proxy().build().unwrap();
+        for (chunked, limit) in [(false, 1024usize), (false, 16), (true, 16)] {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let addr = listener.local_addr().unwrap();
+            let task = tokio::spawn(async move {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                let mut request = [0; 4096];
+                let _ = stream.read(&mut request).await;
+                let body = r#"{"body":[{"from":1.0,"to":2.0,"content":"hello"}]}"#;
+                let response = if chunked {
+                    format!("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n{:x}\r\n{}\r\n0\r\n\r\n", body.len(), body)
+                } else {
+                    format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body)
+                };
+                let _ = stream.write_all(response.as_bytes()).await;
+            });
+            let response = client.get(format!("http://{addr}/subtitle")).send().await.unwrap();
+            let result = parse_subtitle_response(response, Some(limit)).await;
+            if limit == 1024 { assert_eq!(result.unwrap()[0].content, "hello"); }
+            else { assert!(result.unwrap_err().to_string().contains("超过大小限制")); }
+            task.await.unwrap();
+        }
     }
 }

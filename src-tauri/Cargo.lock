@@ -5853,8 +5853,33 @@ dependencies = [
  "tauri-plugin-updater",
  "tokio",
  "tokio-util",
+ "weiyu-core",
  "windows-sys 0.59.0",
  "winreg 0.52.0",
+]
+
+[[package]]
+name = "weiyu-core"
+version = "1.5.0"
+dependencies = [
+ "anyhow",
+ "base64 0.22.1",
+ "chrono",
+ "futures-util",
+ "hex",
+ "log",
+ "md-5",
+ "once_cell",
+ "prost",
+ "rand 0.8.6",
+ "reqwest 0.12.28",
+ "rsa",
+ "serde",
+ "serde_json",
+ "serde_urlencoded",
+ "sha2",
+ "tokio",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
