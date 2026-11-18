@@ -43,7 +43,9 @@ pub async fn get_article(cvid: u64, credential: Option<&Credential>) -> Result<A
     log::debug!("[article] 专栏 {cvid} 接口获取失败，回退页面解析: {api_err:#}");
     match get_article_via_html(cvid, credential).await {
         Ok(data) => Ok(data),
-        Err(html_err) => Err(api_err.context(format!("页面解析也失败: {html_err:#}"))),
+        Err(html_err) => Err(anyhow::anyhow!(
+            "专栏接口获取失败: {api_err:#}；页面解析也失败: {html_err:#}"
+        )),
     }
 }
 
@@ -154,7 +156,9 @@ pub async fn get_opus(opus_id: &str, credential: Option<&Credential>) -> Result<
     log::debug!("[article] opus {opus_id} 接口获取失败，回退页面解析: {api_err:#}");
     match get_opus_via_html(opus_id, credential).await {
         Ok(data) => Ok(data),
-        Err(html_err) => Err(api_err.context(format!("页面解析也失败: {html_err:#}"))),
+        Err(html_err) => Err(anyhow::anyhow!(
+            "图文接口获取失败: {api_err:#}；页面解析也失败: {html_err:#}"
+        )),
     }
 }
 
