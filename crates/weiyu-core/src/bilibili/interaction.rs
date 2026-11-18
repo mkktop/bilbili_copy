@@ -148,6 +148,21 @@ pub async fn post_comment(
     mentions: &[(String, i64)],
 ) -> Result<PostedComment> {
     let form = comment_form(aid, message, root, parent, mentions)?;
+    match post_comment_once(form.clone(), credential).await {
+        Ok(posted) => Ok(posted),
+        // 刚发表的一级评论可能还没进入评论索引，稍等后重试一次
+        Err(error) if parent.is_some() && error.to_string().contains("没有该评论") => {
+            tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+            post_comment_once(form, credential).await
+        }
+        Err(error) => Err(error),
+    }
+}
+
+async fn post_comment_once(
+    form: Vec<(&'static str, String)>,
+    credential: &Credential,
+) -> Result<PostedComment> {
     let resp =
         interaction_post_json("https://api.bilibili.com/x/v2/reply/add", form, credential).await?;
 
